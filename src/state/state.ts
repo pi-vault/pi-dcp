@@ -42,6 +42,7 @@ export function resetSessionState(state: SessionState): void {
   state.toolParameters.clear();
   state.toolIdList = [];
   state.messageIds.byIndex.clear();
+  state.messageIds.byRef.clear();
   state.messageIds.nextRefIndex = 1;
   state.lastCompaction = 0;
   state.currentTurn = 0;
@@ -95,6 +96,7 @@ function createStats(): SessionStats {
 function createMessageIdState(): MessageIdState {
   return {
     byIndex: new Map(),
+    byRef: new Map(),
     nextRefIndex: 1,
   };
 }

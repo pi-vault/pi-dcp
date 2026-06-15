@@ -11,6 +11,7 @@ import {
 /**
  * Assign sequential message refs (m0001, m0002, ...) to messages.
  * Refs are cached in state.messageIds.byIndex so re-runs don't reallocate.
+ * Also maintains a reverse map (byRef) for O(1) ref-to-index resolution.
  */
 export function assignMessageRefs(
   state: SessionState,
@@ -21,6 +22,7 @@ export function assignMessageRefs(
 
     const ref = formatMessageRef(state.messageIds.nextRefIndex);
     state.messageIds.byIndex.set(i, ref);
+    state.messageIds.byRef.set(ref, i);
     state.messageIds.nextRefIndex++;
   }
 }

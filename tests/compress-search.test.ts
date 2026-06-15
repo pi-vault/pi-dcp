@@ -1,32 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { resolveBoundaryIndex, resolveSelection } from "../src/compress/search.ts";
 import { createSessionState } from "../src/state/state.ts";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-
-function makeUserMessage(text: string): AgentMessage {
-  return {
-    role: "user",
-    content: [{ type: "text", text }],
-    timestamp: Date.now(),
-  } as AgentMessage;
-}
-
-function makeAssistantMessage(text: string): AgentMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    stopReason: "stop",
-    usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
-    timestamp: Date.now(),
-  } as unknown as AgentMessage;
-}
+import { makeUserMessage, makeAssistantMessage } from "./helpers.ts";
 
 describe("compress/search", () => {
   describe("resolveBoundaryIndex", () => {
     it("resolves message ref to index", () => {
       const state = createSessionState();
       state.messageIds.byIndex.set(0, "m0001");
+      state.messageIds.byRef.set("m0001", 0);
       state.messageIds.byIndex.set(5, "m0006");
+      state.messageIds.byRef.set("m0006", 5);
 
       expect(resolveBoundaryIndex(state, "m0001")).toBe(0);
       expect(resolveBoundaryIndex(state, "m0006")).toBe(5);

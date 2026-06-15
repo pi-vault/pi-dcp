@@ -1,33 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { deduplicate, createToolSignature } from "../src/strategies/deduplication.ts";
 import { createSessionState } from "../src/state/state.ts";
-import type { DcpConfig } from "../src/config.ts";
-
-function makeDefaultConfig(): DcpConfig {
-  return {
-    enabled: true,
-    debug: false,
-    compress: {
-      mode: "range",
-      permission: "allow",
-      maxContextPercent: 80,
-      minContextPercent: 50,
-      nudgeFrequency: 5,
-      iterationNudgeThreshold: 15,
-      nudgeForce: "soft",
-      protectedTools: [],
-      protectUserMessages: false,
-      protectTags: false,
-    },
-    manualMode: { default: false, automaticStrategies: true },
-    strategies: {
-      deduplication: { enabled: true, protectedTools: [] },
-      purgeErrors: { enabled: true, turns: 4, protectedTools: [] },
-    },
-    protectedFilePatterns: [],
-    nudgeNotification: "minimal",
-  };
-}
+import { makeDefaultConfig } from "./helpers.ts";
 
 describe("deduplication", () => {
   describe("createToolSignature", () => {

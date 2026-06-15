@@ -1,6 +1,13 @@
 import type { SessionState, CompressionBlock } from "../state/types.ts";
 import { formatBlockRef } from "../utils/message-ids.ts";
 
+/**
+ * Prefix used in wrapped summary headers/footers.
+ * Format: `[Compressed Block b{id}]\n{summary}\n[End Block b{id}]`
+ *
+ * The block ref (e.g. "b1") serves as the model-visible anchor for
+ * referencing compressed content in subsequent compress calls.
+ */
 export const COMPRESSED_BLOCK_HEADER = "Compressed Block";
 
 export function allocateBlockId(state: SessionState): number {
@@ -15,6 +22,11 @@ export function allocateRunId(state: SessionState): number {
   return id;
 }
 
+/**
+ * Wrap a summary with block delimiters visible to the model.
+ * The delimiters let the model reference this block by its ref (e.g. "b1")
+ * as a boundary in future compress calls.
+ */
 export function wrapCompressedSummary(blockId: number, summary: string): string {
   const ref = formatBlockRef(blockId);
   return `[${COMPRESSED_BLOCK_HEADER} ${ref}]\n${summary}\n[End Block ${ref}]`;

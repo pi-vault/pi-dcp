@@ -48,14 +48,16 @@ export function handleRangeCompress(
     const startIndex = resolveBoundaryIndex(state, entry.startId);
     if (startIndex === undefined) {
       throw new Error(
-        `startId ${entry.startId} is not available in the current conversation context. Choose an injected ID visible in context.`,
+        `startId ${entry.startId} is not available. It may have been pruned or compressed. ` +
+        `Choose a message ID (m0001) or block ref (b1) visible in the current context.`,
       );
     }
 
     const endIndex = resolveBoundaryIndex(state, entry.endId);
     if (endIndex === undefined) {
       throw new Error(
-        `endId ${entry.endId} is not available in the current conversation context. Choose an injected ID visible in context.`,
+        `endId ${entry.endId} is not available. It may have been pruned or compressed. ` +
+        `Choose a message ID (m0001) or block ref (b1) visible in the current context.`,
       );
     }
 

@@ -13,11 +13,7 @@ export function resolveBoundaryIndex(
   if (!parsed) return undefined;
 
   if (parsed.type === "message") {
-    // Find the index that has this ref assigned
-    for (const [index, ref] of state.messageIds.byIndex) {
-      if (ref === boundaryId) return index;
-    }
-    return undefined;
+    return state.messageIds.byRef.get(boundaryId);
   }
 
   if (parsed.type === "block") {

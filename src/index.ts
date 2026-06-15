@@ -104,6 +104,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.prune.messages.activeBlockIds.clear();
     state.prune.messages.activeByAnchorIndex.clear();
     state.messageIds.byIndex.clear();
+    state.messageIds.byRef.clear();
     state.messageIds.nextRefIndex = 1;
     state.lastCompaction = Date.now();
     logger.info("dcp", "compaction detected, pruning state reset");

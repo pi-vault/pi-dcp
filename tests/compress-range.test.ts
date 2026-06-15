@@ -1,45 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { handleRangeCompress } from "../src/compress/range.ts";
 import { createSessionState } from "../src/state/state.ts";
-import type { DcpConfig } from "../src/config.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-
-function makeDefaultConfig(): DcpConfig {
-  return {
-    enabled: true,
-    debug: false,
-    compress: {
-      mode: "range",
-      permission: "allow",
-      maxContextPercent: 80,
-      minContextPercent: 50,
-      nudgeFrequency: 5,
-      iterationNudgeThreshold: 15,
-      nudgeForce: "soft",
-      protectedTools: [],
-      protectUserMessages: false,
-      protectTags: false,
-    },
-    manualMode: { default: false, automaticStrategies: true },
-    strategies: {
-      deduplication: { enabled: true, protectedTools: [] },
-      purgeErrors: { enabled: true, turns: 4, protectedTools: [] },
-    },
-    protectedFilePatterns: [],
-    nudgeNotification: "minimal",
-  };
-}
+import { makeDefaultConfig } from "./helpers.ts";
 
 describe("handleRangeCompress", () => {
   it("compresses a valid range", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
 
-    // Assign message refs
+    // Assign message refs (both forward and reverse maps)
     state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byRef.set("m0001", 0);
     state.messageIds.byIndex.set(1, "m0002");
+    state.messageIds.byRef.set("m0002", 1);
     state.messageIds.byIndex.set(2, "m0003");
+    state.messageIds.byRef.set("m0003", 2);
     state.messageIds.byIndex.set(3, "m0004");
+    state.messageIds.byRef.set("m0004", 3);
     state.messageIds.nextRefIndex = 5;
 
     const messages: AgentMessage[] = [

@@ -122,5 +122,7 @@ export interface SessionStats {
 
 export interface MessageIdState {
   byIndex: Map<number, string>;
+  /** Reverse lookup: ref string -> message index. O(1) resolution. */
+  byRef: Map<string, number>;
   nextRefIndex: number;
 }

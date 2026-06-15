@@ -6,46 +6,12 @@ import { applyPruning } from "../src/messages/prune.ts";
 import { syncCompressionBlocks } from "../src/messages/sync.ts";
 import { handleRangeCompress } from "../src/compress/range.ts";
 import { resolveBoundaryIndex } from "../src/compress/search.ts";
-import type { DcpConfig } from "../src/config.ts";
+import { makeUserMessage as makeUser, makeAssistantMessage as makeAssistant, makeDefaultConfig } from "./helpers.ts";
 
-function makeDefaultConfig(): DcpConfig {
-  return {
-    enabled: true,
-    debug: false,
-    compress: {
-      mode: "range",
-      permission: "allow",
-      maxContextPercent: 80,
-      minContextPercent: 50,
-      nudgeFrequency: 5,
-      iterationNudgeThreshold: 15,
-      nudgeForce: "soft",
-      protectedTools: [],
-      protectUserMessages: false,
-      protectTags: false,
-    },
-    manualMode: { default: false, automaticStrategies: true },
-    strategies: {
-      deduplication: { enabled: true, protectedTools: [] },
-      purgeErrors: { enabled: true, turns: 4, protectedTools: [] },
-    },
-    protectedFilePatterns: [],
-    nudgeNotification: "minimal",
-  };
-}
-
-function makeUser(text: string): AgentMessage {
-  return { role: "user", content: [{ type: "text", text }], timestamp: Date.now() } as AgentMessage;
-}
-
-function makeAssistant(text: string): AgentMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    stopReason: "stop",
-    usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
-    timestamp: Date.now(),
-  } as unknown as AgentMessage;
+/** Extract first text content from a message (skips TS union narrowing). */
+function textOf(msg: AgentMessage): string {
+  const content = (msg as unknown as { content: Array<{ type: string; text: string }> }).content;
+  return content[0].text;
 }
 
 /**
@@ -83,9 +49,9 @@ describe("full compression cycle", () => {
 
     // All 5 messages visible, each with correct ref tag
     expect(filtered1.length).toBe(5);
-    expect((filtered1[0].content as Array<{ type: string; text: string }>)[0].text).toContain("m0001");
-    expect((filtered1[2].content as Array<{ type: string; text: string }>)[0].text).toContain("m0003");
-    expect((filtered1[4].content as Array<{ type: string; text: string }>)[0].text).toContain("m0005");
+    expect(textOf(filtered1[0])).toContain("m0001");
+    expect(textOf(filtered1[2])).toContain("m0003");
+    expect(textOf(filtered1[4])).toContain("m0005");
 
     // --- Model calls compress: m0001..m0002 (hello + hi there) ---
     handleRangeCompress(state, config, rawMessages, {
@@ -107,16 +73,16 @@ describe("full compression cycle", () => {
     expect(filtered2.length).toBe(6);
 
     // Summary is a synthetic message (no m-ref tag, has block header)
-    const summaryText = (filtered2[0].content as Array<{ type: string; text: string }>)[0].text;
+    const summaryText = textOf(filtered2[0]);
     expect(summaryText).toContain("Compressed Block");
     expect(summaryText).not.toContain("<dcp-message-id>");
 
     // Surviving messages retain their original raw-index refs
-    const msg1Text = (filtered2[1].content as Array<{ type: string; text: string }>)[0].text;
+    const msg1Text = textOf(filtered2[1]);
     expect(msg1Text).toContain("m0003"); // raw index 2 → "m0003"
     expect(msg1Text).toContain("do task A");
 
-    const msg2Text = (filtered2[2].content as Array<{ type: string; text: string }>)[0].text;
+    const msg2Text = textOf(filtered2[2]);
     expect(msg2Text).toContain("m0004"); // raw index 3 → "m0004"
 
     // --- Model calls second compress: m0003..m0004 (do task A + task A done) ---
@@ -147,13 +113,11 @@ describe("full compression cycle", () => {
     expect(filtered3.length).toBe(7);
 
     // Both summaries are synthetic (no m-ref tags)
-    const s1 = (filtered3[0].content as Array<{ type: string; text: string }>)[0].text;
-    const s2 = (filtered3[1].content as Array<{ type: string; text: string }>)[0].text;
-    expect(s1).toContain("Compressed Block b1");
-    expect(s2).toContain("Compressed Block b2");
+    expect(textOf(filtered3[0])).toContain("Compressed Block b1");
+    expect(textOf(filtered3[1])).toContain("Compressed Block b2");
 
     // The remaining real messages have their original refs
-    const task_b = (filtered3[2].content as Array<{ type: string; text: string }>)[0].text;
+    const task_b = textOf(filtered3[2]);
     expect(task_b).toContain("m0005");
     expect(task_b).toContain("do task B");
   });
