@@ -17,8 +17,7 @@ import { assignMessageRefs, injectCompressNudges, injectMessageIds } from "./mes
 import { DCP_SYSTEM_PROMPT } from "./prompts/system.ts";
 import { createSessionState, resetSessionState } from "./state/state.ts";
 import { syncToolCache, buildToolIdList } from "./state/tool-cache.ts";
-import { deduplicate } from "./strategies/deduplication.ts";
-import { purgeErrors } from "./strategies/purge-errors.ts";
+import { runStrategies } from "./strategies/runner.ts";
 import type { SessionState } from "./state/types.ts";
 import { registerDcpCommands } from "./commands/register.ts";
 import { saveSessionState, loadSessionState } from "./state/persistence.ts";
@@ -206,19 +205,11 @@ export default function createExtension(pi: ExtensionAPI): void {
     buildToolIdList(state, messages);
 
     // Step 3: Run strategies
-    const dedupResult = deduplicate(state, config);
-    const purgeResult = purgeErrors(state, config);
-
-    if (dedupResult.pruned > 0) {
-      logger.info("dedup", "pruned duplicates", {
-        count: dedupResult.pruned,
-        tokens: dedupResult.tokensSaved,
-      });
-    }
-    if (purgeResult.pruned > 0) {
-      logger.info("purge", "pruned error inputs", {
-        count: purgeResult.pruned,
-        tokens: purgeResult.tokensSaved,
+    const strategyResult = runStrategies(state, config);
+    if (strategyResult.pruned > 0) {
+      logger.info("strategies", "pruned tool outputs", {
+        count: strategyResult.pruned,
+        tokens: strategyResult.tokensSaved,
       });
     }
 

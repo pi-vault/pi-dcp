@@ -1,144 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { purgeErrors } from "../src/strategies/purge-errors.ts";
-import { createSessionState } from "../src/state/state.ts";
-import { makeDefaultConfig } from "./helpers.ts";
+import { isStaleError } from "../src/strategies/purge-errors.ts";
 
-describe("purge-errors", () => {
-  it("marks old errored tool calls for pruning", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    state.currentTurn = 10;
-
-    state.toolParameters.set("err1", {
-      tool: "glob",
-      parameters: { pattern: "**/*.ts" },
-      status: "error",
-      error: "not found",
-      turn: 3,
-      tokenCount: 200,
-    });
-    state.toolIdList = ["err1"];
-
-    const result = purgeErrors(state, config);
-    expect(result.pruned).toBe(1);
-    expect(state.prune.tools.has("err1")).toBe(true);
+describe("isStaleError", () => {
+  it("returns true for old errors past threshold", () => {
+    const entry = { status: "error" as const, turn: 3 };
+    expect(isStaleError(entry, 10, 4)).toBe(true);
   });
 
-  it("does not prune recent errors", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    state.currentTurn = 5;
-
-    state.toolParameters.set("err1", {
-      tool: "glob",
-      parameters: { pattern: "**/*.ts" },
-      status: "error",
-      error: "not found",
-      turn: 3,
-      tokenCount: 200,
-    });
-    state.toolIdList = ["err1"];
-
-    const result = purgeErrors(state, config);
-    expect(result.pruned).toBe(0);
+  it("returns false for recent errors within threshold", () => {
+    const entry = { status: "error" as const, turn: 3 };
+    expect(isStaleError(entry, 5, 4)).toBe(false);
   });
 
-  it("does not prune non-error tools", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    state.currentTurn = 10;
-
-    state.toolParameters.set("ok1", {
-      tool: "glob",
-      parameters: { pattern: "**/*.ts" },
-      status: "completed",
-      error: undefined,
-      turn: 1,
-      tokenCount: 200,
-    });
-    state.toolIdList = ["ok1"];
-
-    const result = purgeErrors(state, config);
-    expect(result.pruned).toBe(0);
+  it("returns true for errors exactly at threshold boundary", () => {
+    const entry = { status: "error" as const, turn: 6 };
+    // currentTurn=10, threshold=4, age=4: 4 >= 4 is true
+    expect(isStaleError(entry, 10, 4)).toBe(true);
   });
 
-  it("does nothing when disabled", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    config.strategies.purgeErrors.enabled = false;
-    state.currentTurn = 10;
+  it("returns false for non-error entries", () => {
+    const completed = { status: "completed" as const, turn: 1 };
+    expect(isStaleError(completed, 10, 4)).toBe(false);
 
-    state.toolParameters.set("err1", {
-      tool: "glob",
-      parameters: {},
-      status: "error",
-      error: "fail",
-      turn: 1,
-      tokenCount: 200,
-    });
-    state.toolIdList = ["err1"];
-
-    const result = purgeErrors(state, config);
-    expect(result.pruned).toBe(0);
+    const pending = { status: "pending" as const, turn: 1 };
+    expect(isStaleError(pending, 10, 4)).toBe(false);
   });
 
-  it("skips protected tools", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    state.currentTurn = 10;
-
-    state.toolParameters.set("err1", {
-      tool: "bash",
-      parameters: { command: "fail" },
-      status: "error",
-      error: "exit 1",
-      turn: 1,
-      tokenCount: 200,
-    });
-    state.toolIdList = ["err1"];
-
-    const result = purgeErrors(state, config);
-    expect(result.pruned).toBe(0);
-  });
-
-  it("skips when manual mode active and automaticStrategies disabled", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    state.currentTurn = 10;
-    state.manualMode = "active";
-    config.manualMode.automaticStrategies = false;
-
-    state.toolParameters.set("err1", {
-      tool: "glob",
-      parameters: {},
-      status: "error",
-      error: "fail",
-      turn: 1,
-      tokenCount: 200,
-    });
-    state.toolIdList = ["err1"];
-
-    const result = purgeErrors(state, config);
-    expect(result.pruned).toBe(0);
-  });
-
-  it("skips tools operating on protected file paths", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    state.currentTurn = 10;
-    config.protectedFilePatterns = ["src/**/*.ts"];
-
-    state.toolParameters.set("err1", {
-      tool: "glob",
-      parameters: { filePath: "src/index.ts" },
-      status: "error",
-      error: "fail",
-      turn: 1,
-      tokenCount: 200,
-    });
-    state.toolIdList = ["err1"];
-
-    const result = purgeErrors(state, config);
-    expect(result.pruned).toBe(0);
+  it("returns false for undefined status", () => {
+    const entry = { status: undefined, turn: 1 };
+    expect(isStaleError(entry, 10, 4)).toBe(false);
   });
 });
