@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
@@ -8,6 +9,7 @@ import { sweepCommand } from "./sweep.ts";
 import { manualCommand } from "./manual.ts";
 import { decompressCommand } from "./decompress.ts";
 import { recompressCommand } from "./recompress.ts";
+import { lifetimeCommand } from "./lifetime.ts";
 
 export function registerDcpCommands(
   pi: ExtensionAPI,
@@ -64,6 +66,14 @@ export function registerDcpCommands(
     description: "Reactivate a deactivated compression block",
     handler: async (args, ctx) => {
       ctx.ui.notify(recompressCommand(state, args), "info");
+    },
+  });
+
+  pi.registerCommand("dcp:lifetime", {
+    description: "Show aggregate statistics across all sessions",
+    handler: async (_args, ctx) => {
+      const parentDir = path.resolve(ctx.sessionManager.getSessionDir(), "..");
+      ctx.ui.notify(lifetimeCommand(parentDir), "info");
     },
   });
 }

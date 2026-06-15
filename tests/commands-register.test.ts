@@ -23,6 +23,7 @@ describe("registerDcpCommands", () => {
     expect(registered).toContain("dcp:manual");
     expect(registered).toContain("dcp:decompress");
     expect(registered).toContain("dcp:recompress");
-    expect(registered).toHaveLength(7);
+    expect(registered).toContain("dcp:lifetime");
+    expect(registered).toHaveLength(8);
   });
 });

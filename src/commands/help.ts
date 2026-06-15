@@ -9,5 +9,6 @@ export function helpCommand(): string {
     "  dcp:manual [on|off]         - Toggle manual compression mode",
     "  dcp:decompress <blockId>    - Deactivate a compression block",
     "  dcp:recompress <blockId>    - Reactivate a deactivated block",
+    "  dcp:lifetime                - Show aggregate statistics across all sessions",
   ].join("\n");
 }
