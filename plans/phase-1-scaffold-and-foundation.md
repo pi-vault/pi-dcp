@@ -10,7 +10,7 @@
 
 **Tech Stack:** TypeScript (erasable syntax only), Pi Extension API (`@earendil-works/pi-coding-agent`), TypeBox (via `typebox`), biome, vitest
 
-**Usable result after this phase:** The extension installs in Pi (via `pi.extensions` config), loads without error, logs session lifecycle events to `~/.pi/agent/extensions/dcp/logs/daily/`, and reads configuration from `~/.pi/agent/extensions/dcp.json`.
+**Usable result after this phase:** The extension installs in Pi (via `pi.extensions` config), loads without error, logs session lifecycle events to `{sessionDir}/dcp/logs/` (where `sessionDir` = `ctx.sessionManager.getSessionDir()`), and reads configuration from `~/.pi/agent/extensions/dcp.json`.
 
 **Reference Material:**
 
@@ -48,7 +48,7 @@ pi-dcp/
       tokens.ts                 # Token counting (char-based estimation)
       message-ids.ts            # m0001/b1 formatting, parsing
   tests/
-    smoke.test.ts               # Extension loads without error
+    index.test.ts               # Extension loads without error
     logger.test.ts
     message-ids.test.ts
     tokens.test.ts
@@ -75,7 +75,9 @@ pi-dcp/
 - Create: `pnpm-workspace.yaml`
 - Create: `.gitignore`
 - Create: `src/index.ts`
-- Create: `tests/smoke.test.ts`
+- Create: `tests/index.test.ts`
+- Create: `.github/workflows/quality.yml`
+- Create: `.github/workflows/release.yml`
 
 - [ ] **Step 1: Create package.json**
 
@@ -87,6 +89,14 @@ pi-dcp/
   "description": "Pi extension for dynamic context pruning — incremental tool output pruning and conversation compression",
   "author": "Lanh Hoang <lanhhoang@users.noreply.github.com>",
   "license": "MIT",
+  "homepage": "https://github.com/pi-vault/pi-dcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-vault/pi-dcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pi-vault/pi-dcp/issues"
+  },
   "keywords": [
     "pi",
     "pi-coding-agent",
@@ -110,24 +120,21 @@ pi-dcp/
   "engines": {
     "node": ">=22.19.0"
   },
-  "files": [
-    "src",
-    "README.md"
-  ],
+  "files": ["src", "README.md"],
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-agent-core": "*"
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-coding-agent": "*"
   },
   "dependencies": {
     "typebox": "^1.2.10"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
-    "@earendil-works/pi-coding-agent": "^0.79.3",
+    "@biomejs/biome": "^2.5.0",
     "@earendil-works/pi-agent-core": "^0.79.3",
-    "@types/node": "^25.9.1",
+    "@earendil-works/pi-coding-agent": "^0.79.3",
+    "@types/node": "^25.9.3",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8"
   }
 }
 ```
@@ -171,7 +178,16 @@ export default defineConfig({
 
 ```json
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": false,
+    "includes": ["src/**/*.ts", "tests/**/*.ts", "!**/node_modules"]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -181,7 +197,7 @@ export default defineConfig({
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "preset": "recommended"
     }
   },
   "javascript": {
@@ -190,8 +206,13 @@ export default defineConfig({
       "semicolons": "always"
     }
   },
-  "files": {
-    "includes": ["src/**/*.ts", "tests/**/*.ts", "!**/node_modules"]
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
   }
 }
 ```
@@ -200,7 +221,8 @@ export default defineConfig({
 
 ```yaml
 allowBuilds:
-  esbuild: true
+  "@google/genai": true
+  protobufjs: true
 minimumReleaseAgeExclude:
   - typebox
 ```
@@ -221,27 +243,112 @@ Create `src/index.ts`:
 ```typescript
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-export default function piDcp(pi: ExtensionAPI): void {
+export default function createExtension(pi: ExtensionAPI): void {
   // Foundation handlers will be added in Task 7
 }
 ```
 
-- [ ] **Step 8: Create smoke test**
+- [ ] **Step 8: Create extension smoke test (`tests/index.test.ts`)**
 
-Create `tests/smoke.test.ts`:
+Create `tests/index.test.ts`:
 
 ```typescript
 import { describe, expect, it } from "vitest";
-import piDcp from "../src/index.ts";
+import createExtension from "../src/index.ts";
 
-describe("pi-dcp", () => {
+describe("dcp extension", () => {
   it("exports a function", () => {
-    expect(typeof piDcp).toBe("function");
+    expect(typeof createExtension).toBe("function");
   });
 });
 ```
 
-- [ ] **Step 9: Install dependencies**
+- [ ] **Step 9: Create workflow to quality check**
+
+Create `.github/workflows/quality.yml`:
+
+```yaml
+name: Quality Check
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Check
+        run: pnpm check
+
+      - name: Format
+        run: pnpm format
+```
+
+- [ ] **Step 10: Create workflow to release**
+
+Create `.github/workflows/release.yml`:
+
+```yaml
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install
+        run: npm install --legacy-peer-deps
+
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          branches: ["master"]
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+```
+
+- [ ] **Step 11: Install dependencies**
 
 ```bash
 pnpm install
@@ -249,7 +356,7 @@ pnpm install
 
 Expected: `node_modules/` created, `pnpm-lock.yaml` generated.
 
-- [ ] **Step 10: Verify typecheck and test pass**
+- [ ] **Step 12: Verify typecheck and test pass**
 
 ```bash
 pnpm run typecheck
@@ -258,10 +365,10 @@ pnpm test
 
 Expected: No type errors. 1 test passes.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
-git add package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json vitest.config.ts biome.json .gitignore src/index.ts tests/smoke.test.ts
+git add package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json vitest.config.ts biome.json .gitignore src/index.ts tests/index.test.ts
 git commit -m "chore: scaffold pi-dcp extension package"
 ```
 
@@ -274,7 +381,7 @@ git commit -m "chore: scaffold pi-dcp extension package"
 - Create: `src/logger.ts`
 - Test: `tests/logger.test.ts`
 
-The logger writes debug lines to `~/.pi/agent/extensions/dcp/logs/daily/YYYY-MM-DD.log` when debug mode is enabled. Disabled by default. The base path is resolved via `getAgentDir()` at runtime, but the logger accepts a `logDir` parameter for testability.
+The logger writes debug lines to `{sessionDir}/dcp/logs/YYYY-MM-DD.log` when debug mode is enabled. Disabled by default. The log directory is resolved from `ctx.sessionManager.getSessionDir()` in `session_start`, but the logger accepts a `logDir` parameter for testability. No `daily/` subdirectory.
 
 - [ ] **Step 1: Write tests for Logger**
 
@@ -309,12 +416,10 @@ describe("Logger", () => {
     const logger = new Logger(true, tempDir);
     logger.info("test-source", "hello world");
 
-    const dailyDir = path.join(tempDir, "daily");
-    expect(fs.existsSync(dailyDir)).toBe(true);
-    const logFiles = fs.readdirSync(dailyDir);
+    const logFiles = fs.readdirSync(tempDir);
     expect(logFiles).toHaveLength(1);
 
-    const content = fs.readFileSync(path.join(dailyDir, logFiles[0]), "utf-8");
+    const content = fs.readFileSync(path.join(tempDir, logFiles[0]), "utf-8");
     expect(content).toContain("INFO");
     expect(content).toContain("test-source");
     expect(content).toContain("hello world");
@@ -324,9 +429,8 @@ describe("Logger", () => {
     const logger = new Logger(true, tempDir);
     logger.info("src", "msg", { count: 5, name: "foo" });
 
-    const dailyDir = path.join(tempDir, "daily");
-    const logFiles = fs.readdirSync(dailyDir);
-    const content = fs.readFileSync(path.join(dailyDir, logFiles[0]), "utf-8");
+    const logFiles = fs.readdirSync(tempDir);
+    const content = fs.readFileSync(path.join(tempDir, logFiles[0]), "utf-8");
     expect(content).toContain("count=5");
     expect(content).toContain('name="foo"');
   });
@@ -351,11 +455,11 @@ import * as path from "node:path";
 
 export class Logger {
   private enabled: boolean;
-  private logDir: string;
+  private logDir: string | undefined;
 
   constructor(enabled: boolean, logDir?: string) {
     this.enabled = enabled;
-    this.logDir = logDir ?? defaultLogDir();
+    this.logDir = logDir;
   }
 
   info(source: string, message: string, data?: Record<string, unknown>): void {
@@ -376,14 +480,13 @@ export class Logger {
     message: string,
     data?: Record<string, unknown>,
   ): void {
-    if (!this.enabled) return;
+    if (!this.enabled || !this.logDir) return;
 
     const now = new Date();
     const timestamp = now.toISOString();
     const dateStr = timestamp.slice(0, 10);
-    const dailyDir = path.join(this.logDir, "daily");
 
-    fs.mkdirSync(dailyDir, { recursive: true });
+    fs.mkdirSync(this.logDir, { recursive: true });
 
     let line = `${timestamp} ${level.padEnd(5)} ${source}: ${message}`;
     if (data) {
@@ -393,13 +496,8 @@ export class Logger {
       line += ` | ${pairs}`;
     }
 
-    fs.appendFileSync(path.join(dailyDir, `${dateStr}.log`), line + "\n");
+    fs.appendFileSync(path.join(this.logDir, `${dateStr}.log`), line + "\n");
   }
-}
-
-function defaultLogDir(): string {
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-  return path.join(home, ".pi", "agent", "extensions", "dcp", "logs");
 }
 ```
 
@@ -1326,7 +1424,9 @@ export function loadConfig(configFilePath: string): DcpConfig {
   return config;
 }
 
-function parseConfigFile(filePath: string): Record<string, unknown> | undefined {
+function parseConfigFile(
+  filePath: string,
+): Record<string, unknown> | undefined {
   try {
     const content = fs.readFileSync(filePath, "utf-8");
     const parsed = JSON.parse(content);
@@ -1440,7 +1540,7 @@ git commit -m "feat: add JSON configuration system with defaults"
 **Files:**
 
 - Modify: `src/index.ts`
-- Modify: `tests/smoke.test.ts`
+- Modify: `tests/index.test.ts`
 
 Connect logger, config, state, and lifecycle hooks. The `context` handler is a passthrough that later phases will extend. Uses `getAgentDir()` from `@earendil-works/pi-coding-agent` to resolve config and log paths.
 
@@ -1457,17 +1557,15 @@ import { Logger } from "./logger.ts";
 import { createSessionState, resetSessionState } from "./state/state.ts";
 import type { SessionState } from "./state/types.ts";
 
-export default function piDcp(pi: ExtensionAPI): void {
+export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
-  const extensionsDir = path.join(agentDir, "extensions");
-  const configFilePath = path.join(extensionsDir, "dcp.json");
-  const logDir = path.join(extensionsDir, "dcp", "logs");
+  const configFilePath = path.join(agentDir, "extensions", "dcp.json");
 
   let config: DcpConfig = loadConfig(configFilePath);
-  let logger: Logger = new Logger(config.debug, logDir);
+  let logger: Logger = new Logger(config.debug);
   const state: SessionState = createSessionState();
 
-  function reloadConfig(): void {
+  function reloadConfig(logDir?: string): void {
     config = loadConfig(configFilePath);
     logger = new Logger(config.debug, logDir);
   }
@@ -1475,7 +1573,9 @@ export default function piDcp(pi: ExtensionAPI): void {
   if (!config.enabled) return;
 
   pi.on("session_start", async (event, ctx) => {
-    reloadConfig();
+    const sessionDir = ctx.sessionManager.getSessionDir();
+    const logDir = path.join(sessionDir, "dcp", "logs");
+    reloadConfig(logDir);
     if (!config.enabled) return;
 
     resetSessionState(state);
@@ -1517,21 +1617,21 @@ export default function piDcp(pi: ExtensionAPI): void {
 }
 ```
 
-- [ ] **Step 2: Update smoke test**
+- [ ] **Step 2: Update `tests/index.test.ts`**
 
-Replace `tests/smoke.test.ts`:
+Replace `tests/index.test.ts`:
 
 ```typescript
 import { describe, expect, it, vi } from "vitest";
-import piDcp from "../src/index.ts";
+import createExtension from "../src/index.ts";
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => "/tmp/test-pi-agent",
 }));
 
-describe("pi-dcp", () => {
+describe("dcp extension", () => {
   it("exports a function", () => {
-    expect(typeof piDcp).toBe("function");
+    expect(typeof createExtension).toBe("function");
   });
 
   it("accepts a mock ExtensionAPI without throwing", () => {
@@ -1546,12 +1646,45 @@ describe("pi-dcp", () => {
       registerCommand() {},
     } as any;
 
-    expect(() => piDcp(mockApi)).not.toThrow();
+    expect(() => createExtension(mockApi)).not.toThrow();
 
     expect(handlers.has("session_start")).toBe(true);
     expect(handlers.has("session_compact")).toBe(true);
     expect(handlers.has("session_shutdown")).toBe(true);
     expect(handlers.has("context")).toBe(true);
+  });
+
+  it("session_start resolves logDir from sessionManager", async () => {
+    const handlers = new Map<string, Function[]>();
+    const mockApi = {
+      on(event: string, handler: Function) {
+        const list = handlers.get(event) ?? [];
+        list.push(handler);
+        handlers.set(event, list);
+      },
+      registerTool() {},
+      registerCommand() {},
+    } as any;
+
+    createExtension(mockApi);
+
+    const sessionStartHandlers = handlers.get("session_start") ?? [];
+    expect(sessionStartHandlers).toHaveLength(1);
+
+    const mockCtx = {
+      sessionManager: {
+        getSessionDir: () => "/tmp/test-session-dir",
+      },
+      getContextUsage: () => ({
+        tokens: 100,
+        contextWindow: 200000,
+        percent: 0.05,
+      }),
+    };
+
+    await expect(
+      sessionStartHandlers[0]({ reason: "new" }, mockCtx),
+    ).resolves.not.toThrow();
   });
 });
 ```
@@ -1577,7 +1710,7 @@ Expected: No lint errors after formatting.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/index.ts tests/smoke.test.ts
+git add src/index.ts tests/index.test.ts
 git commit -m "feat: wire foundation into extension lifecycle hooks"
 ```
 
@@ -1594,8 +1727,9 @@ pnpm run check
 This runs: `biome lint . && tsc --noEmit && vitest run`
 
 Expected output:
+
 - 0 lint errors
 - 0 type errors
-- All tests pass (smoke, logger, message-ids, tokens, state, config)
+- All tests pass (index, logger, message-ids, tokens, state, config)
 
 The extension is now ready for Phase 2 (Strategy-Based Pruning) which will add the deduplication and error purging pipeline steps to the `context` handler.

@@ -11,6 +11,7 @@
 **Usable result after this phase:** DCP state persists across Pi restarts (blocks survive, statistics accumulate). The `/dcp stats` command can show lifetime statistics. Pi's status bar shows real-time compression savings. The extension is fully polished and production-ready.
 
 **Architecture:**
+
 - `src/state/persistence.ts` — Save/load session state to JSON files
 - `src/config.ts` — Enhanced validation with warnings for unknown keys
 - `src/index.ts` — Status bar integration via `ctx.ui.setStatus()`
@@ -33,6 +34,7 @@ tests/
 ### Task 1: State Persistence
 
 **Files:**
+
 - Create: `src/state/persistence.ts`
 - Test: `tests/persistence.test.ts`
 
@@ -47,7 +49,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { saveSessionState, loadSessionState } from "../src/state/persistence.ts";
+import {
+  saveSessionState,
+  loadSessionState,
+} from "../src/state/persistence.ts";
 import { createSessionState } from "../src/state/state.ts";
 
 describe("persistence", () => {
@@ -129,10 +134,7 @@ function defaultDataDir(): string {
   return path.join(home, ".pi", "agent", "sessions");
 }
 
-export function saveSessionState(
-  state: SessionState,
-  dataDir?: string,
-): void {
+export function saveSessionState(state: SessionState, dataDir?: string): void {
   if (!state.sessionId) return;
 
   const dir = path.join(dataDir ?? defaultDataDir(), state.sessionId);
@@ -187,9 +189,12 @@ export function loadSessionState(
  * Load aggregate stats from all saved sessions.
  * Used by /dcp stats for lifetime statistics.
  */
-export function loadAllSessionStats(
-  dataDir?: string,
-): { totalTokensSaved: number; totalToolsPruned: number; totalMessagesCompressed: number; sessionCount: number } {
+export function loadAllSessionStats(dataDir?: string): {
+  totalTokensSaved: number;
+  totalToolsPruned: number;
+  totalMessagesCompressed: number;
+  sessionCount: number;
+} {
   const dir = dataDir ?? defaultDataDir();
   const result = {
     totalTokensSaved: 0,
@@ -212,7 +217,8 @@ export function loadAllSessionStats(
         if (parsed.stats) {
           result.totalTokensSaved += parsed.stats.totalPruneTokens ?? 0;
           result.totalToolsPruned += parsed.stats.toolsPruned ?? 0;
-          result.totalMessagesCompressed += parsed.stats.messagesCompressed ?? 0;
+          result.totalMessagesCompressed +=
+            parsed.stats.messagesCompressed ?? 0;
           result.sessionCount++;
         }
       } catch {
@@ -248,6 +254,7 @@ git commit -m "feat: add session state persistence"
 ### Task 2: Wire Persistence into Extension
 
 **Files:**
+
 - Modify: `src/index.ts`
 
 Save state on session_shutdown, after compression, and periodically. Load state on session_start if continuing a session.
@@ -286,6 +293,7 @@ git commit -m "feat: wire state persistence into session lifecycle"
 ### Task 3: Config Validation
 
 **Files:**
+
 - Modify: `src/config.ts`
 - Test: Update `tests/config.test.ts`
 
@@ -309,6 +317,7 @@ git commit -m "feat: add config validation with unknown key warnings"
 ### Task 4: Status Bar Integration
 
 **Files:**
+
 - Modify: `src/index.ts`
 
 Show compression savings in Pi's footer bar using `ctx.ui.setStatus()` after context events.
@@ -343,6 +352,7 @@ git commit -m "feat: show DCP token savings in status bar"
 ### Task 5: Integration Test
 
 **Files:**
+
 - Create: `tests/integration.test.ts`
 
 End-to-end test: load the extension with a mock Pi API, simulate a session lifecycle, send messages through the context pipeline, verify pruning and compression work.
@@ -353,7 +363,7 @@ Create `tests/integration.test.ts`:
 
 ```typescript
 import { describe, expect, it } from "vitest";
-import piDcp from "../src/index.ts";
+import createExtension from "../src/index.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 describe("integration", () => {
@@ -378,7 +388,7 @@ describe("integration", () => {
       getActiveTools: () => [],
     } as any;
 
-    piDcp(mockApi);
+    createExtension(mockApi);
 
     expect(handlers.has("session_start")).toBe(true);
     expect(handlers.has("context")).toBe(true);
@@ -387,7 +397,11 @@ describe("integration", () => {
     // Simulate session start
     const mockCtx = {
       cwd: process.cwd(),
-      getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
+      getContextUsage: () => ({
+        tokens: 1000,
+        contextWindow: 200000,
+        percent: 0.5,
+      }),
       hasUI: false,
       ui: { setStatus: () => {}, notify: () => {} },
     };
@@ -406,10 +420,21 @@ describe("integration", () => {
       {
         role: "assistant",
         content: [
-          { type: "toolCall", id: "c1", name: "grep", arguments: { pattern: "foo" } },
+          {
+            type: "toolCall",
+            id: "c1",
+            name: "grep",
+            arguments: { pattern: "foo" },
+          },
         ],
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       } as AgentMessage,
       {
@@ -423,10 +448,21 @@ describe("integration", () => {
       {
         role: "assistant",
         content: [
-          { type: "toolCall", id: "c2", name: "grep", arguments: { pattern: "foo" } },
+          {
+            type: "toolCall",
+            id: "c2",
+            name: "grep",
+            arguments: { pattern: "foo" },
+          },
         ],
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       } as AgentMessage,
       {
@@ -450,7 +486,7 @@ describe("integration", () => {
 
     // The duplicate grep call (c1) should have its output pruned
     const toolResult1 = result.messages.find(
-      (m: any) => m.role === "toolResult" && m.toolCallId === "c1"
+      (m: any) => m.role === "toolResult" && m.toolCallId === "c1",
     );
     if (toolResult1) {
       expect((toolResult1 as any).content[0].text).toContain("[Output removed");
@@ -458,7 +494,7 @@ describe("integration", () => {
 
     // The newer grep call (c2) should be untouched
     const toolResult2 = result.messages.find(
-      (m: any) => m.role === "toolResult" && m.toolCallId === "c2"
+      (m: any) => m.role === "toolResult" && m.toolCallId === "c2",
     );
     if (toolResult2) {
       expect((toolResult2 as any).content[0].text).toContain("match found");

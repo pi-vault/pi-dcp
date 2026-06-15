@@ -14,7 +14,7 @@
 
 ---
 
-*Original plan below retained for reference.*
+_Original plan below retained for reference._
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -203,7 +203,7 @@ Create `src/index.ts`:
 ```typescript
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-export default function piDcp(pi: ExtensionAPI): void {
+export default function createExtension(pi: ExtensionAPI): void {
   // Phase 1+ will register handlers here
 }
 ```
@@ -245,11 +245,11 @@ Create `test/smoke.test.ts`:
 
 ```typescript
 import { describe, expect, it } from "vitest";
-import piDcp from "../src/index.js";
+import createExtension from "../src/index.js";
 
 describe("pi-dcp", () => {
   it("exports a function", () => {
-    expect(typeof piDcp).toBe("function");
+    expect(typeof createExtension).toBe("function");
   });
 });
 ```
@@ -1478,7 +1478,7 @@ import { Logger } from "./logger.js";
 import { createSessionState, resetSessionState } from "./state/state.js";
 import type { SessionState } from "./state/types.js";
 
-export default function piDcp(pi: ExtensionAPI): void {
+export default function createExtension(pi: ExtensionAPI): void {
   // Resolve config directories
   const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
   const globalConfigDir = process.env.PI_CONFIG_DIR ?? `${home}/.config/pi`;
@@ -1565,11 +1565,11 @@ Replace `test/smoke.test.ts`:
 
 ```typescript
 import { describe, expect, it } from "vitest";
-import piDcp from "../src/index.js";
+import createExtension from "../src/index.js";
 
 describe("pi-dcp", () => {
   it("exports a function", () => {
-    expect(typeof piDcp).toBe("function");
+    expect(typeof createExtension).toBe("function");
   });
 
   it("accepts a mock ExtensionAPI without throwing", () => {
@@ -1584,7 +1584,7 @@ describe("pi-dcp", () => {
       registerCommand() {},
     } as any;
 
-    expect(() => piDcp(mockApi)).not.toThrow();
+    expect(() => createExtension(mockApi)).not.toThrow();
 
     // Verify handlers were registered
     expect(handlers.has("session_start")).toBe(true);
@@ -2947,7 +2947,7 @@ import { purgeErrors } from "./strategies/purge-errors.js";
 import { applyPruning } from "./messages/prune.js";
 import { stripHallucinations } from "./messages/strip.js";
 
-export default function piDcp(pi: ExtensionAPI): void {
+export default function createExtension(pi: ExtensionAPI): void {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
   const globalConfigDir = process.env.PI_CONFIG_DIR ?? `${home}/.config/pi`;
 
