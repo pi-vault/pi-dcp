@@ -1,10 +1,14 @@
 import * as crypto from "node:crypto";
 import * as path from "node:path";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { loadConfig, type DcpConfig } from "./config.ts";
+import { handleRangeCompress, type RangeCompressArgs } from "./compress/range.ts";
 import { Logger } from "./logger.ts";
 import { applyPruning } from "./messages/prune.ts";
+import { syncCompressionBlocks } from "./messages/sync.ts";
 import { stripHallucinations } from "./messages/strip.ts";
 import { assignMessageRefs, injectCompressNudges, injectMessageIds } from "./messages/inject.ts";
 import { DCP_SYSTEM_PROMPT } from "./prompts/system.ts";
@@ -21,6 +25,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   let config: DcpConfig = loadConfig(configFilePath);
   let logger: Logger = new Logger(config.debug);
   const state: SessionState = createSessionState();
+  let latestMessages: AgentMessage[] = [];
 
   function reloadConfig(logDir?: string): void {
     config = loadConfig(configFilePath);
@@ -28,6 +33,38 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   if (!config.enabled) return;
+
+  pi.registerTool({
+    name: "compress",
+    label: "Compress",
+    description:
+      "Compress conversation ranges into summaries. Use message IDs (m0001, m0002...) visible in context as boundaries.",
+    parameters: Type.Object({
+      topic: Type.String({ description: "Short label (3-5 words) for display" }),
+      content: Type.Array(
+        Type.Object({
+          startId: Type.String({
+            description: "Message or block ID marking range start (e.g. m0001, b2)",
+          }),
+          endId: Type.String({
+            description: "Message or block ID marking range end (e.g. m0012, b5)",
+          }),
+          summary: Type.String({
+            description: "Complete technical summary replacing all content in range",
+          }),
+        }),
+        { description: "Ranges to compress, each with start/end boundaries and summary" },
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const typedArgs = params as unknown as RangeCompressArgs;
+      const resultText = handleRangeCompress(state, config, latestMessages, typedArgs);
+      return {
+        content: [{ type: "text" as const, text: resultText }],
+        details: {},
+      };
+    },
+  });
 
   pi.on("before_agent_start", async (event, _ctx) => {
     if (!config.enabled) return;
@@ -86,7 +123,13 @@ export default function createExtension(pi: ExtensionAPI): void {
       state.modelContextWindow = usage.contextWindow;
     }
 
+    // Step 0: Cache messages for compress tool
+    latestMessages = event.messages;
+
     let messages = event.messages;
+
+    // Step 0.5: Sync compression blocks
+    syncCompressionBlocks(state, messages.length);
 
     // Step 1: Strip hallucinated DCP tags
     messages = stripHallucinations(messages);
