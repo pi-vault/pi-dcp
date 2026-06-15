@@ -77,4 +77,19 @@ describe("config", () => {
     expect(config.compress.maxContextPercent).toBe(80);
     expect(config.compress.nudgeFrequency).toBe(5);
   });
+
+  it("enforces maxContextPercent > minContextPercent", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        compress: { maxContextPercent: 40, minContextPercent: 60 },
+      }),
+    );
+
+    const config = loadConfig(configPath);
+    expect(config.compress.maxContextPercent).toBeGreaterThan(
+      config.compress.minContextPercent,
+    );
+  });
 });

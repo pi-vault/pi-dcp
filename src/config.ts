@@ -105,6 +105,11 @@ export function loadConfig(configFilePath: string): DcpConfig {
   const parsed = parseConfigFile(configFilePath);
   if (parsed) mergeConfig(config, parsed);
 
+  if (config.compress.maxContextPercent <= config.compress.minContextPercent) {
+    config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
+    config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
+  }
+
   return config;
 }
 
