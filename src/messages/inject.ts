@@ -97,6 +97,9 @@ export interface ContextUsage {
  * Returns a new array. Idempotent: skips if <dcp-system-reminder> is already present.
  *
  * Handles plain-string user message content (E9).
+ *
+ * NOTE: config.compress.nudgeFrequency and state.nudges anchor tracking are
+ * reserved for Phase 4+ throttling — not yet implemented.
  */
 export function injectCompressNudges(
   state: SessionState,
@@ -129,11 +132,11 @@ export function injectCompressNudges(
     if (lastMsg.role === "user") {
       nudgeText = TURN_NUDGE;
     } else {
-      // Count consecutive assistant messages since the last user message
+      // Count only assistant messages since the last user message
       let messagesSinceUser = 0;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role === "user") break;
-        messagesSinceUser++;
+        if (messages[i].role === "assistant") messagesSinceUser++;
       }
       if (messagesSinceUser >= config.compress.iterationNudgeThreshold) {
         nudgeText = ITERATION_NUDGE;

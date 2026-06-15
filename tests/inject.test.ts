@@ -307,6 +307,25 @@ describe("injectCompressNudges", () => {
     expect(result).toBe(messages);
   });
 
+  it("counts only assistant messages for iteration nudge, not toolResult/custom", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig(); // iterationNudgeThreshold: 3
+    const messages = [
+      makeUserMessage("go"),
+      makeAssistantMessage("step 1"),
+      { role: "toolResult", content: [{ type: "text", text: "result" }], toolCallId: "t1" } as unknown as AgentMessage,
+      { role: "toolResult", content: [{ type: "text", text: "result" }], toolCallId: "t2" } as unknown as AgentMessage,
+      makeAssistantMessage("step 2"),
+    ];
+    const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
+
+    const result = injectCompressNudges(state, config, messages, usage);
+
+    // Only 2 assistant messages since user — should NOT trigger at threshold 3
+    const text = (result[result.length - 1] as any).content[0].text as string;
+    expect(text).not.toContain("iterating for a while");
+  });
+
   it("handles user messages with plain-string content for nudge injection (E9)", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();

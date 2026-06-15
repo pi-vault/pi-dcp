@@ -118,12 +118,11 @@ export default function createExtension(pi: ExtensionAPI): void {
     // Step 5: Assign message refs
     assignMessageRefs(state, messages);
 
-    // Step 6: Inject nudges based on context usage
-    const nudgeUsage = ctx.getContextUsage();
-    messages = injectCompressNudges(state, config, messages, nudgeUsage ? {
-      tokens: nudgeUsage.tokens,
-      contextWindow: nudgeUsage.contextWindow,
-      percent: nudgeUsage.percent,
+    // Step 6: Inject nudges based on context usage (reuse initial usage snapshot)
+    messages = injectCompressNudges(state, config, messages, usage ? {
+      tokens: usage.tokens,
+      contextWindow: usage.contextWindow,
+      percent: usage.percent,
     } : undefined);
 
     // Step 7: Inject message IDs
