@@ -1,0 +1,89 @@
+import { describe, expect, it } from "vitest";
+import { handleRangeCompress } from "../src/compress/range.ts";
+import { createSessionState } from "../src/state/state.ts";
+import type { DcpConfig } from "../src/config.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+
+function makeDefaultConfig(): DcpConfig {
+  return {
+    enabled: true,
+    debug: false,
+    compress: {
+      mode: "range",
+      permission: "allow",
+      maxContextPercent: 80,
+      minContextPercent: 50,
+      nudgeFrequency: 5,
+      iterationNudgeThreshold: 15,
+      nudgeForce: "soft",
+      protectedTools: [],
+      protectUserMessages: false,
+      protectTags: false,
+    },
+    manualMode: { default: false, automaticStrategies: true },
+    strategies: {
+      deduplication: { enabled: true, protectedTools: [] },
+      purgeErrors: { enabled: true, turns: 4, protectedTools: [] },
+    },
+    protectedFilePatterns: [],
+    nudgeNotification: "minimal",
+  };
+}
+
+describe("handleRangeCompress", () => {
+  it("compresses a valid range", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+
+    // Assign message refs
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(1, "m0002");
+    state.messageIds.byIndex.set(2, "m0003");
+    state.messageIds.byIndex.set(3, "m0004");
+    state.messageIds.nextRefIndex = 5;
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 0 } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 0 } as unknown as AgentMessage,
+      { role: "user", content: [{ type: "text", text: "do stuff" }], timestamp: 0 } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 0 } as unknown as AgentMessage,
+    ];
+
+    const result = handleRangeCompress(state, config, messages, {
+      topic: "Initial greeting",
+      content: [
+        { startId: "m0001", endId: "m0002", summary: "User greeted, assistant responded" },
+      ],
+    });
+
+    expect(result).toContain("Compressed");
+    expect(state.prune.messages.blocksById.size).toBe(1);
+    expect(state.prune.messages.activeBlockIds.size).toBe(1);
+  });
+
+  it("throws for invalid boundary IDs", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const messages: AgentMessage[] = [];
+
+    expect(() =>
+      handleRangeCompress(state, config, messages, {
+        topic: "test",
+        content: [{ startId: "invalid", endId: "m0001", summary: "text" }],
+      })
+    ).toThrow();
+  });
+
+  it("throws when content array is empty", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const messages: AgentMessage[] = [];
+
+    expect(() =>
+      handleRangeCompress(state, config, messages, {
+        topic: "test",
+        content: [],
+      })
+    ).toThrow();
+  });
+});
