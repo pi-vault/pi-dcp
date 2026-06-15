@@ -29,7 +29,7 @@
 
 - Modify: `src/state/types.ts` (after line 128, at end of file)
 
-- [ ] **Step 1: Add the ContextUsage interface**
+- [x] **Step 1: Add the ContextUsage interface**
 
 Add at the end of `src/state/types.ts`:
 
@@ -41,7 +41,7 @@ export interface ContextUsage {
 }
 ```
 
-- [ ] **Step 2: Run typecheck to confirm no conflicts**
+- [x] **Step 2: Run typecheck to confirm no conflicts**
 
 Run: `pnpm check`
 Expected: PASS (adding a new export doesn't break anything)
@@ -52,15 +52,20 @@ Expected: PASS (adding a new export doesn't break anything)
 
 **Files:**
 
-- Modify: `src/messages/inject.ts:93-97` (delete local interface)
-- Modify: `src/messages/inject.ts:1` (add import)
+- Modify: `src/messages/inject.ts:89-97` (delete JSDoc comment + local interface)
+- Modify: `src/messages/inject.ts:2` (add ContextUsage to import)
+- Modify: `tests/inject.test.ts:2-7` (update ContextUsage import source)
 
-- [ ] **Step 1: Replace local ContextUsage with import**
+- [x] **Step 1: Replace local ContextUsage with import**
 
-In `src/messages/inject.ts`, delete the local interface definition (lines 93-97):
+In `src/messages/inject.ts`, delete the JSDoc comment AND the local interface definition (lines 89-97):
 
 ```typescript
 // DELETE these lines:
+/**
+ * Context usage info from Pi's ctx.getContextUsage().
+ * E5: tokens and percent can be null when unknown.
+ */
 export interface ContextUsage {
   tokens: number | null;
   contextWindow: number;
@@ -68,7 +73,7 @@ export interface ContextUsage {
 }
 ```
 
-Add to the existing import from `../state/types.ts`. Currently line 2 reads:
+Add `ContextUsage` to the existing import from `../state/types.ts`. Currently line 2 reads:
 
 ```typescript
 import type { SessionState } from "../state/types.ts";
@@ -80,7 +85,40 @@ Change to:
 import type { ContextUsage, SessionState } from "../state/types.ts";
 ```
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Verify RED — pnpm check fails on test import**
+
+Run: `pnpm check`
+Expected: FAIL — `tests/inject.test.ts` still imports `type ContextUsage` from
+`../src/messages/inject.ts`, which no longer exports it. Confirm the error is
+about the missing export (not a typo or unrelated issue).
+
+- [x] **Step 3: Fix tests/inject.test.ts import (GREEN)**
+
+In `tests/inject.test.ts`, the current import block (lines 1-7):
+
+```typescript
+import { describe, expect, it } from "vitest";
+import {
+  assignMessageRefs,
+  injectMessageIds,
+  injectCompressNudges,
+  type ContextUsage,
+} from "../src/messages/inject.ts";
+```
+
+Split into two imports:
+
+```typescript
+import { describe, expect, it } from "vitest";
+import {
+  assignMessageRefs,
+  injectMessageIds,
+  injectCompressNudges,
+} from "../src/messages/inject.ts";
+import type { ContextUsage } from "../src/state/types.ts";
+```
+
+- [x] **Step 4: Run typecheck**
 
 Run: `pnpm check`
 Expected: PASS (same shape, same name, callers unaffected)
@@ -93,7 +131,7 @@ Expected: PASS (same shape, same name, callers unaffected)
 
 - Modify: `src/commands/context.ts:1-7` (delete local interface, update import)
 
-- [ ] **Step 1: Replace local ContextUsageInfo with import**
+- [x] **Step 1: Replace local ContextUsageInfo with import**
 
 In `src/commands/context.ts`, the current imports and type definition (lines 1-7):
 
@@ -113,7 +151,7 @@ Replace with:
 import type { ContextUsage, SessionState } from "../state/types.ts";
 ```
 
-- [ ] **Step 2: Replace all ContextUsageInfo references with ContextUsage**
+- [x] **Step 2: Replace all ContextUsageInfo references with ContextUsage**
 
 In `src/commands/context.ts`, the function signature on line 11:
 
@@ -129,7 +167,7 @@ Change to:
 
 This is the only reference to `ContextUsageInfo` in the file.
 
-- [ ] **Step 3: Check for external consumers of ContextUsageInfo**
+- [x] **Step 3: Check for external consumers of ContextUsageInfo**
 
 Run: `grep -r "ContextUsageInfo" src/ tests/`
 
@@ -137,7 +175,7 @@ Expected: No remaining references. The type was only used locally in `context.ts
 
 If `register.ts` imports `ContextUsageInfo`, update that import to `ContextUsage`.
 
-- [ ] **Step 4: Run typecheck**
+- [x] **Step 4: Run typecheck**
 
 Run: `pnpm check`
 Expected: PASS
@@ -150,7 +188,7 @@ Expected: PASS
 
 - Modify: `src/index.ts:241-245` (remove ad-hoc object construction)
 
-- [ ] **Step 1: Remove the ad-hoc ContextUsage object literal**
+- [x] **Step 1: Remove the ad-hoc ContextUsage object literal**
 
 In `src/index.ts`, lines 241-245 currently read:
 
@@ -179,15 +217,15 @@ messages = injectCompressNudges(state, config, messages, usage ?? undefined);
 
 Pi's `ctx.getContextUsage()` returns `{ tokens, contextWindow, percent, ... }` which is a structural superset of `ContextUsage`. TypeScript's structural typing accepts this without explicit mapping. The `?? undefined` converts the `null` case (if `getContextUsage()` returns null) to `undefined`.
 
-- [ ] **Step 2: Run full check**
+- [x] **Step 2: Run full check**
 
 Run: `pnpm check`
 Expected: PASS (typecheck, lint, all tests green)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
-git add src/state/types.ts src/messages/inject.ts src/commands/context.ts src/index.ts
+git add src/state/types.ts src/messages/inject.ts src/commands/context.ts src/index.ts tests/inject.test.ts
 git commit -m "refactor: consolidate ContextUsage type into state/types.ts
 
 Move the ContextUsage interface to src/state/types.ts as the single
