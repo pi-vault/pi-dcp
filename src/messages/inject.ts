@@ -3,6 +3,7 @@ import type { ContextUsage, SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { formatMessageRef, formatMessageIdTag } from "../utils/message-ids.ts";
 import type { PriorityMap } from "./priority.ts";
+import { appendText } from "../utils/message-content.ts";
 import {
   CONTEXT_LIMIT_NUDGE,
   TURN_NUDGE,
@@ -52,37 +53,9 @@ export function injectMessageIds(
       priorityEntry ? { priority: priorityEntry.priority } : undefined,
     );
 
-    // E9: UserMessage.content can be a plain string
-    // Idempotency check uses "<dcp-message-id" (no closing >) to match both
+    // Idempotency marker uses "<dcp-message-id" (no closing >) to match both
     // plain and priority-attribute variants.
-    if (typeof msg.content === "string") {
-      if (msg.content.includes("<dcp-message-id")) return msg;
-      return {
-        ...msg,
-        content: [{ type: "text" as const, text: `${msg.content}\n\n${tag}` }],
-      } as AgentMessage;
-    }
-
-    if (!Array.isArray(msg.content)) return msg;
-
-    const textPartIndex = msg.content.findIndex(
-      (p) =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as unknown as Record<string, unknown>).type === "text",
-    );
-    if (textPartIndex === -1) return msg;
-
-    const textPart = msg.content[textPartIndex] as { type: "text"; text: string };
-    if (textPart.text.includes("<dcp-message-id")) return msg;
-
-    const newContent = [...msg.content];
-    newContent[textPartIndex] = {
-      ...textPart,
-      text: `${textPart.text}\n\n${tag}`,
-    } as (typeof newContent)[number];
-
-    return { ...msg, content: newContent } as AgentMessage;
+    return appendText(msg, `\n\n${tag}`, "<dcp-message-id");
   });
 }
 
@@ -152,37 +125,23 @@ export function injectCompressNudges(
     const msg = result[i];
     if (msg.role !== "user" && msg.role !== "assistant") continue;
 
-    // E9: handle plain-string content
+    // Check for existing marker — stop searching if found
     if (typeof msg.content === "string") {
       if (msg.content.includes("<dcp-system-reminder>")) break;
-      result[i] = {
-        ...msg,
-        content: [
-          { type: "text" as const, text: `${msg.content}\n\n${nudgeText}` },
-        ],
-      } as AgentMessage;
-      break;
+    } else if (Array.isArray(msg.content)) {
+      const tp = msg.content.find(
+        (p) =>
+          typeof p === "object" &&
+          p !== null &&
+          (p as unknown as Record<string, unknown>).type === "text",
+      ) as unknown as { text: string } | undefined;
+      if (!tp) continue;
+      if (tp.text.includes("<dcp-system-reminder>")) break;
+    } else {
+      continue;
     }
 
-    if (!Array.isArray(msg.content)) continue;
-
-    const textPartIndex = msg.content.findIndex(
-      (p) =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as unknown as Record<string, unknown>).type === "text",
-    );
-    if (textPartIndex === -1) continue;
-
-    const textPart = msg.content[textPartIndex] as { type: "text"; text: string };
-    if (textPart.text.includes("<dcp-system-reminder>")) break;
-
-    const newContent = [...msg.content];
-    newContent[textPartIndex] = {
-      ...textPart,
-      text: `${textPart.text}\n\n${nudgeText}`,
-    } as (typeof newContent)[number];
-    result[i] = { ...msg, content: newContent } as AgentMessage;
+    result[i] = appendText(msg, `\n\n${nudgeText}`);
     break;
   }
 
