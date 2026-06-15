@@ -238,11 +238,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     messages = applyPruning(state, messages);
 
     // Step 7: Inject nudges based on context usage (reuse initial usage snapshot)
-    messages = injectCompressNudges(state, config, messages, usage ? {
-      tokens: usage.tokens,
-      contextWindow: usage.contextWindow,
-      percent: usage.percent,
-    } : undefined);
+    messages = injectCompressNudges(state, config, messages, usage ?? undefined);
 
     // Step 8: Update status bar with token savings
     if (ctx.hasUI && state.stats.totalPruneTokens > 0) {

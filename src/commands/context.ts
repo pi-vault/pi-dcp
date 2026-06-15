@@ -1,14 +1,8 @@
-import type { SessionState } from "../state/types.ts";
-
-export interface ContextUsageInfo {
-  tokens: number | null;
-  contextWindow: number;
-  percent: number | null;
-}
+import type { ContextUsage, SessionState } from "../state/types.ts";
 
 export function contextCommand(
   state: SessionState,
-  contextUsage: ContextUsageInfo | undefined,
+  contextUsage: ContextUsage | undefined,
 ): string {
   const lines: string[] = ["DCP Context Usage:"];
 

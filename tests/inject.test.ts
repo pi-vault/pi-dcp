@@ -3,8 +3,8 @@ import {
   assignMessageRefs,
   injectMessageIds,
   injectCompressNudges,
-  type ContextUsage,
 } from "../src/messages/inject.ts";
+import type { ContextUsage } from "../src/state/types.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { CONTEXT_LIMIT_NUDGE, TURN_NUDGE, ITERATION_NUDGE } from "../src/prompts/nudges.ts";
