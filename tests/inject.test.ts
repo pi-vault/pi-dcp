@@ -6,71 +6,9 @@ import {
   type ContextUsage,
 } from "../src/messages/inject.ts";
 import { createSessionState } from "../src/state/state.ts";
-import type { DcpConfig } from "../src/config.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { CONTEXT_LIMIT_NUDGE, TURN_NUDGE, ITERATION_NUDGE } from "../src/prompts/nudges.ts";
-
-function makeUserMessage(text: string): AgentMessage {
-  return {
-    role: "user",
-    content: [{ type: "text", text }],
-    timestamp: Date.now(),
-  } as AgentMessage;
-}
-
-/** E9: UserMessage.content can be a plain string */
-function makeUserMessageString(text: string): AgentMessage {
-  return {
-    role: "user",
-    content: text,
-    timestamp: Date.now(),
-  } as AgentMessage;
-}
-
-function makeAssistantMessage(text: string): AgentMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    api: "messages",
-    provider: "test",
-    model: "test-model",
-    stopReason: "stop",
-    usage: {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadInputTokens: 0,
-      cacheCreationInputTokens: 0,
-      totalTokens: 0,
-    },
-    timestamp: Date.now(),
-  } as unknown as AgentMessage;
-}
-
-function makeDefaultConfig(): DcpConfig {
-  return {
-    enabled: true,
-    debug: false,
-    compress: {
-      mode: "range",
-      permission: "allow",
-      maxContextPercent: 80,
-      minContextPercent: 50,
-      nudgeFrequency: 5,
-      iterationNudgeThreshold: 3,
-      nudgeForce: "soft",
-      protectedTools: [],
-      protectUserMessages: false,
-      protectTags: false,
-    },
-    manualMode: { default: false, automaticStrategies: true },
-    strategies: {
-      deduplication: { enabled: true, protectedTools: [] },
-      purgeErrors: { enabled: true, turns: 4, protectedTools: [] },
-    },
-    protectedFilePatterns: [],
-    nudgeNotification: "minimal",
-  };
-}
+import { makeUserMessage, makeUserMessageString, makeAssistantMessage, makeDefaultConfig } from "./helpers.ts";
 
 // ---------------------------------------------------------------------------
 // assignMessageRefs
@@ -254,7 +192,7 @@ describe("injectCompressNudges", () => {
 
   it("injects ITERATION_NUDGE when many assistant iterations since last user message", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig(); // iterationNudgeThreshold: 3
+    const config = makeDefaultConfig({ iterationNudgeThreshold: 3 });
     const messages = [
       makeUserMessage("go"),
       makeAssistantMessage("step 1"),
@@ -309,7 +247,7 @@ describe("injectCompressNudges", () => {
 
   it("counts only assistant messages for iteration nudge, not toolResult/custom", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig(); // iterationNudgeThreshold: 3
+    const config = makeDefaultConfig({ iterationNudgeThreshold: 3 });
     const messages = [
       makeUserMessage("go"),
       makeAssistantMessage("step 1"),
