@@ -44,6 +44,6 @@ export class Logger {
       line += ` | ${pairs}`;
     }
 
-    fs.appendFileSync(path.join(this.logDir, `${dateStr}.log`), line + "\n");
+    fs.appendFileSync(path.join(this.logDir, `${dateStr}.log`), `${line}\n`);
   }
 }
