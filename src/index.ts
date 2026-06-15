@@ -4,7 +4,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { loadConfig, type DcpConfig } from "./config.ts";
+import { loadConfig } from "./config.ts";
 import { handleRangeCompress, type RangeCompressArgs } from "./compress/range.ts";
 import { handleMessageCompress, type MessageCompressArgs } from "./compress/message.ts";
 import { buildPriorityMap, type PriorityMap } from "./messages/priority.ts";
