@@ -6,6 +6,9 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadConfig, type DcpConfig } from "./config.ts";
 import { handleRangeCompress, type RangeCompressArgs } from "./compress/range.ts";
+import { handleMessageCompress, type MessageCompressArgs } from "./compress/message.ts";
+import { buildPriorityMap, type PriorityMap } from "./messages/priority.ts";
+import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
 import { Logger } from "./logger.ts";
 import { applyPruning } from "./messages/prune.ts";
 import { syncCompressionBlocks } from "./messages/sync.ts";
@@ -34,37 +37,69 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   if (!config.enabled) return;
 
-  pi.registerTool({
-    name: "compress",
-    label: "Compress",
-    description:
-      "Compress conversation ranges into summaries. Use message IDs (m0001, m0002...) visible in context as boundaries.",
-    parameters: Type.Object({
-      topic: Type.String({ description: "Short label (3-5 words) for display" }),
-      content: Type.Array(
-        Type.Object({
-          startId: Type.String({
-            description: "Message or block ID marking range start (e.g. m0001, b2)",
-          }),
-          endId: Type.String({
-            description: "Message or block ID marking range end (e.g. m0012, b5)",
-          }),
-          summary: Type.String({
-            description: "Complete technical summary replacing all content in range",
-          }),
+  if (config.compress.mode === "message") {
+    pi.registerTool({
+      name: "compress",
+      label: "Compress",
+      description: COMPRESS_MESSAGE_PROMPT,
+      parameters: Type.Object({
+        topic: Type.String({
+          description: "Short label (3-5 words) for display",
         }),
-        { description: "Ranges to compress, each with start/end boundaries and summary" },
-      ),
-    }),
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const typedArgs = params as unknown as RangeCompressArgs;
-      const resultText = handleRangeCompress(state, config, latestMessages, typedArgs);
-      return {
-        content: [{ type: "text" as const, text: resultText }],
-        details: {},
-      };
-    },
-  });
+        targets: Type.Array(
+          Type.Object({
+            messageId: Type.String({
+              description: "Message ID to compress (e.g. m0001)",
+            }),
+            summary: Type.String({
+              description: "Complete technical summary replacing message content",
+            }),
+          }),
+          { description: "Messages to compress" },
+        ),
+      }),
+      async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+        const typedArgs = params as unknown as MessageCompressArgs;
+        const resultText = handleMessageCompress(state, config, latestMessages, typedArgs);
+        return {
+          content: [{ type: "text" as const, text: resultText }],
+          details: {},
+        };
+      },
+    });
+  } else {
+    pi.registerTool({
+      name: "compress",
+      label: "Compress",
+      description:
+        "Compress conversation ranges into summaries. Use message IDs (m0001, m0002...) visible in context as boundaries.",
+      parameters: Type.Object({
+        topic: Type.String({ description: "Short label (3-5 words) for display" }),
+        content: Type.Array(
+          Type.Object({
+            startId: Type.String({
+              description: "Message or block ID marking range start (e.g. m0001, b2)",
+            }),
+            endId: Type.String({
+              description: "Message or block ID marking range end (e.g. m0012, b5)",
+            }),
+            summary: Type.String({
+              description: "Complete technical summary replacing all content in range",
+            }),
+          }),
+          { description: "Ranges to compress, each with start/end boundaries and summary" },
+        ),
+      }),
+      async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+        const typedArgs = params as unknown as RangeCompressArgs;
+        const resultText = handleRangeCompress(state, config, latestMessages, typedArgs);
+        return {
+          content: [{ type: "text" as const, text: resultText }],
+          details: {},
+        };
+      },
+    });
+  }
 
   pi.on("before_agent_start", async (event, _ctx) => {
     if (!config.enabled) return;
@@ -161,8 +196,14 @@ export default function createExtension(pi: ExtensionAPI): void {
     // Step 4: Assign message refs to raw messages (before filtering, so refs are stable raw indices)
     assignMessageRefs(state, messages);
 
-    // Step 5: Inject message IDs into raw messages (survivors keep their tags after filtering)
-    messages = injectMessageIds(state, messages);
+    // Step 4.5: Build priority map for message-mode compression
+    let priorityMap: PriorityMap | undefined;
+    if (config.compress.mode === "message") {
+      priorityMap = buildPriorityMap(state, messages);
+    }
+
+    // Step 5: Inject message IDs into raw messages (with priority attrs if message mode)
+    messages = injectMessageIds(state, messages, priorityMap);
 
     // Step 6: Apply pruning to messages (compressed ranges removed, tool outputs pruned)
     messages = applyPruning(state, messages);
