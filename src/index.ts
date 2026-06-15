@@ -4,7 +4,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { loadConfig, type DcpConfig } from "./config.ts";
+import { loadConfig } from "./config.ts";
 import { handleRangeCompress, type RangeCompressArgs } from "./compress/range.ts";
 import { handleMessageCompress, type MessageCompressArgs } from "./compress/message.ts";
 import { buildPriorityMap, type PriorityMap } from "./messages/priority.ts";
@@ -21,19 +21,25 @@ import { deduplicate } from "./strategies/deduplication.ts";
 import { purgeErrors } from "./strategies/purge-errors.ts";
 import type { SessionState } from "./state/types.ts";
 import { registerDcpCommands } from "./commands/register.ts";
+import { saveSessionState, loadSessionState } from "./state/persistence.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
   const configFilePath = path.join(agentDir, "extensions", "dcp.json");
 
-  let config: DcpConfig = loadConfig(configFilePath);
+  let { config } = loadConfig(configFilePath);
   let logger: Logger = new Logger(config.debug);
   const state: SessionState = createSessionState();
   let latestMessages: AgentMessage[] = [];
+  let sessionDir: string = "";
 
   function reloadConfig(logDir?: string): void {
-    config = loadConfig(configFilePath);
+    const result = loadConfig(configFilePath);
+    config = result.config;
     logger = new Logger(config.debug, logDir);
+    for (const w of result.warnings) {
+      logger.info("config", w);
+    }
   }
 
   if (!config.enabled) return;
@@ -114,7 +120,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (event, ctx) => {
-    const sessionDir = ctx.sessionManager.getSessionDir();
+    sessionDir = ctx.sessionManager.getSessionDir();
     const logDir = path.join(sessionDir, "dcp", "logs");
     reloadConfig(logDir);
     if (!config.enabled) return;
@@ -122,6 +128,17 @@ export default function createExtension(pi: ExtensionAPI): void {
     resetSessionState(state);
     state.sessionId = `pi-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
     state.manualMode = config.manualMode.default;
+
+    // Load persisted state if resuming
+    if (event.reason === "resume") {
+      const persisted = loadSessionState(sessionDir);
+      if (persisted) {
+        state.currentTurn = persisted.currentTurn;
+        state.stats = persisted.stats;
+        state.lastCompaction = persisted.lastCompaction;
+        logger.info("dcp", "resumed persisted state", { turn: state.currentTurn });
+      }
+    }
 
     const usage = ctx.getContextUsage();
     if (usage) {
@@ -149,7 +166,16 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async (_event, _ctx) => {
-    logger.info("dcp", "session shutdown");
+    if (sessionDir) {
+      try {
+        saveSessionState(state, sessionDir);
+        logger.info("dcp", "session shutdown, state saved");
+      } catch (err) {
+        logger.info("dcp", "session shutdown, failed to save state", { error: String(err) });
+      }
+    } else {
+      logger.info("dcp", "session shutdown");
+    }
   });
 
   pi.on("turn_end", async (_event, _ctx) => {
@@ -217,6 +243,11 @@ export default function createExtension(pi: ExtensionAPI): void {
       contextWindow: usage.contextWindow,
       percent: usage.percent,
     } : undefined);
+
+    // Step 8: Update status bar with token savings
+    if (ctx.hasUI && state.stats.totalPruneTokens > 0) {
+      ctx.ui.setStatus("dcp", `DCP: ${state.stats.totalPruneTokens} tokens saved`);
+    }
 
     return { messages };
   });
