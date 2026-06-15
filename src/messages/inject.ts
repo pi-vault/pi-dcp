@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { SessionState } from "../state/types.ts";
+import type { ContextUsage, SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { formatMessageRef, formatMessageIdTag } from "../utils/message-ids.ts";
 import type { PriorityMap } from "./priority.ts";
@@ -84,16 +84,6 @@ export function injectMessageIds(
 
     return { ...msg, content: newContent } as AgentMessage;
   });
-}
-
-/**
- * Context usage info from Pi's ctx.getContextUsage().
- * E5: tokens and percent can be null when unknown.
- */
-export interface ContextUsage {
-  tokens: number | null;
-  contextWindow: number;
-  percent: number | null;
 }
 
 /**

@@ -126,3 +126,13 @@ export interface MessageIdState {
   byRef: Map<string, number>;
   nextRefIndex: number;
 }
+
+/**
+ * Context usage snapshot from Pi's ctx.getContextUsage().
+ * tokens and percent can be null when usage data is unavailable.
+ */
+export interface ContextUsage {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+}
