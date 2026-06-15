@@ -97,7 +97,7 @@ describe("protected-patterns", () => {
 
     it("matches ** for paths", () => {
       expect(matchesGlob("src/foo/bar.ts", "src/**/*.ts")).toBe(true);
-      expect(matchesGlob("src/foo/bar.ts", "src/**/*.ts")).toBe(false);
+      expect(matchesGlob("src/foo/bar.js", "src/**/*.ts")).toBe(false);
     });
 
     it("matches ? single char", () => {
@@ -138,8 +138,8 @@ describe("protected-patterns", () => {
 
   describe("isFilePathProtected", () => {
     it("matches file paths against glob patterns", () => {
-      expect(isFilePathProtected(["/src/config.ts"], ["src/**/*.ts"])).toBe(true);
-      expect(isFilePathProtected(["/tmp/foo.ts"], ["src/**/*.ts"])).toBe(false);
+      expect(isFilePathProtected(["src/config.ts"], ["src/**/*.ts"])).toBe(true);
+      expect(isFilePathProtected(["lib/foo.ts"], ["src/**/*.ts"])).toBe(false);
     });
 
     it("returns false for empty paths or patterns", () => {
@@ -577,16 +577,16 @@ describe("deduplication", () => {
       const config = makeDefaultConfig();
 
       state.toolParameters.set("call1", {
-        tool: "grep",
-        parameters: { pattern: "foo" },
+        tool: "glob",
+        parameters: { pattern: "**/*.ts" },
         status: "completed",
         error: undefined,
         turn: 1,
         tokenCount: 100,
       });
       state.toolParameters.set("call2", {
-        tool: "grep",
-        parameters: { pattern: "foo" },
+        tool: "glob",
+        parameters: { pattern: "**/*.ts" },
         status: "completed",
         error: undefined,
         turn: 2,
@@ -632,16 +632,16 @@ describe("deduplication", () => {
       config.strategies.deduplication.enabled = false;
 
       state.toolParameters.set("call1", {
-        tool: "grep",
-        parameters: { pattern: "a" },
+        tool: "glob",
+        parameters: { pattern: "**/*.ts" },
         status: "completed",
         error: undefined,
         turn: 1,
         tokenCount: 100,
       });
       state.toolParameters.set("call2", {
-        tool: "grep",
-        parameters: { pattern: "a" },
+        tool: "glob",
+        parameters: { pattern: "**/*.ts" },
         status: "completed",
         error: undefined,
         turn: 2,
@@ -659,16 +659,16 @@ describe("deduplication", () => {
 
       state.prune.tools.set("call1", 100);
       state.toolParameters.set("call1", {
-        tool: "grep",
-        parameters: { pattern: "a" },
+        tool: "glob",
+        parameters: { pattern: "**/*.ts" },
         status: "completed",
         error: undefined,
         turn: 1,
         tokenCount: 100,
       });
       state.toolParameters.set("call2", {
-        tool: "grep",
-        parameters: { pattern: "a" },
+        tool: "glob",
+        parameters: { pattern: "**/*.ts" },
         status: "completed",
         error: undefined,
         turn: 2,
@@ -864,8 +864,8 @@ describe("purge-errors", () => {
     state.currentTurn = 10;
 
     state.toolParameters.set("err1", {
-      tool: "grep",
-      parameters: { pattern: "foo" },
+      tool: "glob",
+      parameters: { pattern: "**/*.ts" },
       status: "error",
       error: "not found",
       turn: 3,
@@ -884,8 +884,8 @@ describe("purge-errors", () => {
     state.currentTurn = 5;
 
     state.toolParameters.set("err1", {
-      tool: "grep",
-      parameters: { pattern: "foo" },
+      tool: "glob",
+      parameters: { pattern: "**/*.ts" },
       status: "error",
       error: "not found",
       turn: 3,
@@ -903,8 +903,8 @@ describe("purge-errors", () => {
     state.currentTurn = 10;
 
     state.toolParameters.set("ok1", {
-      tool: "grep",
-      parameters: { pattern: "foo" },
+      tool: "glob",
+      parameters: { pattern: "**/*.ts" },
       status: "completed",
       error: undefined,
       turn: 1,
@@ -923,7 +923,7 @@ describe("purge-errors", () => {
     state.currentTurn = 10;
 
     state.toolParameters.set("err1", {
-      tool: "grep",
+      tool: "glob",
       parameters: {},
       status: "error",
       error: "fail",
