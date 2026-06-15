@@ -6,6 +6,8 @@ import { loadConfig, type DcpConfig } from "./config.ts";
 import { Logger } from "./logger.ts";
 import { applyPruning } from "./messages/prune.ts";
 import { stripHallucinations } from "./messages/strip.ts";
+import { assignMessageRefs, injectCompressNudges, injectMessageIds } from "./messages/inject.ts";
+import { DCP_SYSTEM_PROMPT } from "./prompts/system.ts";
 import { createSessionState, resetSessionState } from "./state/state.ts";
 import { syncToolCache, buildToolIdList } from "./state/tool-cache.ts";
 import { deduplicate } from "./strategies/deduplication.ts";
@@ -26,6 +28,15 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   if (!config.enabled) return;
+
+  pi.on("before_agent_start", async (event, _ctx) => {
+    if (!config.enabled) return;
+    if (config.compress.permission === "deny") return;
+
+    return {
+      systemPrompt: (event.systemPrompt ?? "") + DCP_SYSTEM_PROMPT,
+    };
+  });
 
   pi.on("session_start", async (event, ctx) => {
     const sessionDir = ctx.sessionManager.getSessionDir();
@@ -104,7 +115,18 @@ export default function createExtension(pi: ExtensionAPI): void {
     // Step 4: Apply pruning to messages
     messages = applyPruning(state, messages);
 
-    // Steps 5-8 (nudges, message IDs, compression) added in later phases
+    // Step 5: Assign message refs
+    assignMessageRefs(state, messages);
+
+    // Step 6: Inject nudges based on context usage (reuse initial usage snapshot)
+    messages = injectCompressNudges(state, config, messages, usage ? {
+      tokens: usage.tokens,
+      contextWindow: usage.contextWindow,
+      percent: usage.percent,
+    } : undefined);
+
+    // Step 7: Inject message IDs
+    messages = injectMessageIds(state, messages);
 
     return { messages };
   });
