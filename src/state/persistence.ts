@@ -51,11 +51,11 @@ export function loadSessionState(
 
     return {
       currentTurn: parsed.currentTurn ?? 0,
-      stats: parsed.stats ?? {
-        pruneTokenCounter: 0,
-        totalPruneTokens: 0,
-        toolsPruned: 0,
-        messagesCompressed: 0,
+      stats: {
+        pruneTokenCounter: parsed.stats?.pruneTokenCounter ?? 0,
+        totalPruneTokens: parsed.stats?.totalPruneTokens ?? 0,
+        toolsPruned: parsed.stats?.toolsPruned ?? 0,
+        messagesCompressed: parsed.stats?.messagesCompressed ?? 0,
       },
       lastCompaction: parsed.lastCompaction ?? 0,
     };

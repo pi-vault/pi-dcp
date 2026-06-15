@@ -167,9 +167,15 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async (_event, _ctx) => {
     if (sessionDir) {
-      saveSessionState(state, sessionDir);
+      try {
+        saveSessionState(state, sessionDir);
+        logger.info("dcp", "session shutdown, state saved");
+      } catch (err) {
+        logger.info("dcp", "session shutdown, failed to save state", { error: String(err) });
+      }
+    } else {
+      logger.info("dcp", "session shutdown");
     }
-    logger.info("dcp", "session shutdown, state saved");
   });
 
   pi.on("turn_end", async (_event, _ctx) => {
