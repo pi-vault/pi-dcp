@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pruneToolOutputs, pruneToolErrors, applyPruning } from "../src/messages/prune.ts";
+import { allocateBlockId, allocateRunId, applyCompressionState } from "../src/compress/state.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
@@ -91,6 +92,58 @@ describe("prune", () => {
       expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toContain("[Output removed");
       expect((result[1] as { content: Array<{ text: string }> }).content[0].text).toContain("[input removed");
       expect((result[2] as { content: Array<{ text: string }> }).content[0].text).toBe("untouched");
+    });
+  });
+
+  describe("filterCompressedRanges", () => {
+    it("replaces compressed messages with summary", () => {
+      const state = createSessionState();
+      const blockId = allocateBlockId(state);
+      const runId = allocateRunId(state);
+
+      const messages: AgentMessage[] = [
+        { role: "user", content: [{ type: "text", text: "start" }], timestamp: Date.now() } as AgentMessage,
+        { role: "assistant", content: [{ type: "text", text: "response 1" }], timestamp: Date.now() } as unknown as AgentMessage,
+        { role: "user", content: [{ type: "text", text: "middle" }], timestamp: Date.now() } as AgentMessage,
+        { role: "assistant", content: [{ type: "text", text: "response 2" }], timestamp: Date.now() } as unknown as AgentMessage,
+        { role: "user", content: [{ type: "text", text: "end" }], timestamp: Date.now() } as AgentMessage,
+      ];
+
+      applyCompressionState(state, {
+        blockId,
+        runId,
+        topic: "test",
+        mode: "range",
+        startIndex: 1,
+        endIndex: 3,
+        anchorIndex: 1,
+        compressMessageIndex: 4,
+        summary: "Summary of messages 1-3",
+        summaryTokens: 10,
+        consumedBlockIds: [],
+      });
+
+      const result = applyPruning(state, messages);
+      // Should have 3 messages: original[0], summary, original[4]
+      expect(result.length).toBeLessThan(messages.length);
+      // Summary should be present
+      const summaryMsg = result.find((m) => {
+        // biome-ignore lint/suspicious/noExplicitAny: test helper
+        const content = (m as any).content;
+        // biome-ignore lint/suspicious/noExplicitAny: test helper
+        return Array.isArray(content) && content.some((c: any) => c.type === "text" && c.text.includes("Summary of messages 1-3"));
+      });
+      expect(summaryMsg).toBeDefined();
+    });
+
+    it("passes messages unchanged when no active blocks", () => {
+      const state = createSessionState();
+      const messages: AgentMessage[] = [
+        { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() } as AgentMessage,
+      ];
+      const result = applyPruning(state, messages);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toBe(messages[0]);
     });
   });
 });
