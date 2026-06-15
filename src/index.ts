@@ -238,6 +238,11 @@ export default function createExtension(pi: ExtensionAPI): void {
       percent: usage.percent,
     } : undefined);
 
+    // Step 8: Update status bar with token savings
+    if (ctx.hasUI && state.stats.totalPruneTokens > 0) {
+      ctx.ui.setStatus("dcp", `DCP: ${state.stats.totalPruneTokens} tokens saved`);
+    }
+
     return { messages };
   });
 }
