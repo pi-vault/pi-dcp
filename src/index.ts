@@ -1,6 +1,7 @@
+import * as crypto from "node:crypto";
+import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import * as path from "node:path";
 import { loadConfig, type DcpConfig } from "./config.ts";
 import { Logger } from "./logger.ts";
 import { createSessionState, resetSessionState } from "./state/state.ts";
@@ -28,7 +29,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (!config.enabled) return;
 
     resetSessionState(state);
-    state.sessionId = `pi-${Date.now()}`;
+    state.sessionId = `pi-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
     state.manualMode = config.manualMode.default;
 
     const usage = ctx.getContextUsage();
