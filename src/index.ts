@@ -20,6 +20,7 @@ import { syncToolCache, buildToolIdList } from "./state/tool-cache.ts";
 import { deduplicate } from "./strategies/deduplication.ts";
 import { purgeErrors } from "./strategies/purge-errors.ts";
 import type { SessionState } from "./state/types.ts";
+import { registerDcpCommands } from "./commands/register.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
@@ -36,6 +37,8 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   if (!config.enabled) return;
+
+  registerDcpCommands(pi, state, config);
 
   if (config.compress.mode === "message") {
     pi.registerTool({
