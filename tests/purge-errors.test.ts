@@ -126,4 +126,45 @@ describe("purge-errors", () => {
     const result = purgeErrors(state, config);
     expect(result.pruned).toBe(0);
   });
+
+  it("skips when manual mode active and automaticStrategies disabled", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    state.currentTurn = 10;
+    state.manualMode = "active";
+    config.manualMode.automaticStrategies = false;
+
+    state.toolParameters.set("err1", {
+      tool: "glob",
+      parameters: {},
+      status: "error",
+      error: "fail",
+      turn: 1,
+      tokenCount: 200,
+    });
+    state.toolIdList = ["err1"];
+
+    const result = purgeErrors(state, config);
+    expect(result.pruned).toBe(0);
+  });
+
+  it("skips tools operating on protected file paths", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    state.currentTurn = 10;
+    config.protectedFilePatterns = ["src/**/*.ts"];
+
+    state.toolParameters.set("err1", {
+      tool: "glob",
+      parameters: { filePath: "src/index.ts" },
+      status: "error",
+      error: "fail",
+      turn: 1,
+      tokenCount: 200,
+    });
+    state.toolIdList = ["err1"];
+
+    const result = purgeErrors(state, config);
+    expect(result.pruned).toBe(0);
+  });
 });

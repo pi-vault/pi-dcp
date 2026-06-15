@@ -158,5 +158,60 @@ describe("deduplication", () => {
       const result = deduplicate(state, config);
       expect(result.pruned).toBe(0);
     });
+
+    it("skips when manual mode active and automaticStrategies disabled", () => {
+      const state = createSessionState();
+      const config = makeDefaultConfig();
+      state.manualMode = "active";
+      config.manualMode.automaticStrategies = false;
+
+      state.toolParameters.set("call1", {
+        tool: "glob",
+        parameters: { pattern: "**/*.ts" },
+        status: "completed",
+        error: undefined,
+        turn: 1,
+        tokenCount: 100,
+      });
+      state.toolParameters.set("call2", {
+        tool: "glob",
+        parameters: { pattern: "**/*.ts" },
+        status: "completed",
+        error: undefined,
+        turn: 2,
+        tokenCount: 100,
+      });
+      state.toolIdList = ["call1", "call2"];
+
+      const result = deduplicate(state, config);
+      expect(result.pruned).toBe(0);
+    });
+
+    it("skips tools operating on protected file paths", () => {
+      const state = createSessionState();
+      const config = makeDefaultConfig();
+      config.protectedFilePatterns = ["src/**/*.ts"];
+
+      state.toolParameters.set("call1", {
+        tool: "glob",
+        parameters: { filePath: "src/index.ts" },
+        status: "completed",
+        error: undefined,
+        turn: 1,
+        tokenCount: 100,
+      });
+      state.toolParameters.set("call2", {
+        tool: "glob",
+        parameters: { filePath: "src/index.ts" },
+        status: "completed",
+        error: undefined,
+        turn: 2,
+        tokenCount: 100,
+      });
+      state.toolIdList = ["call1", "call2"];
+
+      const result = deduplicate(state, config);
+      expect(result.pruned).toBe(0);
+    });
   });
 });
