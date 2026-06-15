@@ -25,7 +25,7 @@
 
 ---
 
-### Task 1: Write failing tests for appendText
+### Task 1: Write failing tests for appendText and mapText
 
 **Files:**
 
@@ -269,7 +269,7 @@ Co-Authored-By: Devin <158243242+devin-ai-integration[bot]@users.noreply.github.
 
 **Files:**
 
-- Modify: `src/messages/inject.ts:38-87` (the `injectMessageIds` function)
+- Modify: `src/messages/inject.ts` — the `injectMessageIds` function (lines 38–87)
 
 - [ ] **Step 1: Add import**
 
@@ -281,17 +281,19 @@ import { appendText } from "../utils/message-content.ts";
 
 - [ ] **Step 2: Replace the E9 content manipulation block**
 
-The current inner function body in `injectMessageIds` (the `.map` callback, lines 47-86) handles E9 string content, text part discovery, idempotency, and cloning manually. Replace the entire callback body.
-
-Current code inside the `.map((msg, rawIndex) => { ... })` callback (lines 48-86):
+Current inner function body inside `.map((msg, i) => { ... })` (lines 44–86):
 
 ```typescript
-const ref = state.messageIds.byIndex.get(rawIndex);
+const ref = state.messageIds.byIndex.get(i);
 if (!ref) return msg;
-if (msg.role !== "user") return msg;
 
-const attrs = priorityMap?.get(rawIndex);
-const tag = formatMessageIdTag(ref, attrs);
+if (msg.role !== "user" && msg.role !== "assistant") return msg;
+
+const priorityEntry = priorityMap?.get(i);
+const tag = formatMessageIdTag(
+  ref,
+  priorityEntry ? { priority: priorityEntry.priority } : undefined,
+);
 
 // E9: UserMessage.content can be a plain string
 // Idempotency check uses "<dcp-message-id" (no closing >) to match both
@@ -314,11 +316,7 @@ const textPartIndex = msg.content.findIndex(
 );
 if (textPartIndex === -1) return msg;
 
-const textPart = msg.content[textPartIndex] as unknown as {
-  type: string;
-  text: string;
-};
-
+const textPart = msg.content[textPartIndex] as { type: "text"; text: string };
 if (textPart.text.includes("<dcp-message-id")) return msg;
 
 const newContent = [...msg.content];
@@ -333,12 +331,16 @@ return { ...msg, content: newContent } as AgentMessage;
 Replace with:
 
 ```typescript
-const ref = state.messageIds.byIndex.get(rawIndex);
+const ref = state.messageIds.byIndex.get(i);
 if (!ref) return msg;
-if (msg.role !== "user") return msg;
 
-const attrs = priorityMap?.get(rawIndex);
-const tag = formatMessageIdTag(ref, attrs);
+if (msg.role !== "user" && msg.role !== "assistant") return msg;
+
+const priorityEntry = priorityMap?.get(i);
+const tag = formatMessageIdTag(
+  ref,
+  priorityEntry ? { priority: priorityEntry.priority } : undefined,
+);
 
 return appendText(msg, `\n\n${tag}`, "<dcp-message-id");
 ```
@@ -354,13 +356,11 @@ Expected: All tests PASS (behavior unchanged)
 
 **Files:**
 
-- Modify: `src/messages/inject.ts:114-200` (the `injectCompressNudges` function)
+- Modify: `src/messages/inject.ts` — the `injectCompressNudges` function (lines 104–190)
 
 - [ ] **Step 1: Replace the reverse-search nudge injection block**
 
-The current nudge injection loop (starting around line 155) iterates backward through messages looking for a user message to append the nudge to. The E9 content manipulation block inside the loop needs to be replaced.
-
-Current code in the reverse loop (the block handling string content and array content, approximately lines 163-196):
+The E9 content manipulation block inside the reverse loop (lines 155–186):
 
 ```typescript
 // E9: handle plain-string content
@@ -385,11 +385,7 @@ const textPartIndex = msg.content.findIndex(
 );
 if (textPartIndex === -1) continue;
 
-const textPart = msg.content[textPartIndex] as unknown as {
-  type: string;
-  text: string;
-};
-
+const textPart = msg.content[textPartIndex] as { type: "text"; text: string };
 if (textPart.text.includes("<dcp-system-reminder>")) break;
 
 const newContent = [...msg.content];
@@ -402,67 +398,6 @@ break;
 ```
 
 Replace with:
-
-```typescript
-const updated = appendText(msg, `\n\n${nudgeText}`, "<dcp-system-reminder>");
-if (updated !== msg) {
-  result[i] = updated;
-  break;
-}
-// If appendText returned same ref, marker was already present — stop searching
-if (
-  typeof msg.content === "string"
-    ? msg.content.includes("<dcp-system-reminder>")
-    : Array.isArray(msg.content) &&
-      msg.content.some(
-        (p) =>
-          typeof p === "object" &&
-          p !== null &&
-          (p as unknown as Record<string, unknown>).type === "text" &&
-          ((p as unknown as Record<string, unknown>).text as string).includes(
-            "<dcp-system-reminder>",
-          ),
-      )
-) {
-  break;
-}
-```
-
-Wait — this is getting more complex than the original. The issue is that `appendText` returning the same reference can mean either "marker found" (should break) or "no text part found" (should continue). Let me reconsider.
-
-A cleaner approach: keep the role check and use `appendText` only for the content manipulation part. The reverse-search loop logic (finding the right message to inject into) stays.
-
-Revised replacement for the inner block:
-
-```typescript
-const updated = appendText(msg, `\n\n${nudgeText}`, "<dcp-system-reminder>");
-if (updated === msg) {
-  // appendText returned same ref — either marker exists (break) or no text part (continue)
-  const hasMarker =
-    typeof msg.content === "string"
-      ? msg.content.includes("<dcp-system-reminder>")
-      : false; // array case: appendText skips if marker found OR no text part
-  // For array content, check if a text part exists with the marker
-  if (!hasMarker && Array.isArray(msg.content)) {
-    const textPart = msg.content.find(
-      (p) =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as unknown as Record<string, unknown>).type === "text",
-    ) as unknown as { text: string } | undefined;
-    if (textPart?.text.includes("<dcp-system-reminder>")) break;
-    continue; // no text part found, try previous message
-  }
-  if (hasMarker) break;
-  continue;
-}
-result[i] = updated;
-break;
-```
-
-This is still messier than needed. The problem is that `appendText`'s return value conflates two "no-op" cases. The simplest approach: keep the idempotency/break check inline and use `appendText` without a marker for the actual mutation.
-
-**Final revised approach:**
 
 ```typescript
 // Check for existing marker — stop searching if found
@@ -485,7 +420,7 @@ result[i] = appendText(msg, `\n\n${nudgeText}`);
 break;
 ```
 
-This is cleaner: the loop logic (break on marker, continue on no text part) stays explicit, and the actual content manipulation is delegated to `appendText`. The check-then-mutate pattern is ~14 lines vs the original ~30 lines, and the mutation itself is a one-liner.
+The logic: idempotency check and text-part existence are kept explicit (so loop control — `break` vs `continue` — stays readable), while the actual mutation is delegated to `appendText`. This is ~14 lines vs the original ~30, and the mutation is a one-liner.
 
 - [ ] **Step 2: Run existing tests**
 
@@ -515,7 +450,7 @@ import { mapText } from "../utils/message-content.ts";
 
 - [ ] **Step 2: Simplify stripHallucinations**
 
-Current implementation (lines 17-39):
+Current implementation (lines 17–39):
 
 ```typescript
 export function stripHallucinations(messages: AgentMessage[]): AgentMessage[] {
@@ -569,7 +504,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/utils/message-content.ts src/messages/inject.ts src/messages/strip.ts
+git add src/messages/inject.ts src/messages/strip.ts
 git commit -m "refactor: use message-content utilities in inject.ts and strip.ts
 
 Replace inline E9 content manipulation in injectMessageIds,
