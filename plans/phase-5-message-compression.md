@@ -11,15 +11,19 @@
 **Usable result after this phase:** When `config.compress.mode` is `"message"`, the `compress` tool accepts per-message targets instead of ranges. The priority map (injected via `<dcp-message-id priority="N">` tags) guides the model toward high-priority compression targets. Both modes coexist; the config setting determines the tool schema and prompt.
 
 **Architecture:**
+
 - `src/messages/priority.ts` — Priority map computation (token-based ranking of messages)
+- `src/messages/inject.ts` — Modified to inject priority attributes into message ID tags
 - `src/compress/message.ts` — Message-mode compress tool handler
 - `src/prompts/compress-message.ts` — Message-mode tool prompt
-- Modified `src/index.ts` — Switch tool registration based on config mode
+- `src/index.ts` — Switch tool registration based on config mode; build priority map in context pipeline
 
 **Conventions:**
+
 - Priority is an integer 1-5 (1 = highest priority for compression, 5 = lowest)
 - The priority map is rebuilt on every context event
 - Message-mode injects priority into `<dcp-message-id priority="N">` tags
+- Tests import shared helpers from `tests/helpers.ts` (do not inline duplicates)
 
 ---
 
@@ -29,6 +33,7 @@
 src/
   messages/
     priority.ts                 # Priority map computation
+    inject.ts                   # Modified: accept optional PriorityMap
   compress/
     message.ts                  # Message-mode compress handler
   prompts/
@@ -40,6 +45,7 @@ src/
 ### Task 1: Priority Map
 
 **Files:**
+
 - Create: `src/messages/priority.ts`
 - Test: `tests/priority.test.ts`
 
@@ -47,63 +53,74 @@ Assigns compression priority (1-5) to each message based on age and estimated to
 
 - [ ] **Step 1: Write tests**
 
-Create `tests/priority.test.ts`:
+Create `tests/priority.test.ts`. Use shared helpers from `tests/helpers.ts` and `assignMessageRefs` to populate both `byIndex` and `byRef` maps correctly:
 
 ```typescript
 import { describe, expect, it } from "vitest";
 import { buildPriorityMap } from "../src/messages/priority.ts";
 import { createSessionState } from "../src/state/state.ts";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { assignMessageRefs } from "../src/messages/inject.ts";
+import { makeUserMessage, makeAssistantMessage } from "./helpers.ts";
 
-function makeUserMessage(text: string): AgentMessage {
-  return {
-    role: "user",
-    content: [{ type: "text", text }],
-    timestamp: Date.now(),
-  } as AgentMessage;
-}
+describe("buildPriorityMap", () => {
+  it("assigns priorities to messages", () => {
+    const state = createSessionState();
+    const messages = [
+      makeUserMessage("a".repeat(400)),
+      makeAssistantMessage("b".repeat(800)),
+      makeUserMessage("c".repeat(100)),
+    ];
+    assignMessageRefs(state, messages);
 
-function makeAssistantMessage(text: string): AgentMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    stopReason: "stop",
-    usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
-    timestamp: Date.now(),
-  } as AgentMessage;
-}
+    const map = buildPriorityMap(state, messages);
+    expect(map.size).toBe(3);
 
-describe("priority", () => {
-  describe("buildPriorityMap", () => {
-    it("assigns priorities to messages", () => {
-      const state = createSessionState();
-      state.messageIds.byIndex.set(0, "m0001");
-      state.messageIds.byIndex.set(1, "m0002");
-      state.messageIds.byIndex.set(2, "m0003");
+    // Earlier, larger messages should have higher priority (lower number)
+    const p0 = map.get(0);
+    const p2 = map.get(2);
+    expect(p0).toBeDefined();
+    expect(p2).toBeDefined();
+    expect(p0!.priority).toBeLessThanOrEqual(p2!.priority);
+  });
 
-      const messages = [
-        makeUserMessage("a".repeat(400)),
-        makeAssistantMessage("b".repeat(800)),
-        makeUserMessage("c".repeat(100)),
-      ];
+  it("returns empty map for empty messages", () => {
+    const state = createSessionState();
+    const map = buildPriorityMap(state, []);
+    expect(map.size).toBe(0);
+  });
 
-      const map = buildPriorityMap(state, messages);
-      expect(map.size).toBe(3);
+  it("skips messages already covered by active compression blocks", () => {
+    const state = createSessionState();
+    const messages = [
+      makeUserMessage("old message"),
+      makeAssistantMessage("response"),
+      makeUserMessage("new message"),
+    ];
+    assignMessageRefs(state, messages);
 
-      // Earlier, larger messages should have higher priority (lower number)
-      const p0 = map.get(0);
-      const p2 = map.get(2);
-      expect(p0).toBeDefined();
-      expect(p2).toBeDefined();
-      // Older message should have equal or higher priority
-      expect(p0!.priority).toBeLessThanOrEqual(p2!.priority);
+    // Mark message 0 as covered by an active block
+    state.prune.messages.byMessageIndex.set(0, {
+      tokenCount: 25,
+      blockIds: [1],
+      activeBlockIds: [1],
     });
 
-    it("returns empty map for empty messages", () => {
-      const state = createSessionState();
-      const map = buildPriorityMap(state, []);
-      expect(map.size).toBe(0);
-    });
+    const map = buildPriorityMap(state, messages);
+    expect(map.has(0)).toBe(false);
+    expect(map.has(1)).toBe(true);
+    expect(map.has(2)).toBe(true);
+  });
+
+  it("assigns priorities in range 1-5", () => {
+    const state = createSessionState();
+    const messages = [makeUserMessage("a"), makeAssistantMessage("b")];
+    assignMessageRefs(state, messages);
+
+    const map = buildPriorityMap(state, messages);
+    for (const [, entry] of map) {
+      expect(entry.priority).toBeGreaterThanOrEqual(1);
+      expect(entry.priority).toBeLessThanOrEqual(5);
+    }
   });
 });
 ```
@@ -114,7 +131,7 @@ describe("priority", () => {
 pnpm test -- tests/priority.test.ts
 ```
 
-Expected: FAIL.
+Expected: FAIL (module not found).
 
 - [ ] **Step 3: Implement priority map**
 
@@ -216,9 +233,194 @@ git commit -m "feat: add priority map for message-mode compression"
 
 ---
 
-### Task 2: Message-Mode Compress Prompt
+### Task 2: Priority Injection in Message IDs
 
 **Files:**
+
+- Modify: `src/messages/inject.ts`
+- Test: `tests/inject.test.ts` (add new tests)
+
+Extend `injectMessageIds` to accept an optional `PriorityMap`. When provided, the injected `<dcp-message-id>` tags include a `priority` attribute. `formatMessageIdTag` in `src/utils/message-ids.ts` already supports the `{ priority?: number }` attrs parameter.
+
+**Idempotency fix:** The existing check `text.includes("<dcp-message-id>")` fails when a priority attribute is present (tag becomes `<dcp-message-id priority="3">` which does not contain the exact substring `<dcp-message-id>`). Change to `text.includes("<dcp-message-id")` (without closing `>`) to match both variants.
+
+- [ ] **Step 1: Add tests for priority injection**
+
+Append to `tests/inject.test.ts`, inside the `describe("injectMessageIds")` block. Add the import for `PriorityMap` at the top of the file:
+
+```typescript
+// Add to imports at top of file:
+import { buildPriorityMap } from "../src/messages/priority.ts";
+
+// Add inside describe("injectMessageIds"):
+
+it("injects priority attribute when priorityMap is provided", () => {
+  const state = createSessionState();
+  const messages = [
+    makeUserMessage("a".repeat(400)),
+    makeAssistantMessage("b".repeat(100)),
+  ];
+  assignMessageRefs(state, messages);
+
+  const priorityMap = buildPriorityMap(state, messages);
+  const result = injectMessageIds(state, messages, priorityMap);
+
+  const userText = (result[0] as any).content[0].text as string;
+  expect(userText).toMatch(
+    /<dcp-message-id priority="\d">m0001<\/dcp-message-id>/,
+  );
+
+  const assistantText = (result[1] as any).content[0].text as string;
+  expect(assistantText).toMatch(
+    /<dcp-message-id priority="\d">m0002<\/dcp-message-id>/,
+  );
+});
+
+it("omits priority attribute when priorityMap is undefined", () => {
+  const state = createSessionState();
+  const messages = [makeUserMessage("hello")];
+  assignMessageRefs(state, messages);
+
+  const result = injectMessageIds(state, messages);
+
+  const text = (result[0] as any).content[0].text as string;
+  expect(text).toContain("<dcp-message-id>m0001</dcp-message-id>");
+  expect(text).not.toContain("priority=");
+});
+
+it("is idempotent with priority attributes", () => {
+  const state = createSessionState();
+  const messages = [makeUserMessage("hello")];
+  assignMessageRefs(state, messages);
+
+  const priorityMap = buildPriorityMap(state, messages);
+  const first = injectMessageIds(state, messages, priorityMap);
+  const second = injectMessageIds(state, first, priorityMap);
+
+  const text = (second[0] as any).content[0].text as string;
+  const matches = text.match(/<dcp-message-id/g);
+  expect(matches).toHaveLength(1);
+});
+```
+
+- [ ] **Step 2: Run tests to verify the new tests fail**
+
+```bash
+pnpm test -- tests/inject.test.ts
+```
+
+Expected: New priority tests fail (third argument not yet accepted; idempotency check breaks with priority tags).
+
+- [ ] **Step 3: Modify `injectMessageIds` in `src/messages/inject.ts`**
+
+Changes to make:
+
+1. Add import at top:
+
+   ```typescript
+   import type { PriorityMap } from "./priority.ts";
+   ```
+
+2. Update function signature to accept optional priority map:
+
+   ```typescript
+   export function injectMessageIds(
+     state: SessionState,
+     messages: AgentMessage[],
+     priorityMap?: PriorityMap,
+   ): AgentMessage[] {
+   ```
+
+3. Inside the `.map()` callback, after resolving `ref`, look up priority and generate the tag:
+
+   ```typescript
+   const priorityEntry = priorityMap?.get(i);
+   const tag = formatMessageIdTag(
+     ref,
+     priorityEntry ? { priority: priorityEntry.priority } : undefined,
+   );
+   ```
+
+4. Fix idempotency checks — change all `.includes("<dcp-message-id>")` to `.includes("<dcp-message-id")` (drop closing `>`) so the check matches both `<dcp-message-id>ref</...>` and `<dcp-message-id priority="N">ref</...>`.
+
+The full updated function body (replacing the existing `injectMessageIds`):
+
+```typescript
+export function injectMessageIds(
+  state: SessionState,
+  messages: AgentMessage[],
+  priorityMap?: PriorityMap,
+): AgentMessage[] {
+  return messages.map((msg, i) => {
+    const ref = state.messageIds.byIndex.get(i);
+    if (!ref) return msg;
+
+    if (msg.role !== "user" && msg.role !== "assistant") return msg;
+
+    const priorityEntry = priorityMap?.get(i);
+    const tag = formatMessageIdTag(
+      ref,
+      priorityEntry ? { priority: priorityEntry.priority } : undefined,
+    );
+
+    // E9: UserMessage.content can be a plain string
+    if (typeof msg.content === "string") {
+      if (msg.content.includes("<dcp-message-id")) return msg;
+      return {
+        ...msg,
+        content: [{ type: "text" as const, text: `${msg.content}\n\n${tag}` }],
+      } as AgentMessage;
+    }
+
+    if (!Array.isArray(msg.content)) return msg;
+
+    const textPartIndex = msg.content.findIndex(
+      (p) =>
+        typeof p === "object" &&
+        p !== null &&
+        (p as unknown as Record<string, unknown>).type === "text",
+    );
+    if (textPartIndex === -1) return msg;
+
+    const textPart = msg.content[textPartIndex] as {
+      type: "text";
+      text: string;
+    };
+    if (textPart.text.includes("<dcp-message-id")) return msg;
+
+    const newContent = [...msg.content];
+    newContent[textPartIndex] = {
+      ...textPart,
+      text: `${textPart.text}\n\n${tag}`,
+    } as (typeof newContent)[number];
+
+    return { ...msg, content: newContent } as AgentMessage;
+  });
+}
+```
+
+- [ ] **Step 4: Run tests to verify all pass**
+
+```bash
+pnpm run typecheck
+pnpm test -- tests/inject.test.ts
+```
+
+Expected: All existing + new tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/messages/inject.ts tests/inject.test.ts
+git commit -m "feat: support priority attributes in message ID injection"
+```
+
+---
+
+### Task 3: Message-Mode Compress Prompt
+
+**Files:**
+
 - Create: `src/prompts/compress-message.ts`
 - Test: (no test — static string)
 
@@ -257,9 +459,10 @@ git commit -m "feat: add message-mode compress prompt"
 
 ---
 
-### Task 3: Message-Mode Compress Handler
+### Task 4: Message-Mode Compress Handler
 
 **Files:**
+
 - Create: `src/compress/message.ts`
 - Test: `tests/compress-message.test.ts`
 
@@ -267,56 +470,29 @@ Handles message-mode compress calls where the model targets specific messages by
 
 - [ ] **Step 1: Write tests**
 
-Create `tests/compress-message.test.ts`:
+Create `tests/compress-message.test.ts`. Use shared helpers from `tests/helpers.ts`. Important: `resolveBoundaryIndex` looks up refs in `state.messageIds.byRef`, so tests must populate both `byIndex` and `byRef` (use `assignMessageRefs` or set both maps manually):
 
 ```typescript
 import { describe, expect, it } from "vitest";
 import { handleMessageCompress } from "../src/compress/message.ts";
 import { createSessionState } from "../src/state/state.ts";
-import type { DcpConfig } from "../src/config.ts";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-
-function makeDefaultConfig(): DcpConfig {
-  return {
-    enabled: true,
-    debug: false,
-    compress: {
-      mode: "message",
-      permission: "allow",
-      maxContextPercent: 80,
-      minContextPercent: 50,
-      nudgeFrequency: 5,
-      iterationNudgeThreshold: 15,
-      nudgeForce: "soft",
-      protectedTools: [],
-      protectUserMessages: false,
-      protectTags: false,
-    },
-    manualMode: { default: false, automaticStrategies: true },
-    strategies: {
-      deduplication: { enabled: true, protectedTools: [] },
-      purgeErrors: { enabled: true, turns: 4, protectedTools: [] },
-    },
-    protectedFilePatterns: [],
-    nudgeNotification: "minimal",
-  };
-}
+import { assignMessageRefs } from "../src/messages/inject.ts";
+import {
+  makeUserMessage,
+  makeAssistantMessage,
+  makeDefaultConfig,
+} from "./helpers.ts";
 
 describe("handleMessageCompress", () => {
   it("compresses targeted messages", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig();
-
-    state.messageIds.byIndex.set(0, "m0001");
-    state.messageIds.byIndex.set(1, "m0002");
-    state.messageIds.byIndex.set(2, "m0003");
-    state.messageIds.nextRefIndex = 4;
-
-    const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 0 } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "long response..." }], stopReason: "stop", usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 }, timestamp: 0 } as AgentMessage,
-      { role: "user", content: [{ type: "text", text: "next" }], timestamp: 0 } as AgentMessage,
+    const config = makeDefaultConfig({ mode: "message" });
+    const messages = [
+      makeUserMessage("hello"),
+      makeAssistantMessage("long response..."),
+      makeUserMessage("next"),
     ];
+    assignMessageRefs(state, messages);
 
     const result = handleMessageCompress(state, config, messages, {
       topic: "Greeting",
@@ -326,19 +502,56 @@ describe("handleMessageCompress", () => {
       ],
     });
 
-    expect(result).toContain("Compressed");
-    expect(state.prune.messages.blocksById.size).toBeGreaterThan(0);
+    expect(result).toContain("Compressed 2 messages");
+    expect(state.prune.messages.blocksById.size).toBe(2);
+
+    // Verify blocks have mode "message" and startIndex === endIndex
+    for (const [, block] of state.prune.messages.blocksById) {
+      expect(block.mode).toBe("message");
+      expect(block.startIndex).toBe(block.endIndex);
+    }
   });
 
   it("throws for unknown message ID", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig();
-    const messages: AgentMessage[] = [];
+    const config = makeDefaultConfig({ mode: "message" });
+    const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
 
-    expect(() => handleMessageCompress(state, config, messages, {
+    expect(() =>
+      handleMessageCompress(state, config, messages, {
+        topic: "test",
+        targets: [{ messageId: "m9999", summary: "text" }],
+      }),
+    ).toThrow("m9999 is not available");
+  });
+
+  it("throws for empty targets array", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ mode: "message" });
+
+    expect(() =>
+      handleMessageCompress(state, config, [], {
+        topic: "test",
+        targets: [],
+      }),
+    ).toThrow("targets array is required");
+  });
+
+  it("marks compressed messages in prune state", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ mode: "message" });
+    const messages = [makeUserMessage("hello"), makeAssistantMessage("world")];
+    assignMessageRefs(state, messages);
+
+    handleMessageCompress(state, config, messages, {
       topic: "test",
-      targets: [{ messageId: "m9999", summary: "text" }],
-    })).toThrow();
+      targets: [{ messageId: "m0001", summary: "User said hello" }],
+    });
+
+    const entry = state.prune.messages.byMessageIndex.get(0);
+    expect(entry).toBeDefined();
+    expect(entry!.activeBlockIds.length).toBeGreaterThan(0);
   });
 });
 ```
@@ -349,7 +562,7 @@ describe("handleMessageCompress", () => {
 pnpm test -- tests/compress-message.test.ts
 ```
 
-Expected: FAIL.
+Expected: FAIL (module not found).
 
 - [ ] **Step 3: Implement message-mode handler**
 
@@ -383,7 +596,7 @@ export interface MessageCompressArgs {
  */
 export function handleMessageCompress(
   state: SessionState,
-  config: DcpConfig,
+  _config: DcpConfig,
   messages: AgentMessage[],
   args: MessageCompressArgs,
 ): string {
@@ -451,24 +664,32 @@ git commit -m "feat: add message-mode compression handler"
 
 ---
 
-### Task 4: Wire Message Mode into Extension
+### Task 5: Wire Message Mode into Extension
 
 **Files:**
+
 - Modify: `src/index.ts`
 
-Switch tool schema and handler based on `config.compress.mode`. Add priority map to context pipeline for message mode.
+Switch tool schema and handler based on `config.compress.mode`. Build priority map in context pipeline for message mode and pass it to `injectMessageIds`.
 
-- [ ] **Step 1: Update index.ts**
+**Note:** `pi.registerTool()` is called once at extension load time. The config is already loaded by that point (line 25), so conditional registration based on `config.compress.mode` works. If the user changes config between sessions, the tool schema won't hot-reload — this is acceptable (matches Pi extension lifecycle).
 
-Add imports:
+- [ ] **Step 1: Add imports to `src/index.ts`**
+
+Add after existing imports:
 
 ```typescript
-import { handleMessageCompress, type MessageCompressArgs } from "./compress/message.ts";
-import { buildPriorityMap } from "./messages/priority.ts";
+import {
+  handleMessageCompress,
+  type MessageCompressArgs,
+} from "./compress/message.ts";
+import { buildPriorityMap, type PriorityMap } from "./messages/priority.ts";
 import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
 ```
 
-Update tool registration to handle both modes:
+- [ ] **Step 2: Make tool registration conditional**
+
+Replace the current unconditional `pi.registerTool({...})` block (the range-mode tool registration) with a conditional branch:
 
 ```typescript
 if (config.compress.mode === "message") {
@@ -477,18 +698,29 @@ if (config.compress.mode === "message") {
     label: "Compress",
     description: COMPRESS_MESSAGE_PROMPT,
     parameters: Type.Object({
-      topic: Type.String({ description: "Short label (3-5 words)" }),
+      topic: Type.String({
+        description: "Short label (3-5 words) for display",
+      }),
       targets: Type.Array(
         Type.Object({
-          messageId: Type.String({ description: "Message ID to compress (e.g. m0001)" }),
-          summary: Type.String({ description: "Summary replacing message content" }),
+          messageId: Type.String({
+            description: "Message ID to compress (e.g. m0001)",
+          }),
+          summary: Type.String({
+            description: "Complete technical summary replacing message content",
+          }),
         }),
-        { description: "Messages to compress" }
+        { description: "Messages to compress" },
       ),
     }),
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const typedArgs = params as unknown as MessageCompressArgs;
-      const resultText = handleMessageCompress(state, config, latestMessages, typedArgs);
+      const resultText = handleMessageCompress(
+        state,
+        config,
+        latestMessages,
+        typedArgs,
+      );
       return {
         content: [{ type: "text" as const, text: resultText }],
         details: {},
@@ -496,32 +728,81 @@ if (config.compress.mode === "message") {
     },
   });
 } else {
-  // Range mode tool registration (from Phase 4)
-  // ...
+  pi.registerTool({
+    name: "compress",
+    label: "Compress",
+    description:
+      "Compress conversation ranges into summaries. Use message IDs (m0001, m0002...) visible in context as boundaries.",
+    parameters: Type.Object({
+      topic: Type.String({
+        description: "Short label (3-5 words) for display",
+      }),
+      content: Type.Array(
+        Type.Object({
+          startId: Type.String({
+            description:
+              "Message or block ID marking range start (e.g. m0001, b2)",
+          }),
+          endId: Type.String({
+            description:
+              "Message or block ID marking range end (e.g. m0012, b5)",
+          }),
+          summary: Type.String({
+            description:
+              "Complete technical summary replacing all content in range",
+          }),
+        }),
+        {
+          description:
+            "Ranges to compress, each with start/end boundaries and summary",
+        },
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const typedArgs = params as unknown as RangeCompressArgs;
+      const resultText = handleRangeCompress(
+        state,
+        config,
+        latestMessages,
+        typedArgs,
+      );
+      return {
+        content: [{ type: "text" as const, text: resultText }],
+        details: {},
+      };
+    },
+  });
 }
 ```
 
-Update context pipeline to build priority map and inject priorities into message IDs:
+- [ ] **Step 3: Update context pipeline to build priority map**
+
+In the `context` event handler, between `assignMessageRefs` (Step 4) and `injectMessageIds` (Step 5), add priority map construction and pass it through:
 
 ```typescript
-// After assignMessageRefs, before injectMessageIds:
+// Step 4: Assign message refs to raw messages (before filtering, so refs are stable raw indices)
+assignMessageRefs(state, messages);
+
+// Step 4.5: Build priority map for message-mode compression
 let priorityMap: PriorityMap | undefined;
 if (config.compress.mode === "message") {
   priorityMap = buildPriorityMap(state, messages);
 }
-// Pass priorityMap to injectMessageIds for priority attribute injection
+
+// Step 5: Inject message IDs into raw messages (with priority attrs if message mode)
+messages = injectMessageIds(state, messages, priorityMap);
 ```
 
-- [ ] **Step 2: Verify typecheck and tests**
+- [ ] **Step 4: Verify typecheck and full test suite**
 
 ```bash
 pnpm run typecheck
 pnpm test
 ```
 
-Expected: All pass.
+Expected: All pass (existing range-mode tests unaffected; new message-mode tests pass).
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/index.ts
