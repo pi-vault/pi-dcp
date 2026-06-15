@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { formatMessageRef, formatMessageIdTag } from "../utils/message-ids.ts";
+import type { PriorityMap } from "./priority.ts";
 import {
   CONTEXT_LIMIT_NUDGE,
   TURN_NUDGE,
@@ -37,6 +38,7 @@ export function assignMessageRefs(
 export function injectMessageIds(
   state: SessionState,
   messages: AgentMessage[],
+  priorityMap?: PriorityMap,
 ): AgentMessage[] {
   return messages.map((msg, i) => {
     const ref = state.messageIds.byIndex.get(i);
@@ -44,11 +46,17 @@ export function injectMessageIds(
 
     if (msg.role !== "user" && msg.role !== "assistant") return msg;
 
-    const tag = formatMessageIdTag(ref);
+    const priorityEntry = priorityMap?.get(i);
+    const tag = formatMessageIdTag(
+      ref,
+      priorityEntry ? { priority: priorityEntry.priority } : undefined,
+    );
 
     // E9: UserMessage.content can be a plain string
+    // Idempotency check uses "<dcp-message-id" (no closing >) to match both
+    // plain and priority-attribute variants.
     if (typeof msg.content === "string") {
-      if (msg.content.includes("<dcp-message-id>")) return msg;
+      if (msg.content.includes("<dcp-message-id")) return msg;
       return {
         ...msg,
         content: [{ type: "text" as const, text: `${msg.content}\n\n${tag}` }],
@@ -66,7 +74,7 @@ export function injectMessageIds(
     if (textPartIndex === -1) return msg;
 
     const textPart = msg.content[textPartIndex] as { type: "text"; text: string };
-    if (textPart.text.includes("<dcp-message-id>")) return msg;
+    if (textPart.text.includes("<dcp-message-id")) return msg;
 
     const newContent = [...msg.content];
     newContent[textPartIndex] = {

@@ -9,6 +9,7 @@ import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { CONTEXT_LIMIT_NUDGE, TURN_NUDGE, ITERATION_NUDGE } from "../src/prompts/nudges.ts";
 import { makeUserMessage, makeUserMessageString, makeAssistantMessage, makeDefaultConfig } from "./helpers.ts";
+import { buildPriorityMap } from "../src/messages/priority.ts";
 
 // ---------------------------------------------------------------------------
 // assignMessageRefs
@@ -125,6 +126,60 @@ describe("injectMessageIds", () => {
     const result = injectMessageIds(state, [msg]);
 
     expect(result[0]).toBe(msg); // unchanged reference
+  });
+});
+
+// ---------------------------------------------------------------------------
+// injectMessageIds — priority map support
+// ---------------------------------------------------------------------------
+
+describe("injectMessageIds with priorityMap", () => {
+  it("injects priority attribute when priorityMap is provided", () => {
+    const state = createSessionState();
+    const messages = [
+      makeUserMessage("a".repeat(400)),
+      makeAssistantMessage("b".repeat(100)),
+    ];
+    assignMessageRefs(state, messages);
+
+    const priorityMap = buildPriorityMap(state, messages);
+    const result = injectMessageIds(state, messages, priorityMap);
+
+    const userText = (result[0] as any).content[0].text as string;
+    expect(userText).toMatch(
+      /<dcp-message-id priority="\d">m0001<\/dcp-message-id>/,
+    );
+
+    const assistantText = (result[1] as any).content[0].text as string;
+    expect(assistantText).toMatch(
+      /<dcp-message-id priority="\d">m0002<\/dcp-message-id>/,
+    );
+  });
+
+  it("omits priority attribute when priorityMap is undefined", () => {
+    const state = createSessionState();
+    const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
+
+    const result = injectMessageIds(state, messages);
+
+    const text = (result[0] as any).content[0].text as string;
+    expect(text).toContain("<dcp-message-id>m0001</dcp-message-id>");
+    expect(text).not.toContain("priority=");
+  });
+
+  it("is idempotent with priority attributes", () => {
+    const state = createSessionState();
+    const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
+
+    const priorityMap = buildPriorityMap(state, messages);
+    const first = injectMessageIds(state, messages, priorityMap);
+    const second = injectMessageIds(state, first, priorityMap);
+
+    const text = (second[0] as any).content[0].text as string;
+    const matches = text.match(/<dcp-message-id/g);
+    expect(matches).toHaveLength(1);
   });
 });
 
