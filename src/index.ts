@@ -21,6 +21,7 @@ import { deduplicate } from "./strategies/deduplication.ts";
 import { purgeErrors } from "./strategies/purge-errors.ts";
 import type { SessionState } from "./state/types.ts";
 import { registerDcpCommands } from "./commands/register.ts";
+import { saveSessionState, loadSessionState } from "./state/persistence.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
@@ -30,6 +31,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   let logger: Logger = new Logger(config.debug);
   const state: SessionState = createSessionState();
   let latestMessages: AgentMessage[] = [];
+  let sessionDir: string = "";
 
   function reloadConfig(logDir?: string): void {
     config = loadConfig(configFilePath);
@@ -114,7 +116,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (event, ctx) => {
-    const sessionDir = ctx.sessionManager.getSessionDir();
+    sessionDir = ctx.sessionManager.getSessionDir();
     const logDir = path.join(sessionDir, "dcp", "logs");
     reloadConfig(logDir);
     if (!config.enabled) return;
@@ -122,6 +124,17 @@ export default function createExtension(pi: ExtensionAPI): void {
     resetSessionState(state);
     state.sessionId = `pi-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
     state.manualMode = config.manualMode.default;
+
+    // Load persisted state if resuming
+    if (event.reason === "resume") {
+      const persisted = loadSessionState(sessionDir);
+      if (persisted) {
+        state.currentTurn = persisted.currentTurn;
+        state.stats = persisted.stats;
+        state.lastCompaction = persisted.lastCompaction;
+        logger.info("dcp", "resumed persisted state", { turn: state.currentTurn });
+      }
+    }
 
     const usage = ctx.getContextUsage();
     if (usage) {
@@ -149,7 +162,10 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async (_event, _ctx) => {
-    logger.info("dcp", "session shutdown");
+    if (sessionDir) {
+      saveSessionState(state, sessionDir);
+    }
+    logger.info("dcp", "session shutdown, state saved");
   });
 
   pi.on("turn_end", async (_event, _ctx) => {
