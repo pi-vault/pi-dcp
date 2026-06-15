@@ -44,7 +44,8 @@ export function handleMessageCompress(
     const index = resolveBoundaryIndex(state, target.messageId);
     if (index === undefined) {
       throw new Error(
-        `messageId ${target.messageId} is not available in the current conversation context.`,
+        `messageId ${target.messageId} is not available. It may have been pruned or compressed. ` +
+        `Choose a message ID (m0001) visible in the current context.`,
       );
     }
 

@@ -16,9 +16,9 @@ export type PriorityMap = Map<number, MessagePriorityEntry>;
  * Priority 1 = highest (compress first), 5 = lowest (keep).
  *
  * Ranking factors:
- * - Position: earlier messages get higher priority
- * - Token count: larger messages get higher priority
- * - Role: tool results get slightly higher priority than user messages
+ * - Position: earlier messages get higher priority (compress first)
+ * - Token count: larger messages get higher priority (compress first)
+ * - Role: tool results are resolved content, slightly prioritized for compression
  */
 export function buildPriorityMap(
   state: SessionState,

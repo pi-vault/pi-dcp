@@ -48,7 +48,7 @@ describe("handleMessageCompress", () => {
         topic: "test",
         targets: [{ messageId: "m9999", summary: "text" }],
       }),
-    ).toThrow("m9999 is not available");
+    ).toThrow("m9999 is not available. It may have been pruned or compressed.");
   });
 
   it("throws for empty targets array", () => {

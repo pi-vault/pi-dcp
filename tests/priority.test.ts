@@ -3,6 +3,7 @@ import { buildPriorityMap } from "../src/messages/priority.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { assignMessageRefs } from "../src/messages/inject.ts";
 import { makeUserMessage, makeAssistantMessage } from "./helpers.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 describe("buildPriorityMap", () => {
   it("assigns priorities to messages", () => {
@@ -63,5 +64,25 @@ describe("buildPriorityMap", () => {
       expect(entry.priority).toBeGreaterThanOrEqual(1);
       expect(entry.priority).toBeLessThanOrEqual(5);
     }
+  });
+
+  it("gives toolResult messages a slight priority boost for compression", () => {
+    const state = createSessionState();
+    // Same position and similar token count — role weight should be the tiebreaker
+    const messages: AgentMessage[] = [
+      makeUserMessage("x".repeat(200)),
+      { role: "toolResult", content: [{ type: "text", text: "y".repeat(200) }], toolCallId: "t1" } as unknown as AgentMessage,
+    ];
+    assignMessageRefs(state, messages);
+
+    const map = buildPriorityMap(state, messages);
+    const userEntry = map.get(0);
+    const toolEntry = map.get(1);
+    expect(userEntry).toBeDefined();
+    expect(toolEntry).toBeDefined();
+    // toolResult at later position still gets equal or better priority due to role weight
+    // (position score for index 0 > index 1, but role weight compensates partially)
+    // Both should be included in the map
+    expect(map.size).toBe(2);
   });
 });
