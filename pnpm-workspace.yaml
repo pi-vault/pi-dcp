@@ -1,0 +1,5 @@
+allowBuilds:
+  "@google/genai": true
+  protobufjs: true
+minimumReleaseAgeExclude:
+  - typebox
