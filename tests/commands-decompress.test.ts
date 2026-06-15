@@ -59,6 +59,21 @@ describe("decompress command", () => {
     const result = decompressCommand(state, "");
     expect(result).toContain("Usage");
   });
+
+  it("returns error for invalid block ID format", () => {
+    const state = createSessionState();
+    const result = decompressCommand(state, "abc");
+    expect(result).toContain("Invalid block ID");
+  });
+
+  it("returns error for already-inactive block", () => {
+    const state = createSessionState();
+    const block = makeBlock(1, false);
+    state.prune.messages.blocksById.set(1, block);
+
+    const result = decompressCommand(state, "1");
+    expect(result).toContain("already inactive");
+  });
 });
 
 describe("recompress command", () => {
@@ -83,5 +98,11 @@ describe("recompress command", () => {
 
     const result = recompressCommand(state, "1");
     expect(result).toContain("not deactivated by user");
+  });
+
+  it("returns error for invalid block ID format", () => {
+    const state = createSessionState();
+    const result = recompressCommand(state, "xyz");
+    expect(result).toContain("Invalid block ID");
   });
 });

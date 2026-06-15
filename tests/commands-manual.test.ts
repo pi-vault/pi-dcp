@@ -25,6 +25,13 @@ describe("manual command", () => {
     expect(result).toContain("active");
   });
 
+  it("reports compress-pending state", () => {
+    const state = createSessionState();
+    state.manualMode = "compress-pending";
+    const result = manualCommand(state, "");
+    expect(result).toContain("compress-pending");
+  });
+
   it("returns error for invalid argument", () => {
     const state = createSessionState();
     const result = manualCommand(state, "maybe");

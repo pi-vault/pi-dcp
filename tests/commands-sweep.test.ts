@@ -33,6 +33,24 @@ describe("sweep command", () => {
     expect(state.prune.tools.has("call-2")).toBe(false);
   });
 
+  it("respects config.compress.protectedTools", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ protectedTools: ["custom-search"] });
+
+    state.toolParameters.set("call-1", {
+      tool: "custom-search",
+      parameters: {},
+      status: "completed",
+      error: undefined,
+      turn: 1,
+      tokenCount: 200,
+    });
+
+    const result = sweepCommand(state, config);
+    expect(result).toContain("0");
+    expect(state.prune.tools.has("call-1")).toBe(false);
+  });
+
   it("skips already-pruned tool outputs", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
