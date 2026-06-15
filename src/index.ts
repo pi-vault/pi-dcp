@@ -27,15 +27,19 @@ export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
   const configFilePath = path.join(agentDir, "extensions", "dcp.json");
 
-  let config: DcpConfig = loadConfig(configFilePath);
+  let { config } = loadConfig(configFilePath);
   let logger: Logger = new Logger(config.debug);
   const state: SessionState = createSessionState();
   let latestMessages: AgentMessage[] = [];
   let sessionDir: string = "";
 
   function reloadConfig(logDir?: string): void {
-    config = loadConfig(configFilePath);
+    const result = loadConfig(configFilePath);
+    config = result.config;
     logger = new Logger(config.debug, logDir);
+    for (const w of result.warnings) {
+      logger.info("config", w);
+    }
   }
 
   if (!config.enabled) return;

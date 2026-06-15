@@ -93,24 +93,70 @@ export const BASE_PROTECTED_TOOLS = [
   "ls",
 ];
 
+const KNOWN_TOP_LEVEL_KEYS = new Set([
+  "enabled", "debug", "compress", "manualMode", "strategies",
+  "protectedFilePatterns", "nudgeNotification",
+]);
+
+const KNOWN_COMPRESS_KEYS = new Set([
+  "mode", "permission", "maxContextPercent", "minContextPercent",
+  "nudgeFrequency", "iterationNudgeThreshold", "nudgeForce",
+  "protectedTools", "protectUserMessages", "protectTags",
+]);
+
+export interface LoadConfigResult {
+  config: DcpConfig;
+  warnings: string[];
+}
+
 /**
  * Load DCP configuration from a single JSON file.
  * Falls back to defaults on missing file, parse error, or invalid content.
+ * Returns warnings for unknown keys and out-of-range values.
  *
  * @param configFilePath - Absolute path to dcp.json (typically resolved via getAgentDir())
  */
-export function loadConfig(configFilePath: string): DcpConfig {
+export function loadConfig(configFilePath: string): LoadConfigResult {
   const config = structuredClone(DEFAULT_CONFIG);
+  const warnings: string[] = [];
 
   const parsed = parseConfigFile(configFilePath);
-  if (parsed) mergeConfig(config, parsed);
+  if (parsed) {
+    // Check for unknown top-level keys
+    for (const key of Object.keys(parsed)) {
+      if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
+        warnings.push(`Unknown config key "${key}" — ignored`);
+      }
+    }
+
+    // Check for unknown compress keys
+    if (parsed.compress && typeof parsed.compress === "object") {
+      for (const key of Object.keys(parsed.compress as object)) {
+        if (!KNOWN_COMPRESS_KEYS.has(key)) {
+          warnings.push(`Unknown compress key "${key}" — ignored`);
+        }
+      }
+    }
+
+    mergeConfig(config, parsed);
+  }
+
+  // Validate ranges
+  if (config.compress.maxContextPercent > 100) {
+    warnings.push(`maxContextPercent (${config.compress.maxContextPercent}) exceeds 100, reset to default`);
+    config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
+  }
+  if (config.compress.minContextPercent > 100) {
+    warnings.push(`minContextPercent (${config.compress.minContextPercent}) exceeds 100, reset to default`);
+    config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
+  }
 
   if (config.compress.maxContextPercent <= config.compress.minContextPercent) {
     config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
     config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
   }
 
-  return config;
+  return { config, warnings };
 }
 
 function parseConfigFile(
