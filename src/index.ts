@@ -103,6 +103,8 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.prune.messages.blocksById.clear();
     state.prune.messages.activeBlockIds.clear();
     state.prune.messages.activeByAnchorIndex.clear();
+    state.messageIds.byIndex.clear();
+    state.messageIds.nextRefIndex = 1;
     state.lastCompaction = Date.now();
     logger.info("dcp", "compaction detected, pruning state reset");
   });
@@ -155,21 +157,21 @@ export default function createExtension(pi: ExtensionAPI): void {
       });
     }
 
-    // Step 4: Apply pruning to messages
-    messages = applyPruning(state, messages);
-
-    // Step 5: Assign message refs
+    // Step 4: Assign message refs to raw messages (before filtering, so refs are stable raw indices)
     assignMessageRefs(state, messages);
 
-    // Step 6: Inject nudges based on context usage (reuse initial usage snapshot)
+    // Step 5: Inject message IDs into raw messages (survivors keep their tags after filtering)
+    messages = injectMessageIds(state, messages);
+
+    // Step 6: Apply pruning to messages (compressed ranges removed, tool outputs pruned)
+    messages = applyPruning(state, messages);
+
+    // Step 7: Inject nudges based on context usage (reuse initial usage snapshot)
     messages = injectCompressNudges(state, config, messages, usage ? {
       tokens: usage.tokens,
       contextWindow: usage.contextWindow,
       percent: usage.percent,
     } : undefined);
-
-    // Step 7: Inject message IDs
-    messages = injectMessageIds(state, messages);
 
     return { messages };
   });
