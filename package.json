@@ -1,0 +1,60 @@
+{
+  "name": "@pi-vault/pi-dcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi extension for dynamic context pruning — incremental tool output pruning and conversation compression",
+  "author": "Lanh Hoang <lanhhoang@users.noreply.github.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/pi-vault/pi-dcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-vault/pi-dcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pi-vault/pi-dcp/issues"
+  },
+  "keywords": [
+    "pi",
+    "pi-coding-agent",
+    "pi-package",
+    "pi-extension",
+    "pi-dcp",
+    "context-pruning",
+    "compression"
+  ],
+  "scripts": {
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "biome lint . && tsc --noEmit && vitest run",
+    "pack:dry-run": "pnpm pack --dry-run"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "dependencies": {
+    "typebox": "^1.2.10"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "@earendil-works/pi-agent-core": "^0.79.3",
+    "@earendil-works/pi-coding-agent": "^0.79.3",
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}
