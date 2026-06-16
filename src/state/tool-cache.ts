@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState, ToolParameterEntry } from "./types.ts";
+import { countMessageTokens } from "../utils/tokens.ts";
 
 /**
  * Scan messages and populate state.toolParameters with metadata for each tool call.
@@ -13,13 +14,14 @@ export function syncToolCache(
   state: SessionState,
   messages: AgentMessage[],
 ): void {
-  // First pass: collect tool results
-  const resultsByCallId = new Map<string, { isError: boolean; errorText?: string }>();
+  // First pass: collect tool results with token counts
+  const resultsByCallId = new Map<string, { isError: boolean; errorText?: string; tokenCount: number }>();
   for (const msg of messages) {
     if (msg.role !== "toolResult") continue;
     resultsByCallId.set(msg.toolCallId, {
       isError: msg.isError,
       errorText: msg.isError ? extractToolResultText(msg) : undefined,
+      tokenCount: countMessageTokens(msg),
     });
   }
 
@@ -43,7 +45,7 @@ export function syncToolCache(
         status: result ? (result.isError ? "error" : "completed") : "pending",
         error: result?.errorText,
         turn: state.currentTurn,
-        tokenCount: undefined,
+        tokenCount: result?.tokenCount,
       };
 
       state.toolParameters.set(callId, entry);

@@ -69,6 +69,44 @@ describe("tool-cache", () => {
       expect(state.toolParameters.get("call1")!.status).toBe("error");
     });
 
+    it("populates tokenCount from toolResult message content", () => {
+      const state = createSessionState();
+      state.currentTurn = 1;
+
+      const messages: AgentMessage[] = [
+        makeAssistantWithToolCall("call1", "read", { filePath: "/tmp/foo.ts" }),
+        {
+          role: "toolResult",
+          toolCallId: "call1",
+          toolName: "read",
+          content: [{ type: "text", text: "a".repeat(400) }],
+          isError: false,
+          timestamp: Date.now(),
+        } as AgentMessage,
+      ];
+
+      syncToolCache(state, messages);
+
+      const entry = state.toolParameters.get("call1")!;
+      // 400 chars / 4 = 100 tokens
+      expect(entry.tokenCount).toBe(100);
+    });
+
+    it("sets tokenCount undefined when toolResult not yet received", () => {
+      const state = createSessionState();
+      state.currentTurn = 1;
+
+      const messages: AgentMessage[] = [
+        makeAssistantWithToolCall("call1", "read", { filePath: "/tmp/foo.ts" }),
+        // No toolResult for call1
+      ];
+
+      syncToolCache(state, messages);
+
+      const entry = state.toolParameters.get("call1")!;
+      expect(entry.tokenCount).toBeUndefined();
+    });
+
     it("does not overwrite existing entries", () => {
       const state = createSessionState();
       state.currentTurn = 3;
