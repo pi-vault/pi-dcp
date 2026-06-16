@@ -110,6 +110,7 @@ export function expandRangeForToolChains(
 
 /**
  * Collect message indices in a range [startIndex, endIndex].
+ * Auto-expands the range to protect tool call chains from being split.
  */
 export function resolveSelection(
   messages: AgentMessage[],
@@ -128,10 +129,17 @@ export function resolveSelection(
     );
   }
 
+  // Expand range to avoid splitting tool call chains
+  const expanded = expandRangeForToolChains(messages, startIndex, endIndex);
+
   const messageIndices: number[] = [];
-  for (let i = startIndex; i <= endIndex; i++) {
+  for (let i = expanded.startIndex; i <= expanded.endIndex; i++) {
     messageIndices.push(i);
   }
 
-  return { messageIndices, startIndex, endIndex };
+  return {
+    messageIndices,
+    startIndex: expanded.startIndex,
+    endIndex: expanded.endIndex,
+  };
 }

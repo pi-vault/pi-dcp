@@ -100,6 +100,45 @@ describe("handleCompress (range mode)", () => {
   });
 });
 
+describe("handleCompress tool chain protection", () => {
+  it("auto-expands range to include orphaned toolResult", () => {
+    const state = createSessionState();
+    state.messageIds.byRef.set("m0001", 0);
+    state.messageIds.byRef.set("m0002", 1);
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "read it" }], timestamp: Date.now() } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
+        stopReason: "toolUse",
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        toolCallId: "c1",
+        toolName: "read",
+        content: [{ type: "text", text: "file contents" }],
+        isError: false,
+        timestamp: Date.now(),
+      } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "here it is" }], timestamp: Date.now() } as unknown as AgentMessage,
+    ];
+
+    const config = makeDefaultConfig();
+    // Compress range m0001..m0002 = indices 0..1 (assistant toolCall without its result)
+    const result = handleCompress(state, config, messages, {
+      topic: "test",
+      mode: "range",
+      content: [{ startId: "m0001", endId: "m0002", summary: "read a file" }],
+    });
+
+    // Should auto-expand to include index 2 (toolResult), so 3 messages compressed
+    expect(result).toContain("Compressed 3 messages");
+  });
+});
+
 describe("handleCompress token reporting", () => {
   it("includes token savings in response when tokens are known", () => {
     const state = createSessionState();
