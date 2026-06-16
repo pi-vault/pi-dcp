@@ -4,7 +4,7 @@
 
 **Goal:** The compress tool's return string includes actual token savings (original tokens vs summary tokens), giving the model visibility into compression effectiveness.
 
-**Architecture:** `applyCompressionState` already computes `block.compressedTokens` by summing `entry.tokenCount` for messages in the range. With Phase 1 in place, these are now non-zero. Extend `NormalizedEntry` in the handler to carry `compressedTokens` and `summaryTokens`, then format them into the response string.
+**Architecture:** `applyCompressionState` already computes `block.compressedTokens` by summing `entry.tokenCount` for messages in the range, and stores `summaryTokens` on the block. With Phase 1 in place, these token counts are now non-zero. After calling `applyCompressionState`, read the stored block from `blocksById` to accumulate totals, then format them into the response string.
 
 **Tech Stack:** Vitest, TypeScript
 
@@ -124,7 +124,7 @@ export function handleCompress(
     const summaryTokens = countTokens(wrappedSummary);
     const compressMessageIndex = messages.length - 1;
 
-    const { messageIndices } = applyCompressionState(state, {
+    applyCompressionState(state, {
       blockId,
       runId,
       topic: args.topic,
