@@ -2,4 +2,8 @@ allowBuilds:
   "@google/genai": true
   protobufjs: true
 minimumReleaseAgeExclude:
+  - "@earendil-works/pi-agent-core"
+  - "@earendil-works/pi-coding-agent"
+  - "@earendil-works/pi-ai"
+  - "@earendil-works/pi-tui"
   - typebox

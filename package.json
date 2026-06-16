@@ -28,7 +28,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "biome lint . && tsc --noEmit && vitest run",
-    "pack:dry-run": "pnpm pack --dry-run"
+    "pack:dry-run": "pnpm pack --dry-run",
+    "release:check": "pnpm check && pnpm run pack:dry-run"
   },
   "pi": {
     "extensions": [
@@ -40,20 +41,21 @@
   },
   "files": [
     "src",
+    "CHANGELOG.md",
+    "LICENSE",
     "README.md"
   ],
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
-    "@earendil-works/pi-coding-agent": "*"
-  },
-  "dependencies": {
-    "typebox": "^1.2.10"
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
-    "@earendil-works/pi-agent-core": "^0.79.3",
-    "@earendil-works/pi-coding-agent": "^0.79.3",
+    "@earendil-works/pi-agent-core": "^0.79.4",
+    "@earendil-works/pi-coding-agent": "^0.79.4",
     "@types/node": "^25.9.3",
+    "typebox": "^1.2.12",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   }
