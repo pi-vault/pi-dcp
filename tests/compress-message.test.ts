@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { handleMessageCompress } from "../src/compress/message.ts";
+import { handleCompress } from "../src/compress/handler.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { assignMessageRefs } from "../src/messages/inject.ts";
 import {
@@ -8,7 +8,7 @@ import {
   makeDefaultConfig,
 } from "./helpers.ts";
 
-describe("handleMessageCompress", () => {
+describe("handleCompress (message mode)", () => {
   it("compresses targeted messages", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ mode: "message" });
@@ -19,12 +19,13 @@ describe("handleMessageCompress", () => {
     ];
     assignMessageRefs(state, messages);
 
-    const result = handleMessageCompress(state, config, messages, {
+    const result = handleCompress(state, config, messages, {
       topic: "Greeting",
       targets: [
         { messageId: "m0001", summary: "User greeted" },
         { messageId: "m0002", summary: "Assistant responded with greeting" },
       ],
+      mode: "message",
     });
 
     expect(result).toContain("Compressed 2 messages");
@@ -44,9 +45,10 @@ describe("handleMessageCompress", () => {
     assignMessageRefs(state, messages);
 
     expect(() =>
-      handleMessageCompress(state, config, messages, {
+      handleCompress(state, config, messages, {
         topic: "test",
         targets: [{ messageId: "m9999", summary: "text" }],
+        mode: "message",
       }),
     ).toThrow("m9999 is not available. It may have been pruned or compressed.");
   });
@@ -56,9 +58,10 @@ describe("handleMessageCompress", () => {
     const config = makeDefaultConfig({ mode: "message" });
 
     expect(() =>
-      handleMessageCompress(state, config, [], {
+      handleCompress(state, config, [], {
         topic: "test",
         targets: [],
+        mode: "message",
       }),
     ).toThrow("targets array is required");
   });
@@ -69,9 +72,10 @@ describe("handleMessageCompress", () => {
     const messages = [makeUserMessage("hello"), makeAssistantMessage("world")];
     assignMessageRefs(state, messages);
 
-    handleMessageCompress(state, config, messages, {
+    handleCompress(state, config, messages, {
       topic: "test",
       targets: [{ messageId: "m0001", summary: "User said hello" }],
+      mode: "message",
     });
 
     const entry = state.prune.messages.byMessageIndex.get(0);

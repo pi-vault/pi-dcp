@@ -5,8 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadConfig } from "./config.ts";
-import { handleRangeCompress, type RangeCompressArgs } from "./compress/range.ts";
-import { handleMessageCompress, type MessageCompressArgs } from "./compress/message.ts";
+import { handleCompress, type CompressArgs } from "./compress/handler.ts";
 import { buildPriorityMap, type PriorityMap } from "./messages/priority.ts";
 import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
 import { Logger } from "./logger.ts";
@@ -67,8 +66,10 @@ export default function createExtension(pi: ExtensionAPI): void {
         ),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-        const typedArgs = params as unknown as MessageCompressArgs;
-        const resultText = handleMessageCompress(state, config, latestMessages, typedArgs);
+        const resultText = handleCompress(state, config, latestMessages, {
+          ...(params as Record<string, unknown>),
+          mode: "message",
+        } as CompressArgs);
         return {
           content: [{ type: "text" as const, text: resultText }],
           details: {},
@@ -99,8 +100,10 @@ export default function createExtension(pi: ExtensionAPI): void {
         ),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-        const typedArgs = params as unknown as RangeCompressArgs;
-        const resultText = handleRangeCompress(state, config, latestMessages, typedArgs);
+        const resultText = handleCompress(state, config, latestMessages, {
+          ...(params as Record<string, unknown>),
+          mode: "range",
+        } as CompressArgs);
         return {
           content: [{ type: "text" as const, text: resultText }],
           details: {},

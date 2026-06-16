@@ -4,7 +4,7 @@
 
 **Goal:** Create `src/compress/handler.ts` that handles both range and message compression through a single `handleCompress` function, eliminating the near-identical flow duplicated across `range.ts` and `message.ts`.
 
-**Architecture:** `handleCompress` accepts a discriminated union `CompressArgs` with `mode: "range" | "message"`. Internally it normalizes both modes to a common form `Array<{ startIndex, endIndex, summary }>`, then executes the shared loop (allocate IDs → wrap summary → count tokens → apply state). The two mode-specific files are deleted. `search.ts` and `state.ts` remain unchanged.
+**Architecture:** `handleCompress` accepts `CompressArgs` with `mode: "range" | "message"`. Internally it normalizes both modes to a common form `Array<{ startIndex, endIndex, summary, messageCount }>`, then executes the shared loop (allocate IDs → wrap summary → count tokens → apply state). The two mode-specific files are deleted. `search.ts` and `state.ts` remain unchanged.
 
 **Tech Stack:** TypeScript (strict mode), vitest, biome (lint)
 
@@ -16,15 +16,15 @@
 
 ## File Map
 
-| Action | File                             | Responsibility                                   |
-| ------ | -------------------------------- | ------------------------------------------------ |
-| Create | `src/compress/handler.ts`        | Unified `handleCompress` + `CompressArgs` type   |
-| Delete | `src/compress/range.ts`          | Replaced by handler.ts                           |
-| Delete | `src/compress/message.ts`        | Replaced by handler.ts                           |
-| Modify | `src/index.ts`                   | Single tool registration, import from handler.ts |
-| Modify | `tests/compress-range.test.ts`   | Update imports to `handleCompress`               |
-| Modify | `tests/compress-message.test.ts` | Update imports to `handleCompress`               |
-| Modify | `tests/compress-cycle.test.ts`   | Update imports if needed                         |
+| Action | File                             | Responsibility                                 |
+| ------ | -------------------------------- | ---------------------------------------------- |
+| Create | `src/compress/handler.ts`        | Unified `handleCompress` + `CompressArgs` type |
+| Modify | `tests/compress-range.test.ts`   | Update imports to `handleCompress`             |
+| Modify | `tests/compress-message.test.ts` | Update imports to `handleCompress`             |
+| Modify | `tests/compress-cycle.test.ts`   | Update imports to `handleCompress`             |
+| Modify | `src/index.ts`                   | Import from handler.ts, unify execute bodies   |
+| Delete | `src/compress/range.ts`          | Replaced by handler.ts                         |
+| Delete | `src/compress/message.ts`        | Replaced by handler.ts                         |
 
 ---
 
@@ -34,22 +34,20 @@
 
 - Modify: `tests/compress-range.test.ts`
 - Modify: `tests/compress-message.test.ts`
+- Modify: `tests/compress-cycle.test.ts`
 
 - [ ] **Step 1: Update compress-range.test.ts imports**
 
 Replace:
 
 ```typescript
-import {
-  handleRangeCompress,
-  type RangeCompressArgs,
-} from "../src/compress/range.ts";
+import { handleRangeCompress } from "../src/compress/range.ts";
 ```
 
 With:
 
 ```typescript
-import { handleCompress, type CompressArgs } from "../src/compress/handler.ts";
+import { handleCompress } from "../src/compress/handler.ts";
 ```
 
 Update all test calls from `handleRangeCompress(state, config, messages, args)` to `handleCompress(state, config, messages, { ...args, mode: "range" })`.
@@ -59,23 +57,36 @@ Update all test calls from `handleRangeCompress(state, config, messages, args)` 
 Replace:
 
 ```typescript
-import {
-  handleMessageCompress,
-  type MessageCompressArgs,
-} from "../src/compress/message.ts";
+import { handleMessageCompress } from "../src/compress/message.ts";
 ```
 
 With:
 
 ```typescript
-import { handleCompress, type CompressArgs } from "../src/compress/handler.ts";
+import { handleCompress } from "../src/compress/handler.ts";
 ```
 
 Update all test calls from `handleMessageCompress(state, config, messages, args)` to `handleCompress(state, config, messages, { ...args, mode: "message" })`.
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [ ] **Step 3: Update compress-cycle.test.ts imports**
 
-Run: `pnpm vitest run tests/compress-range.test.ts tests/compress-message.test.ts`
+Replace:
+
+```typescript
+import { handleRangeCompress } from "../src/compress/range.ts";
+```
+
+With:
+
+```typescript
+import { handleCompress } from "../src/compress/handler.ts";
+```
+
+Update all calls from `handleRangeCompress(state, config, messages, args)` to `handleCompress(state, config, messages, { ...args, mode: "range" })`.
+
+- [ ] **Step 4: Run tests to verify they fail**
+
+Run: `pnpm vitest run tests/compress-range.test.ts tests/compress-message.test.ts tests/compress-cycle.test.ts`
 Expected: FAIL — module `../src/compress/handler.ts` does not exist
 
 ---
@@ -241,54 +252,25 @@ function normalizeEntries(
 
 - [ ] **Step 2: Run updated tests**
 
-Run: `pnpm vitest run tests/compress-range.test.ts tests/compress-message.test.ts`
+Run: `pnpm vitest run tests/compress-range.test.ts tests/compress-message.test.ts tests/compress-cycle.test.ts`
 Expected: All tests PASS
-
-- [ ] **Step 3: Run compress-cycle tests**
-
-Run: `pnpm vitest run tests/compress-cycle.test.ts`
-Expected: PASS (no import changes needed if it imports from range/message — if so, update)
-
-- [ ] **Step 4: Run full check**
-
-Run: `pnpm check`
-Expected: PASS
-
----
-
-### Task 3: Delete range.ts and message.ts
-
-**Files:**
-
-- Delete: `src/compress/range.ts`
-- Delete: `src/compress/message.ts`
-
-- [ ] **Step 1: Delete the files**
-
-```bash
-rm src/compress/range.ts src/compress/message.ts
-```
-
-- [ ] **Step 2: Check for remaining imports**
-
-Run: `grep -r "compress/range" src/ tests/` and `grep -r "compress/message" src/ tests/`
-
-Fix any remaining imports to point to `./compress/handler.ts`.
 
 - [ ] **Step 3: Run full check**
 
 Run: `pnpm check`
-Expected: PASS (no dangling references)
+Expected: PASS (handler.ts compiles, old files still exist so index.ts still resolves)
 
 ---
 
-### Task 4: Simplify tool registration in index.ts
+### Task 3: Update index.ts and delete old files
 
 **Files:**
 
 - Modify: `src/index.ts`
+- Delete: `src/compress/range.ts`
+- Delete: `src/compress/message.ts`
 
-- [ ] **Step 1: Update imports**
+- [ ] **Step 1: Update index.ts imports**
 
 Replace:
 
@@ -309,79 +291,88 @@ With:
 import { handleCompress, type CompressArgs } from "./compress/handler.ts";
 ```
 
-- [ ] **Step 2: Simplify tool registration**
+- [ ] **Step 2: Unify tool registration execute bodies**
 
-The current code (lines 49-111) registers the compress tool with an `if/else` block — one branch for message mode, one for range mode. The execute bodies differ only by which handler to call. Replace both execute bodies with a single pattern.
+The `if/else` for schema selection stays (the model-facing JSON schema differs by mode). Only the execute implementations are unified.
 
-Replace the message mode `execute` body:
+Replace the message mode `execute` body (lines 69-76):
 
 ```typescript
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const typedArgs = params as unknown as MessageCompressArgs;
-      const resultText = handleMessageCompress(state, config, latestMessages, typedArgs);
-      return {
-        content: [{ type: "text" as const, text: resultText }],
-        details: {},
-      };
-    },
+      async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+        const typedArgs = params as unknown as MessageCompressArgs;
+        const resultText = handleMessageCompress(state, config, latestMessages, typedArgs);
+        return {
+          content: [{ type: "text" as const, text: resultText }],
+          details: {},
+        };
+      },
 ```
 
 With:
 
 ```typescript
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const resultText = handleCompress(state, config, latestMessages, {
-        ...(params as Record<string, unknown>),
-        mode: "message",
-      } as CompressArgs);
-      return {
-        content: [{ type: "text" as const, text: resultText }],
-        details: {},
-      };
-    },
+      async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+        const resultText = handleCompress(state, config, latestMessages, {
+          ...(params as Record<string, unknown>),
+          mode: "message",
+        } as CompressArgs);
+        return {
+          content: [{ type: "text" as const, text: resultText }],
+          details: {},
+        };
+      },
 ```
 
-And replace the range mode `execute` body:
+Replace the range mode `execute` body (lines 101-107):
 
 ```typescript
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const typedArgs = params as unknown as RangeCompressArgs;
-      const resultText = handleRangeCompress(state, config, latestMessages, typedArgs);
-      return {
-        content: [{ type: "text" as const, text: resultText }],
-        details: {},
-      };
-    },
+      async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+        const typedArgs = params as unknown as RangeCompressArgs;
+        const resultText = handleRangeCompress(state, config, latestMessages, typedArgs);
+        return {
+          content: [{ type: "text" as const, text: resultText }],
+          details: {},
+        };
+      },
 ```
 
 With:
 
 ```typescript
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const resultText = handleCompress(state, config, latestMessages, {
-        ...(params as Record<string, unknown>),
-        mode: "range",
-      } as CompressArgs);
-      return {
-        content: [{ type: "text" as const, text: resultText }],
-        details: {},
-      };
-    },
+      async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+        const resultText = handleCompress(state, config, latestMessages, {
+          ...(params as Record<string, unknown>),
+          mode: "range",
+        } as CompressArgs);
+        return {
+          content: [{ type: "text" as const, text: resultText }],
+          details: {},
+        };
+      },
 ```
 
-Note: The `if/else` for schema selection stays (the model-facing JSON schema differs by mode). Only the execute implementation is unified.
+- [ ] **Step 3: Delete old handler files**
 
-- [ ] **Step 3: Run full check**
+```bash
+rm src/compress/range.ts src/compress/message.ts
+```
+
+- [ ] **Step 4: Verify no dangling imports remain**
+
+Run: `grep -r "compress/range\|compress/message" src/ tests/`
+Expected: No matches (plan files in `plans/` are fine to ignore).
+
+- [ ] **Step 5: Run full check**
 
 Run: `pnpm check`
 Expected: PASS
 
-- [ ] **Step 4: Run integration tests**
+- [ ] **Step 6: Run integration tests**
 
 Run: `pnpm vitest run tests/compress-cycle.test.ts tests/integration.test.ts`
 Expected: All PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add -A
