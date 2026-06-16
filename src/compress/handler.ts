@@ -123,7 +123,7 @@ function normalizeEntries(
         );
       }
 
-      const selection = resolveSelection(messages, startIndex, endIndex);
+      const selection = resolveSelection(messages, startIndex, endIndex, state);
       return {
         startIndex: selection.startIndex,
         endIndex: selection.endIndex,
