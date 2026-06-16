@@ -67,4 +67,35 @@ describe("handleCompress (range mode)", () => {
       })
     ).toThrow();
   });
+
+  it("does not write state if any entry is invalid (atomic failure)", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+
+    // Only m0001..m0002 are valid; m9999 is not registered
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byRef.set("m0001", 0);
+    state.messageIds.byIndex.set(1, "m0002");
+    state.messageIds.byRef.set("m0002", 1);
+    state.messageIds.nextRefIndex = 3;
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 0 } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 0 } as unknown as AgentMessage,
+    ];
+
+    expect(() =>
+      handleCompress(state, config, messages, {
+        topic: "test",
+        mode: "range",
+        content: [
+          { startId: "m0001", endId: "m0002", summary: "ok entry" },
+          { startId: "m9999", endId: "m0002", summary: "bad entry" },
+        ],
+      }),
+    ).toThrow("m9999 is not available");
+
+    // No partial write — state should be untouched
+    expect(state.prune.messages.blocksById.size).toBe(0);
+  });
 });

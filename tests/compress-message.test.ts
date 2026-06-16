@@ -8,7 +8,7 @@ import {
   makeDefaultConfig,
 } from "./helpers.ts";
 
-describe("handleMessageCompress", () => {
+describe("handleCompress (message mode)", () => {
   it("compresses targeted messages", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ mode: "message" });
