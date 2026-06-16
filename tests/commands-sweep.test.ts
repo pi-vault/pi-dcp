@@ -16,6 +16,8 @@ describe("sweep command", () => {
       error: undefined,
       turn: 1,
       tokenCount: 200,
+      assistantIndex: undefined,
+      resultIndex: undefined,
     });
     // "compress" is protected — should not be swept
     state.toolParameters.set("call-2", {
@@ -25,6 +27,8 @@ describe("sweep command", () => {
       error: undefined,
       turn: 1,
       tokenCount: 100,
+      assistantIndex: undefined,
+      resultIndex: undefined,
     });
 
     const result = sweepCommand(state, config);
@@ -44,6 +48,8 @@ describe("sweep command", () => {
       error: undefined,
       turn: 1,
       tokenCount: 200,
+      assistantIndex: undefined,
+      resultIndex: undefined,
     });
 
     const result = sweepCommand(state, config);
@@ -62,6 +68,8 @@ describe("sweep command", () => {
       error: undefined,
       turn: 1,
       tokenCount: 200,
+      assistantIndex: undefined,
+      resultIndex: undefined,
     });
     state.prune.tools.set("call-1", 200);
 

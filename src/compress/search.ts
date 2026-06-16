@@ -40,11 +40,65 @@ export interface ExpandedRange {
 
 /**
  * Expand a compression range to ensure all tool call chains are complete.
- * If the range includes an assistant message with toolCall but not its toolResult,
- * expand endIndex. If it includes a toolResult but not its assistant, expand startIndex.
- * Repeats until stable.
+ * If state is provided with populated toolParameters, uses cached assistantIndex/resultIndex
+ * for O(C) lookups (C = cached tool calls) instead of scanning the full message array O(N).
+ * Falls back to scan when state is not provided or toolParameters is empty.
  */
 export function expandRangeForToolChains(
+  messages: AgentMessage[],
+  startIndex: number,
+  endIndex: number,
+  state?: SessionState,
+): ExpandedRange {
+  // Fast path: use cached indices from tool parameter entries
+  if (state && state.toolParameters.size > 0) {
+    return expandWithCachedIndices(messages, startIndex, endIndex, state);
+  }
+
+  // Fallback: scan-based expansion (original implementation)
+  return expandByScan(messages, startIndex, endIndex);
+}
+
+function expandWithCachedIndices(
+  messages: AgentMessage[],
+  startIndex: number,
+  endIndex: number,
+  state: SessionState,
+): ExpandedRange {
+  let start = startIndex;
+  let end = endIndex;
+  let changed = true;
+  const maxIndex = messages.length - 1;
+
+  while (changed) {
+    changed = false;
+
+    for (const [, entry] of state.toolParameters) {
+      const aIdx = entry.assistantIndex;
+      const rIdx = entry.resultIndex;
+      if (aIdx === undefined) continue;
+
+      // Skip entries with stale indices beyond current messages array
+      if (aIdx > maxIndex || (rIdx !== undefined && rIdx > maxIndex)) continue;
+
+      // Assistant in range but result outside → expand end
+      if (rIdx !== undefined && aIdx >= start && aIdx <= end && rIdx > end) {
+        end = rIdx;
+        changed = true;
+      }
+
+      // Result in range but assistant outside → expand start
+      if (rIdx !== undefined && rIdx >= start && rIdx <= end && aIdx < start) {
+        start = aIdx;
+        changed = true;
+      }
+    }
+  }
+
+  return { startIndex: start, endIndex: end };
+}
+
+function expandByScan(
   messages: AgentMessage[],
   startIndex: number,
   endIndex: number,
@@ -111,11 +165,13 @@ export function expandRangeForToolChains(
 /**
  * Collect message indices in a range [startIndex, endIndex].
  * Auto-expands the range to protect tool call chains from being split.
+ * If state is provided, uses cached indices for faster expansion.
  */
 export function resolveSelection(
   messages: AgentMessage[],
   startIndex: number,
   endIndex: number,
+  state?: SessionState,
 ): SelectionResult {
   if (startIndex > endIndex) {
     throw new Error(
@@ -130,7 +186,7 @@ export function resolveSelection(
   }
 
   // Expand range to avoid splitting tool call chains
-  const expanded = expandRangeForToolChains(messages, startIndex, endIndex);
+  const expanded = expandRangeForToolChains(messages, startIndex, endIndex, state);
 
   const messageIndices: number[] = [];
   for (let i = expanded.startIndex; i <= expanded.endIndex; i++) {
