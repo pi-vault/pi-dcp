@@ -22,6 +22,8 @@ function seedToolCache(
       error: undefined,
       turn: e.turn,
       tokenCount: e.tokenCount,
+      assistantIndex: undefined,
+      resultIndex: undefined,
     });
     state.toolIdList.push(e.id);
   }

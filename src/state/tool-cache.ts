@@ -14,19 +14,25 @@ export function syncToolCache(
   state: SessionState,
   messages: AgentMessage[],
 ): void {
-  // First pass: collect tool results with token counts
-  const resultsByCallId = new Map<string, { isError: boolean; errorText?: string; tokenCount: number }>();
-  for (const msg of messages) {
+  // First pass: collect tool results with token counts and indices
+  const resultsByCallId = new Map<
+    string,
+    { isError: boolean; errorText?: string; tokenCount: number; index: number }
+  >();
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     if (msg.role !== "toolResult") continue;
     resultsByCallId.set(msg.toolCallId, {
       isError: msg.isError,
       errorText: msg.isError ? extractToolResultText(msg) : undefined,
       tokenCount: countMessageTokens(msg),
+      index: i,
     });
   }
 
   // Second pass: collect tool calls from assistant messages
-  for (const msg of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     if (msg.role !== "assistant") continue;
     if (!Array.isArray(msg.content)) continue;
 
@@ -46,6 +52,8 @@ export function syncToolCache(
         error: result?.errorText,
         turn: state.currentTurn,
         tokenCount: result?.tokenCount,
+        assistantIndex: i,
+        resultIndex: result?.index,
       };
 
       state.toolParameters.set(callId, entry);

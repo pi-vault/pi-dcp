@@ -117,6 +117,8 @@ describe("tool-cache", () => {
         error: undefined,
         turn: 1,
         tokenCount: 50,
+        assistantIndex: undefined,
+        resultIndex: undefined,
       });
 
       const messages: AgentMessage[] = [
@@ -127,6 +129,45 @@ describe("tool-cache", () => {
       syncToolCache(state, messages);
       // Original entry preserved
       expect((state.toolParameters.get("call1")!.parameters as Record<string, unknown>).filePath).toBe("/old");
+    });
+
+    it("records assistantIndex and resultIndex", () => {
+      const state = createSessionState();
+      state.currentTurn = 1;
+
+      const messages: AgentMessage[] = [
+        { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
+        makeAssistantWithToolCall("call1", "read", { filePath: "/tmp/foo.ts" }),
+        {
+          role: "toolResult",
+          toolCallId: "call1",
+          toolName: "read",
+          content: [{ type: "text", text: "result" }],
+          isError: false,
+          timestamp: Date.now(),
+        } as AgentMessage,
+      ];
+
+      syncToolCache(state, messages);
+
+      const entry = state.toolParameters.get("call1")!;
+      expect(entry.assistantIndex).toBe(1);
+      expect(entry.resultIndex).toBe(2);
+    });
+
+    it("sets resultIndex undefined when no toolResult present", () => {
+      const state = createSessionState();
+      state.currentTurn = 1;
+
+      const messages: AgentMessage[] = [
+        makeAssistantWithToolCall("call1", "read", { filePath: "/tmp/foo.ts" }),
+      ];
+
+      syncToolCache(state, messages);
+
+      const entry = state.toolParameters.get("call1")!;
+      expect(entry.assistantIndex).toBe(0);
+      expect(entry.resultIndex).toBeUndefined();
     });
   });
 

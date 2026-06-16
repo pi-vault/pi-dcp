@@ -105,6 +105,10 @@ export interface ToolParameterEntry {
   error: string | undefined;
   turn: number;
   tokenCount: number | undefined;
+  /** Index of the assistant message containing this tool call. */
+  assistantIndex: number | undefined;
+  /** Index of the toolResult message for this tool call. */
+  resultIndex: number | undefined;
 }
 
 export interface Nudges {
