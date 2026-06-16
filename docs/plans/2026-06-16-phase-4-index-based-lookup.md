@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add `assistantIndex` and `resultIndex` to `ToolParameterEntry` for O(1) lookup of tool chain pairs, enabling faster validation in `expandRangeForToolChains`.
+**Goal:** Add `assistantIndex` and `resultIndex` to `ToolParameterEntry` for cache-assisted lookup of tool chain pairs, enabling faster validation in `expandRangeForToolChains`.
 
-**Architecture:** Extend `syncToolCache` to record the message indices when building the cache. Add an optimized path in `expandRangeForToolChains` that uses cached indices when available, falling back to the scan-based approach otherwise.
+**Architecture:** Extend `syncToolCache` to record the message indices when building the cache. Both passes change from `for...of` to indexed `for` loops so the loop variable `i` is available for recording indices. Add an optimized path in `expandRangeForToolChains` that uses cached indices when available (O(C) where C = cached tool calls, vs O(N) where N = messages for the scan path), falling back to the scan-based approach otherwise.
 
 **Tech Stack:** Vitest, TypeScript
 
@@ -152,9 +152,11 @@ Run: `pnpm vitest run tests/tool-cache.test.ts`
 
 Expected: All tests pass.
 
-- [ ] **Step 6: Update existing test helpers that construct `ToolParameterEntry`**
+- [ ] **Step 6: Update all test helpers that construct `ToolParameterEntry`**
 
-The `seedToolCache` helper in `tests/strategy-runner.test.ts` constructs entries directly. Add the new fields:
+Three test files construct `ToolParameterEntry` objects directly. All must add `assistantIndex: undefined, resultIndex: undefined` to satisfy the updated type.
+
+**a) `tests/strategy-runner.test.ts`** — `seedToolCache` helper:
 
 ```typescript
 function seedToolCache(
@@ -184,7 +186,7 @@ function seedToolCache(
 }
 ```
 
-Also update the existing test in `tests/tool-cache.test.ts` that manually constructs an entry ("does not overwrite existing entries"):
+**b) `tests/tool-cache.test.ts`** — the "does not overwrite existing entries" test:
 
 ```typescript
 state.toolParameters.set("call1", {
@@ -199,6 +201,8 @@ state.toolParameters.set("call1", {
 });
 ```
 
+**c) `tests/commands-sweep.test.ts`** — all 4 inline `toolParameters.set` calls (lines 12, 21, 40, 58) need `assistantIndex: undefined, resultIndex: undefined` added to each object literal.
+
 - [ ] **Step 7: Run full check**
 
 Run: `pnpm run check`
@@ -208,12 +212,12 @@ Expected: lint, typecheck, and all tests pass.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/state/types.ts src/state/tool-cache.ts tests/tool-cache.test.ts tests/strategy-runner.test.ts
+git add src/state/types.ts src/state/tool-cache.ts tests/tool-cache.test.ts tests/strategy-runner.test.ts tests/commands-sweep.test.ts
 git commit -m "feat: add assistantIndex and resultIndex to ToolParameterEntry
 
 Records the message array index of both the assistant message containing
-the toolCall and the toolResult message. Enables O(1) lookup for tool chain
-validation instead of scanning the full message array."
+the toolCall and the toolResult message. Enables cache-assisted lookup
+for tool chain validation instead of scanning the full message array."
 ```
 
 ---
@@ -283,15 +287,13 @@ Expected: FAILS because `expandRangeForToolChains` doesn't accept a `state` para
 
 - [ ] **Step 3: Add optional state parameter and index-based fast path**
 
-Modify `expandRangeForToolChains` in `src/compress/search.ts`:
+Modify `expandRangeForToolChains` in `src/compress/search.ts`. Note: `SessionState` is already imported in this file — no new import needed.
 
 ```typescript
-import type { SessionState } from "../state/types.ts";
-
 /**
  * Expand a compression range to ensure all tool call chains are complete.
- * If state is provided, uses cached assistantIndex/resultIndex for O(1) lookups.
- * Otherwise, scans the message array.
+ * If state is provided, uses cached assistantIndex/resultIndex for O(C) lookups
+ * (C = cached tool calls) instead of scanning the full message array (O(N)).
  */
 export function expandRangeForToolChains(
   messages: AgentMessage[],
@@ -404,11 +406,11 @@ function expandByScan(
 }
 ```
 
-- [ ] **Step 4: Update `resolveSelection` call site to pass state**
+- [ ] **Step 4: Thread `state` through `resolveSelection` to `expandRangeForToolChains`**
 
-The `resolveSelection` function is called from `normalizeEntries` in `handler.ts`. Update the call chain:
+Two files need changes:
 
-In `src/compress/search.ts`, modify `resolveSelection` to accept optional state:
+**a) `src/compress/search.ts`** — Add optional `state` parameter to `resolveSelection` and pass it through:
 
 ```typescript
 export function resolveSelection(
@@ -444,14 +446,13 @@ export function resolveSelection(
 }
 ```
 
-In `src/compress/handler.ts`, pass `state` through to `resolveSelection`:
+**b) `src/compress/handler.ts`** — In `normalizeEntries`, the range-mode branch calls `resolveSelection` on line 126. Add `state` as the 4th argument:
 
 ```typescript
-// In normalizeEntries, update the resolveSelection call:
 const selection = resolveSelection(messages, startIndex, endIndex, state);
 ```
 
-Update the `normalizeEntries` function signature to include `state` (it already receives it).
+Note: `normalizeEntries` already receives `state` as its first parameter. The message-mode branch (line 141+) doesn't call `resolveSelection`, so only the range-mode call site needs updating.
 
 - [ ] **Step 5: Run tests to verify pass**
 
@@ -472,7 +473,7 @@ git add src/compress/search.ts src/compress/handler.ts tests/compress-search.tes
 git commit -m "perf: use cached indices in expandRangeForToolChains
 
 When SessionState has populated toolParameters with assistantIndex and
-resultIndex, expandRangeForToolChains uses O(1) lookups per tool call
-instead of scanning the full message array. Falls back to scan when
-state is not provided."
+resultIndex, expandRangeForToolChains uses O(C) cache-assisted lookups
+(C = tool calls) instead of scanning the full message array O(N).
+Falls back to scan when state is not provided."
 ```
