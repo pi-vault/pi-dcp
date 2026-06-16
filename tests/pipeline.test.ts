@@ -36,7 +36,7 @@ describe("runPipeline", () => {
 
     const result = runPipeline(state, config, messages, undefined);
 
-    const assistantContent = result.messages[1].content as Array<{
+    const assistantContent = (result.messages[1] as any).content as Array<{
       type: string;
       text: string;
     }>;
@@ -56,7 +56,7 @@ describe("runPipeline", () => {
     const result = runPipeline(state, config, messages, undefined);
 
     // User messages should have message ID tags injected
-    const firstUser = result.messages[0].content as Array<{
+    const firstUser = (result.messages[0] as any).content as Array<{
       type: string;
       text: string;
     }>;
@@ -119,7 +119,7 @@ describe("runPipeline", () => {
     const result = runPipeline(state, config, messages, usage);
 
     // Should have injected a nudge into the last user message
-    const lastUser = result.messages[result.messages.length - 1]
+    const lastUser = (result.messages[result.messages.length - 1] as any)
       .content as Array<{ type: string; text: string }>;
     expect(lastUser[0].text).toContain("<dcp-system-reminder>");
   });
