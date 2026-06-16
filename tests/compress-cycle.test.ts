@@ -4,7 +4,7 @@ import { createSessionState } from "../src/state/state.ts";
 import { assignMessageRefs, injectMessageIds } from "../src/messages/inject.ts";
 import { applyPruning } from "../src/messages/prune.ts";
 import { syncCompressionBlocks } from "../src/messages/sync.ts";
-import { handleRangeCompress } from "../src/compress/range.ts";
+import { handleCompress } from "../src/compress/handler.ts";
 import { resolveBoundaryIndex } from "../src/compress/search.ts";
 import { makeUserMessage as makeUser, makeAssistantMessage as makeAssistant, makeDefaultConfig } from "./helpers.ts";
 
@@ -54,9 +54,10 @@ describe("full compression cycle", () => {
     expect(textOf(filtered1[4])).toContain("m0005");
 
     // --- Model calls compress: m0001..m0002 (hello + hi there) ---
-    handleRangeCompress(state, config, rawMessages, {
+    handleCompress(state, config, rawMessages, {
       topic: "Greeting",
       content: [{ startId: "m0001", endId: "m0002", summary: "User greeted, assistant responded" }],
+      mode: "range",
     });
 
     // --- Context event #2: raw grows (tool call + result appended) ---
@@ -90,9 +91,10 @@ describe("full compression cycle", () => {
     expect(resolveBoundaryIndex(state, "m0003")).toBe(2);
     expect(resolveBoundaryIndex(state, "m0004")).toBe(3);
 
-    handleRangeCompress(state, config, rawMessages2, {
+    handleCompress(state, config, rawMessages2, {
       topic: "Task A",
       content: [{ startId: "m0003", endId: "m0004", summary: "User asked for task A, assistant completed it" }],
+      mode: "range",
     });
 
     expect(state.prune.messages.blocksById.size).toBe(2);
@@ -136,9 +138,10 @@ describe("full compression cycle", () => {
     runContextPipeline(state, rawMessages);
 
     // Compress m0001..m0002
-    handleRangeCompress(state, config, rawMessages, {
+    handleCompress(state, config, rawMessages, {
       topic: "First block",
       content: [{ startId: "m0001", endId: "m0002", summary: "Summary of msg0-msg1" }],
+      mode: "range",
     });
 
     // b1 should resolve to the anchor index (raw index 0)

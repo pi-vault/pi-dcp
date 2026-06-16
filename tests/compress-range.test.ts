@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { handleRangeCompress } from "../src/compress/range.ts";
+import { handleCompress } from "../src/compress/handler.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { makeDefaultConfig } from "./helpers.ts";
 
-describe("handleRangeCompress", () => {
+describe("handleCompress (range mode)", () => {
   it("compresses a valid range", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
@@ -27,11 +27,12 @@ describe("handleRangeCompress", () => {
       { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 0 } as unknown as AgentMessage,
     ];
 
-    const result = handleRangeCompress(state, config, messages, {
+    const result = handleCompress(state, config, messages, {
       topic: "Initial greeting",
       content: [
         { startId: "m0001", endId: "m0002", summary: "User greeted, assistant responded" },
       ],
+      mode: "range",
     });
 
     expect(result).toContain("Compressed");
@@ -45,9 +46,10 @@ describe("handleRangeCompress", () => {
     const messages: AgentMessage[] = [];
 
     expect(() =>
-      handleRangeCompress(state, config, messages, {
+      handleCompress(state, config, messages, {
         topic: "test",
         content: [{ startId: "invalid", endId: "m0001", summary: "text" }],
+        mode: "range",
       })
     ).toThrow();
   });
@@ -58,9 +60,10 @@ describe("handleRangeCompress", () => {
     const messages: AgentMessage[] = [];
 
     expect(() =>
-      handleRangeCompress(state, config, messages, {
+      handleCompress(state, config, messages, {
         topic: "test",
         content: [],
+        mode: "range",
       })
     ).toThrow();
   });
