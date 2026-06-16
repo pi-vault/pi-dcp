@@ -35,14 +35,12 @@ export function runPipeline(
   // Step 1: Strip hallucinated DCP tags from assistant messages
   let result = stripHallucinations(messages);
 
-  // Step 2: Sync tool parameter cache
+  // Step 2: Sync tool parameter cache and rebuild ordered tool ID list
   syncToolCache(state, result);
-
-  // Step 3: Run strategies (deduplication + purge errors) using existing toolIdList
-  const strategyResult = runStrategies(state, config);
-
-  // Step 3.5: Rebuild ordered tool ID list from current messages
   buildToolIdList(state, result);
+
+  // Step 3: Run strategies (deduplication + purge errors)
+  const strategyResult = runStrategies(state, config);
 
   // Step 4: Assign message refs (stable raw indices)
   assignMessageRefs(state, result);
@@ -55,9 +53,6 @@ export function runPipeline(
 
   // Step 5: Inject message IDs (with priority attrs if message mode)
   result = injectMessageIds(state, result, priorityMap);
-
-  // Step 5.5: Strip any DCP tags that injectMessageIds placed on assistant messages
-  result = stripHallucinations(result);
 
   // Step 6: Apply pruning (compressed ranges removed, tool outputs pruned)
   result = applyPruning(state, result);

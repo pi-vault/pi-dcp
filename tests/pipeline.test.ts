@@ -41,7 +41,10 @@ describe("runPipeline", () => {
       text: string;
     }>;
     const text = assistantContent[0].text;
-    expect(text).not.toContain("<dcp-message-id");
+    // The hallucinated ref should have been stripped and replaced with the correct sequential ref
+    expect(text).not.toContain('ref="m0001"');
+    // A legitimate message ID was injected (not the hallucinated one)
+    expect(text).toContain("<dcp-message-id");
   });
 
   it("injects message IDs into user messages", () => {
@@ -66,35 +69,48 @@ describe("runPipeline", () => {
   it("deduplicates tool outputs across turns", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
-    state.currentTurn = 5;
 
-    // Simulate tool results already tracked in state
-    state.toolParameters.set("call-1", {
-      tool: "read_file",
-      parameters: { path: "/a.ts" },
-      status: "completed",
-      error: undefined,
-      turn: 1,
-      tokenCount: 100,
-    });
-    state.toolParameters.set("call-2", {
-      tool: "read_file",
-      parameters: { path: "/a.ts" },
-      status: "completed",
-      error: undefined,
-      turn: 2,
-      tokenCount: 100,
-    });
-    state.toolIdList = ["call-1", "call-2"];
-
+    // Two read_file calls with identical arguments — dedup should prune the first
     const messages: AgentMessage[] = [
       makeUserMessage("Read the file"),
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-1", name: "read_file", arguments: { path: "/a.ts" } }],
+        stopReason: "toolUse",
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "read_file",
+        content: [{ type: "text", text: "export const x = 1;" }],
+        isError: false,
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
+      makeAssistantMessage("I read it."),
+      makeUserMessage("Read it again"),
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-2", name: "read_file", arguments: { path: "/a.ts" } }],
+        stopReason: "toolUse",
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        toolCallId: "call-2",
+        toolName: "read_file",
+        content: [{ type: "text", text: "export const x = 1;" }],
+        isError: false,
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
       makeAssistantMessage("Here it is"),
     ];
 
     runPipeline(state, config, messages, undefined);
 
-    // Deduplication should have pruned the older duplicate
+    // Deduplication should have pruned the older duplicate (call-1)
     expect(state.prune.tools.has("call-1")).toBe(true);
     expect(state.prune.tools.has("call-2")).toBe(false);
   });
