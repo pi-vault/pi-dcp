@@ -125,7 +125,8 @@ describe("handleCompress token reporting", () => {
     });
 
     // Total original = 150 + 200 + 100 = 450
-    expect(result).toContain("~450 tokens");
+    // Wrapped summary "[Compressed Block b1]\nshort summary\n[End Block b1]" = 50 chars → 13 tokens
+    expect(result).toMatch(/~450 tokens replaced by ~13 token summary/);
     expect(result).toContain("Compressed 3 messages");
   });
 

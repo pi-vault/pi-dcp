@@ -71,7 +71,7 @@ export function handleCompress(
 
     totalCompressed += entry.messageCount;
 
-    // Read back the block's computed compressedTokens
+    // Read back compressedTokens and summaryTokens (populated by applyCompressionState)
     const block = state.prune.messages.blocksById.get(blockId);
     if (block) {
       totalCompressedTokens += block.compressedTokens;
