@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runPipeline, type PipelineResult } from "../src/pipeline.ts";
+import { runPipeline } from "../src/pipeline.ts";
 import { createSessionState } from "../src/state/state.ts";
 import {
   makeDefaultConfig,
