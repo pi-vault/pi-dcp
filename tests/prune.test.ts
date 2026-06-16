@@ -95,6 +95,92 @@ describe("prune", () => {
     });
   });
 
+  describe("filterCompressedRanges orphan safety net", () => {
+    it("removes orphaned toolResult messages from filtered output", () => {
+      const state = createSessionState();
+      const blockId = allocateBlockId(state);
+      const runId = allocateRunId(state);
+
+      // Simulate a scenario where compression covers only the assistant (index 1)
+      // but leaves its toolResult (index 2) as an orphan
+      const messages: AgentMessage[] = [
+        { role: "user", content: [{ type: "text", text: "read it" }], timestamp: Date.now() } as AgentMessage,
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
+          stopReason: "toolUse",
+          usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+          timestamp: Date.now(),
+        } as unknown as AgentMessage,
+        {
+          role: "toolResult",
+          toolCallId: "c1",
+          toolName: "read",
+          content: [{ type: "text", text: "file contents" }],
+          isError: false,
+          timestamp: Date.now(),
+        } as AgentMessage,
+        { role: "user", content: [{ type: "text", text: "thanks" }], timestamp: Date.now() } as AgentMessage,
+      ];
+
+      // Manually create a block that covers only index 1 (the assistant with toolCall)
+      // This simulates a stale/corrupt block state that Layer 1 should have prevented
+      applyCompressionState(state, {
+        blockId,
+        runId,
+        topic: "test",
+        mode: "range",
+        startIndex: 1,
+        endIndex: 1,
+        anchorIndex: 1,
+        compressMessageIndex: 3,
+        summary: "Summary of tool use",
+        summaryTokens: 5,
+        consumedBlockIds: [],
+      });
+
+      const result = applyPruning(state, messages);
+
+      // The orphaned toolResult (c1) should NOT be in the output
+      const hasOrphan = result.some(
+        (m) => m.role === "toolResult" && (m as { toolCallId: string }).toolCallId === "c1",
+      );
+      expect(hasOrphan).toBe(false);
+
+      // Should still have: user(0), summary, user(3) = 3 messages
+      expect(result).toHaveLength(3);
+    });
+
+    it("keeps toolResult when its assistant is present in output", () => {
+      const state = createSessionState();
+
+      const messages: AgentMessage[] = [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
+          stopReason: "toolUse",
+          usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+          timestamp: Date.now(),
+        } as unknown as AgentMessage,
+        {
+          role: "toolResult",
+          toolCallId: "c1",
+          toolName: "read",
+          content: [{ type: "text", text: "file contents" }],
+          isError: false,
+          timestamp: Date.now(),
+        } as AgentMessage,
+      ];
+
+      const result = applyPruning(state, messages);
+
+      // Both should survive
+      expect(result).toHaveLength(2);
+      expect(result[0].role).toBe("assistant");
+      expect(result[1].role).toBe("toolResult");
+    });
+  });
+
   describe("filterCompressedRanges", () => {
     it("replaces compressed messages with summary", () => {
       const state = createSessionState();

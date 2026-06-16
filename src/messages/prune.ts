@@ -37,7 +37,33 @@ export function filterCompressedRanges(
     result.push(messages[i]);
   }
 
-  return result;
+  // Safety net: remove orphaned toolResult messages
+  return removeOrphanedToolResults(result);
+}
+
+/**
+ * Remove toolResult messages whose toolCallId has no matching toolCall
+ * in an assistant message in the output array.
+ */
+function removeOrphanedToolResults(messages: AgentMessage[]): AgentMessage[] {
+  // Collect all toolCall IDs from assistant messages
+  const toolCallIds = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+    for (const part of msg.content) {
+      if (typeof part !== "object" || part === null) continue;
+      const p = part as unknown as Record<string, unknown>;
+      if (p.type === "toolCall" && typeof p.id === "string") {
+        toolCallIds.add(p.id as string);
+      }
+    }
+  }
+
+  // Filter out toolResult messages without a matching toolCall
+  return messages.filter((msg) => {
+    if (msg.role !== "toolResult") return true;
+    return toolCallIds.has((msg as unknown as { toolCallId: string }).toolCallId);
+  });
 }
 
 const PRUNED_OUTPUT_TEXT =
