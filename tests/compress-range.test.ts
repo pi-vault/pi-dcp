@@ -99,3 +99,55 @@ describe("handleCompress (range mode)", () => {
     expect(state.prune.messages.blocksById.size).toBe(0);
   });
 });
+
+describe("handleCompress token reporting", () => {
+  it("includes token savings in response when tokens are known", () => {
+    const state = createSessionState();
+    state.messageIds.byRef.set("m0001", 0);
+    state.messageIds.byRef.set("m0003", 2);
+
+    // Pre-populate byMessageIndex with token counts (simulating Phase 1 sync having run)
+    state.prune.messages.byMessageIndex.set(0, { tokenCount: 150, blockIds: [], activeBlockIds: [] });
+    state.prune.messages.byMessageIndex.set(1, { tokenCount: 200, blockIds: [], activeBlockIds: [] });
+    state.prune.messages.byMessageIndex.set(2, { tokenCount: 100, blockIds: [], activeBlockIds: [] });
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "msg 0" }], timestamp: Date.now() } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "msg 1" }], timestamp: Date.now() } as unknown as AgentMessage,
+      { role: "user", content: [{ type: "text", text: "msg 2" }], timestamp: Date.now() } as AgentMessage,
+    ];
+
+    const config = makeDefaultConfig();
+    const result = handleCompress(state, config, messages, {
+      topic: "test",
+      mode: "range",
+      content: [{ startId: "m0001", endId: "m0003", summary: "short summary" }],
+    });
+
+    // Total original = 150 + 200 + 100 = 450
+    expect(result).toContain("~450 tokens");
+    expect(result).toContain("Compressed 3 messages");
+  });
+
+  it("omits token savings when token counts are zero", () => {
+    const state = createSessionState();
+    state.messageIds.byRef.set("m0001", 0);
+    state.messageIds.byRef.set("m0002", 1);
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "msg" }], timestamp: Date.now() } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "response" }], timestamp: Date.now() } as unknown as AgentMessage,
+    ];
+
+    const config = makeDefaultConfig();
+    const result = handleCompress(state, config, messages, {
+      topic: "test",
+      mode: "range",
+      content: [{ startId: "m0001", endId: "m0002", summary: "summary" }],
+    });
+
+    // No token info when byMessageIndex has no entries (all tokenCount default to 0)
+    expect(result).not.toContain("tokens");
+    expect(result).toContain("Compressed 2 messages");
+  });
+});
