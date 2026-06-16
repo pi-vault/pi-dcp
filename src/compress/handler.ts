@@ -45,6 +45,8 @@ export function handleCompress(
   const entries = normalizeEntries(state, messages, args);
   const runId = allocateRunId(state);
   let totalCompressed = 0;
+  let totalCompressedTokens = 0;
+  let totalSummaryTokens = 0;
 
   for (const entry of entries) {
     const blockId = allocateBlockId(state);
@@ -68,9 +70,20 @@ export function handleCompress(
     });
 
     totalCompressed += entry.messageCount;
+
+    // Read back compressedTokens and summaryTokens (populated by applyCompressionState)
+    const block = state.prune.messages.blocksById.get(blockId);
+    if (block) {
+      totalCompressedTokens += block.compressedTokens;
+      totalSummaryTokens += block.summaryTokens;
+    }
   }
 
-  return `Compressed ${totalCompressed} messages into ${COMPRESSED_BLOCK_HEADER}.`;
+  const savings =
+    totalCompressedTokens > 0
+      ? ` (~${totalCompressedTokens} tokens replaced by ~${totalSummaryTokens} token summary)`
+      : "";
+  return `Compressed ${totalCompressed} messages into ${COMPRESSED_BLOCK_HEADER}${savings}.`;
 }
 
 /**

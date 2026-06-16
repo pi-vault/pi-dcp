@@ -82,4 +82,23 @@ describe("handleCompress (message mode)", () => {
     expect(entry).toBeDefined();
     expect(entry!.activeBlockIds.length).toBeGreaterThan(0);
   });
+
+  it("includes token savings in message mode", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ mode: "message" });
+    const messages = [makeUserMessage("hello"), makeAssistantMessage("world")];
+    assignMessageRefs(state, messages);
+
+    // Pre-populate token count for the target message
+    state.prune.messages.byMessageIndex.set(0, { tokenCount: 120, blockIds: [], activeBlockIds: [] });
+
+    const result = handleCompress(state, config, messages, {
+      topic: "test",
+      targets: [{ messageId: "m0001", summary: "greeting" }],
+      mode: "message",
+    });
+
+    expect(result).toContain("~120 tokens");
+    expect(result).toContain("Compressed 1 messages");
+  });
 });
