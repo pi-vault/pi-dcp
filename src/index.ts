@@ -6,20 +6,14 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadConfig } from "./config.ts";
 import { handleCompress, type CompressArgs } from "./compress/handler.ts";
-import { buildPriorityMap, type PriorityMap } from "./messages/priority.ts";
 import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
 import { Logger } from "./logger.ts";
-import { applyPruning } from "./messages/prune.ts";
-import { syncCompressionBlocks } from "./messages/sync.ts";
-import { stripHallucinations } from "./messages/strip.ts";
-import { assignMessageRefs, injectCompressNudges, injectMessageIds } from "./messages/inject.ts";
 import { DCP_SYSTEM_PROMPT } from "./prompts/system.ts";
 import { createSessionState, resetSessionState } from "./state/state.ts";
-import { syncToolCache, buildToolIdList } from "./state/tool-cache.ts";
-import { runStrategies } from "./strategies/runner.ts";
 import type { SessionState } from "./state/types.ts";
 import { registerDcpCommands } from "./commands/register.ts";
 import { saveSessionState, loadSessionState } from "./state/persistence.ts";
+import { runPipeline } from "./pipeline.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
@@ -188,57 +182,36 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (!config.enabled) return;
 
     const usage = ctx.getContextUsage();
-    if (usage) {
-      state.modelContextWindow = usage.contextWindow;
-    }
-
-    // Step 0: Cache messages for compress tool
+    if (usage) state.modelContextWindow = usage.contextWindow;
     latestMessages = event.messages;
 
-    let messages = event.messages;
+    const result = runPipeline(
+      state,
+      config,
+      event.messages,
+      usage
+        ? {
+            tokens: usage.tokens,
+            contextWindow: usage.contextWindow,
+            percent: usage.percent,
+          }
+        : undefined,
+    );
 
-    // Step 0.5: Sync compression blocks
-    syncCompressionBlocks(state, messages.length);
-
-    // Step 1: Strip hallucinated DCP tags
-    messages = stripHallucinations(messages);
-
-    // Step 2: Build tool caches
-    syncToolCache(state, messages);
-    buildToolIdList(state, messages);
-
-    // Step 3: Run strategies
-    const strategyResult = runStrategies(state, config);
-    if (strategyResult.pruned > 0) {
+    if (result.strategyResult.pruned > 0) {
       logger.info("strategies", "pruned tool outputs", {
-        count: strategyResult.pruned,
-        tokens: strategyResult.tokensSaved,
+        count: result.strategyResult.pruned,
+        tokens: result.strategyResult.tokensSaved,
       });
     }
 
-    // Step 4: Assign message refs to raw messages (before filtering, so refs are stable raw indices)
-    assignMessageRefs(state, messages);
-
-    // Step 4.5: Build priority map for message-mode compression
-    let priorityMap: PriorityMap | undefined;
-    if (config.compress.mode === "message") {
-      priorityMap = buildPriorityMap(state, messages);
-    }
-
-    // Step 5: Inject message IDs into raw messages (with priority attrs if message mode)
-    messages = injectMessageIds(state, messages, priorityMap);
-
-    // Step 6: Apply pruning to messages (compressed ranges removed, tool outputs pruned)
-    messages = applyPruning(state, messages);
-
-    // Step 7: Inject nudges based on context usage (reuse initial usage snapshot)
-    messages = injectCompressNudges(state, config, messages, usage ?? undefined);
-
-    // Step 8: Update status bar with token savings
     if (ctx.hasUI && state.stats.totalPruneTokens > 0) {
-      ctx.ui.setStatus("dcp", `DCP: ${state.stats.totalPruneTokens} tokens saved`);
+      ctx.ui.setStatus(
+        "dcp",
+        `DCP: ${state.stats.totalPruneTokens} tokens saved`,
+      );
     }
 
-    return { messages };
+    return { messages: result.messages };
   });
 }

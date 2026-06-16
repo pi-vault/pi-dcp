@@ -4,7 +4,7 @@
 
 **Goal:** Extract the 8-step context processing pipeline from the `context` event handler in `src/index.ts` into a pure function `runPipeline` in `src/pipeline.ts`. The context handler collapses to ~12 lines of wiring. The pipeline becomes directly testable without mocking the Pi extension API.
 
-**Architecture:** `runPipeline(state, config, messages, contextUsage)` is a pure function that takes state + config + messages + usage, runs the full transformation sequence, and returns `{ messages }`. State is mutated as a side effect (tool cache, prune marks, stats). Logging stays in `index.ts` (observability is a wiring concern). UI status updates stay in `index.ts`.
+**Architecture:** `runPipeline(state, config, messages, contextUsage)` is a pure function that takes state + config + messages + usage, runs the full transformation sequence, and returns `{ messages, strategyResult }`. State is mutated as a side effect (tool cache, prune marks, stats). Logging stays in `index.ts` (observability is a wiring concern) — the handler uses the returned `strategyResult` to log. UI status updates stay in `index.ts`.
 
 **Tech Stack:** TypeScript (strict mode), vitest, biome (lint)
 
@@ -21,7 +21,7 @@
 | Create | `src/pipeline.ts`           | `runPipeline` function — the full DCP context pipeline |
 | Modify | `src/index.ts`              | Context handler calls `runPipeline`, keeps only wiring |
 | Create | `tests/pipeline.test.ts`    | Direct pipeline tests (no Pi mock)                     |
-| Modify | `tests/integration.test.ts` | Lighten to wiring smoke test only                      |
+| Keep   | `tests/integration.test.ts` | Wiring smoke tests (verify events reach pipeline)      |
 
 ---
 
@@ -43,8 +43,6 @@ import {
   makeAssistantMessage,
 } from "./helpers.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { SessionState } from "../src/state/types.ts";
-import type { DcpConfig } from "../src/config.ts";
 import type { ContextUsage } from "../src/state/types.ts";
 
 describe("runPipeline", () => {
@@ -139,9 +137,8 @@ describe("runPipeline", () => {
 
   it("injects compress nudges when context usage is high", () => {
     const state = createSessionState();
+    // Default maxContextPercent is 80 — usage.percent of 80 triggers the nudge
     const config = makeDefaultConfig();
-    // Set threshold to trigger nudge
-    config.compress.nudgeThreshold = 0.5;
 
     const messages: AgentMessage[] = [
       makeUserMessage("Hello"),
@@ -180,6 +177,7 @@ describe("runPipeline", () => {
       durationMs: 0,
       mode: "range",
       topic: "test",
+      batchTopic: undefined,
       startIndex: 8,
       endIndex: 10,
       anchorIndex: 10,
@@ -195,7 +193,7 @@ describe("runPipeline", () => {
       deactivatedAt: undefined,
       deactivatedByBlockId: undefined,
       summary: "[Compressed Block b1]\ntest\n[End Block b1]",
-    } as any);
+    });
 
     const messages: AgentMessage[] = [
       makeUserMessage("Hello"),
@@ -247,7 +245,7 @@ import type { DcpConfig } from "./config.ts";
 import { syncCompressionBlocks } from "./messages/sync.ts";
 import { stripHallucinations } from "./messages/strip.ts";
 import { syncToolCache, buildToolIdList } from "./state/tool-cache.ts";
-import { runStrategies } from "./strategies/runner.ts";
+import { runStrategies, type StrategyResult } from "./strategies/runner.ts";
 import {
   assignMessageRefs,
   injectCompressNudges,
@@ -258,6 +256,7 @@ import { applyPruning } from "./messages/prune.ts";
 
 export interface PipelineResult {
   messages: AgentMessage[];
+  strategyResult: StrategyResult;
 }
 
 /**
@@ -282,7 +281,7 @@ export function runPipeline(
   buildToolIdList(state, result);
 
   // Step 3: Run strategies (deduplication + purge errors)
-  runStrategies(state, config);
+  const strategyResult = runStrategies(state, config);
 
   // Step 4: Assign message refs (stable raw indices)
   assignMessageRefs(state, result);
@@ -302,7 +301,7 @@ export function runPipeline(
   // Step 7: Inject nudges based on context usage
   result = injectCompressNudges(state, config, result, contextUsage);
 
-  return { messages: result };
+  return { messages: result, strategyResult };
 }
 ```
 
@@ -407,6 +406,13 @@ pi.on("context", async (event, ctx) => {
       : undefined,
   );
 
+  if (result.strategyResult.pruned > 0) {
+    logger.info("strategies", "pruned tool outputs", {
+      count: result.strategyResult.pruned,
+      tokens: result.strategyResult.tokensSaved,
+    });
+  }
+
   if (ctx.hasUI && state.stats.totalPruneTokens > 0) {
     ctx.ui.setStatus(
       "dcp",
@@ -434,22 +440,18 @@ Expected: All tests PASS
 
 ---
 
-### Task 4: Lighten integration.test.ts
+### Task 4: Verify integration tests still pass
 
 **Files:**
 
-- Modify: `tests/integration.test.ts`
+- Keep: `tests/integration.test.ts`
 
-- [ ] **Step 1: Review integration tests**
+The integration tests (2 tests, ~170 lines) already serve as lightweight wiring smoke tests — they verify that Pi extension events reach the pipeline and results propagate back through the mock API. The pipeline tests cover logic; the integration tests cover wiring. There is minimal overlap, so keep them as-is.
 
-The integration tests should now be a lightweight wiring smoke test — verifying that the Pi extension events correctly reach the pipeline and results propagate back. The heavy logic testing is in `tests/pipeline.test.ts`.
+- [ ] **Step 1: Run all tests**
 
-Check if integration tests duplicate what pipeline tests already cover. Remove duplicates, keeping only:
-
-- Extension loads without error
-- Context event triggers pipeline and returns messages
-- Session lifecycle events work (start, shutdown, compaction)
-- Tool registration responds to compress calls
+Run: `pnpm vitest run`
+Expected: All tests PASS (both pipeline and integration)
 
 - [ ] **Step 2: Run full check**
 
@@ -459,11 +461,12 @@ Expected: PASS
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/index.ts src/pipeline.ts tests/pipeline.test.ts tests/integration.test.ts
+git add src/index.ts src/pipeline.ts tests/pipeline.test.ts
 git commit -m "refactor: collapse context handler to pipeline call
 
-index.ts context handler is now ~12 lines of wiring. All logic
-lives in runPipeline. Integration test lightened to wiring smoke test.
+index.ts context handler is now ~15 lines of wiring. All logic
+lives in runPipeline. Strategy logging preserved via returned
+strategyResult.
 
 No behavior change.
 
