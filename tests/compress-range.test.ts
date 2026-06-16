@@ -150,4 +150,37 @@ describe("handleCompress token reporting", () => {
     expect(result).not.toContain("tokens");
     expect(result).toContain("Compressed 2 messages");
   });
+
+  it("accumulates token savings across multiple ranges", () => {
+    const state = createSessionState();
+    state.messageIds.byRef.set("m0001", 0);
+    state.messageIds.byRef.set("m0002", 1);
+    state.messageIds.byRef.set("m0003", 2);
+    state.messageIds.byRef.set("m0004", 3);
+
+    state.prune.messages.byMessageIndex.set(0, { tokenCount: 100, blockIds: [], activeBlockIds: [] });
+    state.prune.messages.byMessageIndex.set(1, { tokenCount: 200, blockIds: [], activeBlockIds: [] });
+    state.prune.messages.byMessageIndex.set(2, { tokenCount: 150, blockIds: [], activeBlockIds: [] });
+    state.prune.messages.byMessageIndex.set(3, { tokenCount: 50, blockIds: [], activeBlockIds: [] });
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "msg 0" }], timestamp: Date.now() } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "msg 1" }], timestamp: Date.now() } as unknown as AgentMessage,
+      { role: "user", content: [{ type: "text", text: "msg 2" }], timestamp: Date.now() } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "msg 3" }], timestamp: Date.now() } as unknown as AgentMessage,
+    ];
+
+    const result = handleCompress(state, makeDefaultConfig(), messages, {
+      topic: "test",
+      mode: "range",
+      content: [
+        { startId: "m0001", endId: "m0002", summary: "first" },
+        { startId: "m0003", endId: "m0004", summary: "second" },
+      ],
+    });
+
+    // Total = 100 + 200 + 150 + 50 = 500
+    expect(result).toContain("~500 tokens");
+    expect(result).toContain("Compressed 4 messages");
+  });
 });
