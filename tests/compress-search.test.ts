@@ -138,6 +138,36 @@ describe("expandRangeForToolChains", () => {
     expect(result.endIndex).toBe(3);
   });
 
+  it("cascading expansion: pulling in assistant brings its other toolCall results", () => {
+    // assistant@1 has two toolCalls (c1, c2), results at 2 and 3.
+    // Range [2,4] includes toolResult(c1)@2 but not assistant@1.
+    // Iteration 1: pulls assistant@1 for c1 → now c2 is in scope.
+    // Iteration 2: confirms toolResult(c2)@3 is already in [1,4] → stable.
+    const multiCallAssistant: AgentMessage = {
+      role: "assistant",
+      content: [
+        { type: "toolCall", id: "c1", name: "read", arguments: {} },
+        { type: "toolCall", id: "c2", name: "write", arguments: {} },
+      ],
+      stopReason: "toolUse",
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+      timestamp: Date.now(),
+    } as unknown as AgentMessage;
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "start" }], timestamp: Date.now() } as AgentMessage,
+      multiCallAssistant,           // index 1
+      makeToolResultMsg("c1"),      // index 2
+      makeToolResultMsg("c2"),      // index 3
+      { role: "user", content: [{ type: "text", text: "end" }], timestamp: Date.now() } as AgentMessage,
+    ];
+
+    // Range [2,4] — only includes toolResult(c1), not the assistant or toolResult(c2)
+    const result = expandRangeForToolChains(messages, 2, 4);
+    expect(result.startIndex).toBe(1); // pulled in assistant
+    expect(result.endIndex).toBe(4);   // toolResult(c2)@3 already within [1,4]
+  });
+
   it("returns unchanged range when no tool calls present", () => {
     const messages: AgentMessage[] = [
       { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() } as AgentMessage,
