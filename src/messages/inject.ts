@@ -3,7 +3,8 @@ import type { ContextUsage, SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { formatMessageRef, formatMessageIdTag } from "../utils/message-ids.ts";
 import type { PriorityMap } from "./priority.ts";
-import { appendText } from "../utils/message-content.ts";
+import { appendText, mapText } from "../utils/message-content.ts";
+import { stripHallucinationsFromString } from "./strip.ts";
 import {
   CONTEXT_LIMIT_NUDGE,
   TURN_NUDGE,
@@ -53,9 +54,10 @@ export function injectMessageIds(
       priorityEntry ? { priority: priorityEntry.priority } : undefined,
     );
 
-    // Idempotency marker uses "<dcp-message-id" (no closing >) to match both
-    // plain and priority-attribute variants.
-    return appendText(msg, `\n\n${tag}`, "<dcp-message-id");
+    // Strip any existing (stale/partial) DCP tags before injecting fresh ones.
+    // This replaces marker-based idempotency — always inject clean.
+    const cleaned = mapText(msg, stripHallucinationsFromString);
+    return appendText(cleaned, `\n\n${tag}`);
   });
 }
 

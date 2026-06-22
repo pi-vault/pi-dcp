@@ -127,6 +127,40 @@ describe("injectMessageIds", () => {
 
     expect(result[0]).toBe(msg); // unchanged reference
   });
+
+  it("strips existing DCP tags before injecting fresh ones", () => {
+    const state = createSessionState();
+    const messages: AgentMessage[] = [
+      makeUserMessage("Hello <dcp-message-id>m0099</dcp-message-id>"),
+      makeAssistantMessage("Response <dcp-message-id>m0100</dcp-message-id>"),
+    ];
+
+    assignMessageRefs(state, messages);
+    const result = injectMessageIds(state, messages);
+
+    // Should have fresh m0001/m0002 tags, not the stale m0099/m0100
+    const userText = (result[0] as any).content[0].text as string;
+    const assistantText = (result[1] as any).content[0].text as string;
+
+    expect(userText).toContain("<dcp-message-id>m0001</dcp-message-id>");
+    expect(userText).not.toContain("m0099");
+    expect(assistantText).toContain("<dcp-message-id>m0002</dcp-message-id>");
+    expect(assistantText).not.toContain("m0100");
+  });
+
+  it("strips truncated DCP tags before injecting", () => {
+    const state = createSessionState();
+    const messages: AgentMessage[] = [
+      makeAssistantMessage("Response <dcp-message-id>m0050</dcp"),
+    ];
+
+    assignMessageRefs(state, messages);
+    const result = injectMessageIds(state, messages);
+
+    const text = (result[0] as any).content[0].text as string;
+    expect(text).toContain("<dcp-message-id>m0001</dcp-message-id>");
+    expect(text).not.toContain("m0050");
+  });
 });
 
 // ---------------------------------------------------------------------------
