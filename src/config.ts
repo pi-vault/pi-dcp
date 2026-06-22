@@ -21,6 +21,7 @@ export interface CompressConfig {
   protectedTools: string[];
   protectUserMessages: boolean;
   protectTags: boolean;
+  /** When true, active summary tokens are excluded from the max-threshold comparison to prevent cascading compressions. */
   summaryBuffer: boolean;
 }
 
