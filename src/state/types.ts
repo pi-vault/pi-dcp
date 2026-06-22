@@ -32,6 +32,10 @@ export interface SessionState {
   currentTurn: number;
   /** Model context window size (from Pi's ctx.getContextUsage). */
   modelContextWindow: number | undefined;
+  /** Active model identifier (e.g. "claude-sonnet-4-20250514"). */
+  modelId: string | undefined;
+  /** Active model provider (e.g. "anthropic"). */
+  modelProvider: string | undefined;
   /** Compression timing tracking. */
   compressionTiming: CompressionTimingState;
 }

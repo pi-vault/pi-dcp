@@ -23,6 +23,8 @@ export function createSessionState(): SessionState {
     lastCompaction: 0,
     currentTurn: 0,
     modelContextWindow: undefined,
+    modelId: undefined,
+    modelProvider: undefined,
     compressionTiming: createCompressionTiming(),
   };
 }
@@ -49,6 +51,8 @@ export function resetSessionState(state: SessionState): void {
   state.lastCompaction = 0;
   state.currentTurn = 0;
   state.modelContextWindow = undefined;
+  state.modelId = undefined;
+  state.modelProvider = undefined;
   state.compressionTiming.startTimes.clear();
   state.compressionTiming.callIdToBlockId.clear();
   state.compressionTiming.pendingDurations.clear();
