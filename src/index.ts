@@ -234,6 +234,10 @@ export default function createExtension(pi: ExtensionAPI): void {
 
     const usage = ctx.getContextUsage();
     if (usage) state.modelContextWindow = usage.contextWindow;
+    if (ctx.model) {
+      state.modelId = ctx.model.id;
+      state.modelProvider = ctx.model.provider;
+    }
     latestMessages = event.messages;
 
     const result = runPipeline(

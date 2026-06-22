@@ -79,6 +79,7 @@ git commit -m "feat(limits): add modelId and modelProvider to SessionState"
 **Files:**
 
 - Modify: `src/config.ts`
+- Modify: `tests/helpers.ts`
 
 - [ ] **Step 1: Add types and defaults**
 
@@ -141,17 +142,31 @@ if (
   >;
 ```
 
-- [ ] **Step 3: Run typecheck**
+- [ ] **Step 3: Update `tests/helpers.ts` `makeDefaultConfig`**
+
+Add the new fields to the `compress` object in `makeDefaultConfig()`. Use `undefined` defaults so existing tests continue to hit the legacy percentage fallback path:
+
+```typescript
+      protectTags: false,
+      summaryBuffer: true,
+      maxContextLimit: undefined,
+      minContextLimit: undefined,
+      modelMaxLimits: undefined,
+      modelMinLimits: undefined,
+      ...overrides,
+```
+
+- [ ] **Step 4: Run typecheck**
 
 Run: `cd /Users/lanh/Developer/pi-vault/pi-dcp && npx tsc --noEmit`
 
 Expected: No errors.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 cd /Users/lanh/Developer/pi-vault/pi-dcp
-git add src/config.ts
+git add src/config.ts tests/helpers.ts
 git commit -m "feat(limits): add absolute token limit config fields"
 ```
 
@@ -179,32 +194,23 @@ import { makeDefaultConfig } from "./helpers.ts";
 
 describe("resolveContextTokenLimit", () => {
   it("returns absolute number directly", () => {
-    const state = createSessionState();
-    state.modelContextWindow = 200000;
-    expect(resolveContextTokenLimit(200000, state)).toBe(200000);
+    expect(resolveContextTokenLimit(200000, 200000)).toBe(200000);
   });
 
-  it("resolves percentage string against model context window", () => {
-    const state = createSessionState();
-    state.modelContextWindow = 200000;
-    expect(resolveContextTokenLimit("80%", state)).toBe(160000);
+  it("resolves percentage string against context window", () => {
+    expect(resolveContextTokenLimit("80%", 200000)).toBe(160000);
   });
 
   it("returns undefined when percentage string but no context window", () => {
-    const state = createSessionState();
-    state.modelContextWindow = undefined;
-    expect(resolveContextTokenLimit("80%", state)).toBeUndefined();
+    expect(resolveContextTokenLimit("80%", undefined)).toBeUndefined();
   });
 
   it("returns number even without context window", () => {
-    const state = createSessionState();
-    state.modelContextWindow = undefined;
-    expect(resolveContextTokenLimit(150000, state)).toBe(150000);
+    expect(resolveContextTokenLimit(150000, undefined)).toBe(150000);
   });
 
   it("returns undefined for undefined input", () => {
-    const state = createSessionState();
-    expect(resolveContextTokenLimit(undefined, state)).toBeUndefined();
+    expect(resolveContextTokenLimit(undefined, 200000)).toBeUndefined();
   });
 });
 
@@ -269,6 +275,26 @@ describe("isContextOverLimits", () => {
     expect(result.overMinLimit).toBe(true);
   });
 
+  it("uses contextUsage.contextWindow as fallback when state.modelContextWindow is undefined", () => {
+    const state = createSessionState();
+    // state.modelContextWindow intentionally left undefined
+    const config = makeDefaultConfig({
+      maxContextLimit: undefined,
+      minContextLimit: undefined,
+      maxContextPercent: 80,
+      minContextPercent: 50,
+    });
+
+    // tokens = 170000 = 85% of 200K contextWindow from usage
+    const result = isContextOverLimits(config, state, {
+      tokens: 170000,
+      contextWindow: 200000,
+      percent: 85,
+    });
+    expect(result.overMaxLimit).toBe(true);
+    expect(result.overMinLimit).toBe(true);
+  });
+
   it("returns both false when tokens is null", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({
@@ -322,10 +348,13 @@ import type { ContextUsage, SessionState } from "../state/types.ts";
 /**
  * Resolve a context limit value (number or percentage string) to an absolute token count.
  * Returns undefined if the value cannot be resolved (e.g., percentage with no context window).
+ *
+ * @param value - The limit value: absolute number, percentage string ("80%"), or undefined.
+ * @param contextWindow - The context window size to resolve percentages against.
  */
 export function resolveContextTokenLimit(
   value: number | string | undefined,
-  state: SessionState,
+  contextWindow: number | undefined,
 ): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value === "number") return value;
@@ -335,9 +364,9 @@ export function resolveContextTokenLimit(
   if (!match) return undefined;
 
   const percent = Number.parseFloat(match[1]);
-  if (state.modelContextWindow === undefined) return undefined;
+  if (contextWindow === undefined) return undefined;
 
-  return Math.round((percent / 100) * state.modelContextWindow);
+  return Math.round((percent / 100) * contextWindow);
 }
 
 /**
@@ -346,6 +375,10 @@ export function resolveContextTokenLimit(
  *   1. Per-model override (modelMaxLimits/modelMinLimits[provider/modelId])
  *   2. Global absolute limit (maxContextLimit/minContextLimit)
  *   3. Legacy percentage fallback (maxContextPercent/minContextPercent * contextWindow)
+ *
+ * The effective context window is state.modelContextWindow if set, otherwise
+ * contextUsage.contextWindow. This ensures the legacy fallback works even
+ * when state hasn't captured the window yet (e.g., in tests or first context pass).
  */
 export function isContextOverLimits(
   config: { compress: CompressConfig },
@@ -362,8 +395,13 @@ export function isContextOverLimits(
       ? `${state.modelProvider}/${state.modelId}`
       : undefined;
 
-  const maxLimit = resolveMaxLimit(config.compress, state, modelKey);
-  const minLimit = resolveMinLimit(config.compress, state, modelKey);
+  // Effective window: prefer state (persisted), fall back to contextUsage (current)
+  const effectiveWindow =
+    state.modelContextWindow ??
+    (contextUsage.contextWindow > 0 ? contextUsage.contextWindow : undefined);
+
+  const maxLimit = resolveMaxLimit(config.compress, effectiveWindow, modelKey);
+  const minLimit = resolveMinLimit(config.compress, effectiveWindow, modelKey);
 
   return {
     overMaxLimit: maxLimit !== undefined ? tokens >= maxLimit : false,
@@ -373,23 +411,23 @@ export function isContextOverLimits(
 
 function resolveMaxLimit(
   compress: CompressConfig,
-  state: SessionState,
+  contextWindow: number | undefined,
   modelKey: string | undefined,
 ): number | undefined {
   // 1. Per-model override
   if (modelKey && compress.modelMaxLimits?.[modelKey] !== undefined) {
-    return resolveContextTokenLimit(compress.modelMaxLimits[modelKey], state);
+    return resolveContextTokenLimit(compress.modelMaxLimits[modelKey], contextWindow);
   }
 
   // 2. Global absolute limit
   if (compress.maxContextLimit !== undefined) {
-    return resolveContextTokenLimit(compress.maxContextLimit, state);
+    return resolveContextTokenLimit(compress.maxContextLimit, contextWindow);
   }
 
   // 3. Legacy percentage fallback
-  if (state.modelContextWindow !== undefined) {
+  if (contextWindow !== undefined) {
     return Math.round(
-      (compress.maxContextPercent / 100) * state.modelContextWindow,
+      (compress.maxContextPercent / 100) * contextWindow,
     );
   }
 
@@ -398,23 +436,23 @@ function resolveMaxLimit(
 
 function resolveMinLimit(
   compress: CompressConfig,
-  state: SessionState,
+  contextWindow: number | undefined,
   modelKey: string | undefined,
 ): number | undefined {
   // 1. Per-model override
   if (modelKey && compress.modelMinLimits?.[modelKey] !== undefined) {
-    return resolveContextTokenLimit(compress.modelMinLimits[modelKey], state);
+    return resolveContextTokenLimit(compress.modelMinLimits[modelKey], contextWindow);
   }
 
   // 2. Global absolute limit
   if (compress.minContextLimit !== undefined) {
-    return resolveContextTokenLimit(compress.minContextLimit, state);
+    return resolveContextTokenLimit(compress.minContextLimit, contextWindow);
   }
 
   // 3. Legacy percentage fallback
-  if (state.modelContextWindow !== undefined) {
+  if (contextWindow !== undefined) {
     return Math.round(
-      (compress.minContextPercent / 100) * state.modelContextWindow,
+      (compress.minContextPercent / 100) * contextWindow,
     );
   }
 
@@ -521,85 +559,7 @@ In `src/messages/inject.ts`, add the import:
 import { isContextOverLimits } from "../utils/context-limits.ts";
 ```
 
-Replace the threshold section of `injectCompressNudges` (the section after `if (contextUsage.percent == null) return messages;` up to `if (!overMin) return messages;`) with:
-
-```typescript
-// Resolve absolute limits (with summary buffer adjustment)
-const { overMaxLimit, overMinLimit } = isContextOverLimits(
-  config,
-  state,
-  contextUsage,
-);
-
-// Summary buffer: extend effective max limit by active summary tokens
-let overMax = overMaxLimit;
-if (
-  overMax &&
-  config.compress.summaryBuffer &&
-  contextUsage.tokens != null &&
-  contextUsage.contextWindow > 0
-) {
-  const summaryTokens = getActiveSummaryTokenUsage(state);
-  if (summaryTokens > 0) {
-    // Re-check: is tokens still over max after adding summary buffer to the limit?
-    const { overMaxLimit: stillOverMax } = isContextOverLimitsWithBuffer(
-      config,
-      state,
-      contextUsage,
-      summaryTokens,
-    );
-    overMax = stillOverMax;
-  }
-}
-
-if (!overMinLimit) return messages;
-```
-
-Actually, let's keep it simpler. Replace the entire threshold block in `injectCompressNudges`. The current code is:
-
-```typescript
-// E5: percent can be null when unknown
-if (contextUsage.percent == null) return messages;
-
-const percent = contextUsage.percent;
-const overMax = percent >= config.compress.maxContextPercent;
-const overMin = percent >= config.compress.minContextPercent;
-```
-
-Replace with:
-
-```typescript
-// Use absolute token limits (Phase 4) with summary buffer adjustment (Phase 3)
-const limits = isContextOverLimits(config, state, contextUsage);
-
-// Summary buffer: extend the effective max limit by active summary tokens
-let overMax = limits.overMaxLimit;
-if (
-  overMax &&
-  config.compress.summaryBuffer &&
-  contextUsage.contextWindow > 0 &&
-  contextUsage.tokens != null
-) {
-  const summaryTokens = getActiveSummaryTokenUsage(state);
-  if (summaryTokens > 0 && state.modelContextWindow) {
-    const bufferPercent = (summaryTokens / state.modelContextWindow) * 100;
-    // Re-derive: if using percentage fallback, add buffer to effective percent threshold
-    // If using absolute limits, add summaryTokens directly to the resolved limit
-    // Simplest: check if tokens < resolvedMax + summaryTokens
-    const resolvedMax = resolveEffectiveMaxTokens(config, state);
-    if (
-      resolvedMax !== undefined &&
-      contextUsage.tokens < resolvedMax + summaryTokens
-    ) {
-      overMax = false;
-    }
-  }
-}
-
-const overMin = limits.overMinLimit;
-```
-
-Hmm, this is getting complex. Let me simplify the integration. Replace the entire threshold section with a clean approach:
+Replace the entire threshold block in `injectCompressNudges`. Delete from `// E5: percent can be null when unknown` through `if (!overMin) return messages;` (including the summary buffer logic). Replace with:
 
 ```typescript
 // Resolve context limits (absolute tokens, per-model overrides, legacy percentage fallback)
@@ -609,7 +569,8 @@ let { overMaxLimit: overMax, overMinLimit: overMin } = isContextOverLimits(
   contextUsage,
 );
 
-// Summary buffer: if over max, check whether summary tokens account for the overshoot
+// Summary buffer: if over max, check whether summary tokens account for the overshoot.
+// Subtract active summary tokens from effective usage and re-check.
 if (overMax && config.compress.summaryBuffer && contextUsage.tokens != null) {
   const summaryTokens = getActiveSummaryTokenUsage(state);
   if (summaryTokens > 0) {
@@ -625,9 +586,13 @@ if (overMax && config.compress.summaryBuffer && contextUsage.tokens != null) {
     overMax = adjusted.overMaxLimit;
   }
 }
+
+if (!overMin) return messages;
 ```
 
-Remove the old `if (contextUsage.percent == null) return messages;` check — `isContextOverLimits` already handles null tokens by returning `{ false, false }`.
+This removes the old `if (contextUsage.percent == null) return messages;` early exit — `isContextOverLimits` already handles null tokens by returning `{ false, false }`, which causes `if (!overMin) return messages` to bail out.
+
+Also remove the now-unused `percent` variable and the old summary buffer block (`let effectiveMaxPercent = ...`).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -650,7 +615,7 @@ if (ctx.model) {
 
 Run: `cd /Users/lanh/Developer/pi-vault/pi-dcp && npm run check`
 
-Expected: All pass. If existing tests fail because they rely on the old percentage logic path, update them to also set `contextUsage.tokens` and `contextUsage.contextWindow` so `isContextOverLimits` can resolve correctly. Most existing tests pass `percent` which will hit the legacy fallback path (percentage \* contextWindow) when no absolute limits are set.
+Expected: All pass. Existing tests use `makeDefaultConfig()` which sets `maxContextLimit: undefined` / `minContextLimit: undefined`, causing `isContextOverLimits` to fall through to the legacy percentage path. The legacy path uses `contextUsage.contextWindow` (via the `effectiveWindow` fallback) so no test updates should be needed.
 
 - [ ] **Step 7: Commit**
 
@@ -670,11 +635,12 @@ Tracks modelId/modelProvider for per-model override resolution."
 
 After all tasks are complete:
 
-- [ ] `npm run check` passes
+- [ ] `npm run check` passes (all 247+ tests green, typecheck clean)
 - [ ] Default config has `maxContextLimit: 200000`, `minContextLimit: 100000`
 - [ ] Per-model overrides resolve correctly (provider/modelId key format)
-- [ ] Percentage strings ("80%") resolve against modelContextWindow
-- [ ] Legacy percentage fallback works when no absolute limits set
-- [ ] Summary buffer integrates cleanly with absolute limit logic
+- [ ] Percentage strings ("80%") resolve against effective context window
+- [ ] Legacy percentage fallback works when no absolute limits set (uses `contextUsage.contextWindow`)
+- [ ] Summary buffer integrates cleanly with absolute limit logic (token subtraction approach)
 - [ ] Model info (id, provider) tracked from ctx.model on context event
-- [ ] Existing nudge tests pass (they use percent which hits legacy fallback)
+- [ ] Existing nudge tests pass unchanged (test helper uses `undefined` limits → legacy path)
+- [ ] `tests/helpers.ts` has new config fields set to `undefined` (not production defaults)

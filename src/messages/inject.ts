@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ContextUsage, SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { getActiveSummaryTokenUsage } from "../compress/state.ts";
+import { isContextOverLimits } from "../utils/context-limits.ts";
 import { formatMessageRef, formatMessageIdTag } from "../utils/message-ids.ts";
 import type { PriorityMap } from "./priority.ts";
 import { appendText, mapText } from "../utils/message-content.ts";
@@ -66,18 +67,15 @@ export function injectMessageIds(
 
 /**
  * Inject compress nudges into messages based on context usage.
- * Three tiers:
- * - Context limit nudge: percent >= maxContextPercent (urgent)
- * - Turn nudge: percent >= minContextPercent and last message is a user message
- * - Iteration nudge: percent >= minContextPercent and many consecutive assistant messages
+ * Thresholds resolved via isContextOverLimits (absolute tokens, per-model overrides, legacy percentage fallback):
+ * - Context limit nudge: tokens >= maxContextLimit (urgent)
+ * - Turn nudge: tokens >= minContextLimit and last message is a user message
+ * - Iteration nudge: tokens >= minContextLimit and many consecutive assistant messages
  *
  * Nudge text is appended to the last message that has text content.
  * Returns a new array. Idempotent: skips if <dcp-system-reminder> is already present.
  *
  * Handles plain-string user message content (E9).
- *
- * NOTE: config.compress.nudgeFrequency and state.nudges anchor tracking are
- * reserved for Phase 4+ throttling — not yet implemented.
  */
 export function injectCompressNudges(
   state: SessionState,
@@ -87,21 +85,30 @@ export function injectCompressNudges(
 ): AgentMessage[] {
   if (!contextUsage) return messages;
 
-  // E5: percent can be null when unknown
-  if (contextUsage.percent == null) return messages;
+  // Resolve context limits (absolute tokens, per-model overrides, legacy percentage fallback)
+  let { overMaxLimit: overMax, overMinLimit: overMin } = isContextOverLimits(
+    config,
+    state,
+    contextUsage,
+  );
 
-  const percent = contextUsage.percent;
-
-  // Summary buffer: extend effective max threshold by summary token percentage
-  let effectiveMaxPercent = config.compress.maxContextPercent;
-  if (config.compress.summaryBuffer && contextUsage.contextWindow > 0) {
+  // Summary buffer: if over max, check whether summary tokens account for the overshoot.
+  // Subtract active summary tokens from effective usage and re-check.
+  if (overMax && config.compress.summaryBuffer && contextUsage.tokens != null) {
     const summaryTokens = getActiveSummaryTokenUsage(state);
-    const summaryPercent = (summaryTokens / contextUsage.contextWindow) * 100;
-    effectiveMaxPercent += summaryPercent;
+    if (summaryTokens > 0) {
+      const effectiveTokens = contextUsage.tokens - summaryTokens;
+      const adjusted = isContextOverLimits(config, state, {
+        ...contextUsage,
+        tokens: effectiveTokens,
+        percent:
+          contextUsage.contextWindow > 0
+            ? (effectiveTokens / contextUsage.contextWindow) * 100
+            : contextUsage.percent,
+      });
+      overMax = adjusted.overMaxLimit;
+    }
   }
-
-  const overMax = percent >= effectiveMaxPercent;
-  const overMin = percent >= config.compress.minContextPercent;
 
   if (!overMin) return messages;
 

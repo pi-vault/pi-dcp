@@ -23,6 +23,10 @@ export interface CompressConfig {
   protectTags: boolean;
   /** When true, active summary tokens are excluded from the max-threshold comparison to prevent cascading compressions. */
   summaryBuffer: boolean;
+  maxContextLimit: number | string | undefined;
+  minContextLimit: number | string | undefined;
+  modelMaxLimits: Record<string, number | string> | undefined;
+  modelMinLimits: Record<string, number | string> | undefined;
 }
 
 export interface ManualModeConfig {
@@ -61,6 +65,10 @@ const DEFAULT_CONFIG: DcpConfig = {
     protectUserMessages: false,
     protectTags: false,
     summaryBuffer: true,
+    maxContextLimit: 200000,
+    minContextLimit: 100000,
+    modelMaxLimits: undefined,
+    modelMinLimits: undefined,
   },
   manualMode: {
     default: false,
@@ -105,6 +113,7 @@ const KNOWN_COMPRESS_KEYS = new Set([
   "mode", "permission", "maxContextPercent", "minContextPercent",
   "nudgeFrequency", "iterationNudgeThreshold", "nudgeForce",
   "protectedTools", "protectUserMessages", "protectTags", "summaryBuffer",
+  "maxContextLimit", "minContextLimit", "modelMaxLimits", "modelMinLimits",
 ]);
 
 export interface LoadConfigResult {
@@ -223,6 +232,44 @@ function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
       target.compress.protectTags = c.protectTags;
     if (typeof c.summaryBuffer === "boolean")
       target.compress.summaryBuffer = c.summaryBuffer;
+    if (typeof c.maxContextLimit === "number" && c.maxContextLimit > 0)
+      target.compress.maxContextLimit = c.maxContextLimit;
+    else if (typeof c.maxContextLimit === "string")
+      target.compress.maxContextLimit = c.maxContextLimit;
+    if (typeof c.minContextLimit === "number" && c.minContextLimit > 0)
+      target.compress.minContextLimit = c.minContextLimit;
+    else if (typeof c.minContextLimit === "string")
+      target.compress.minContextLimit = c.minContextLimit;
+    if (
+      c.modelMaxLimits &&
+      typeof c.modelMaxLimits === "object" &&
+      !Array.isArray(c.modelMaxLimits)
+    ) {
+      const validated: Record<string, number | string> = {};
+      for (const [key, val] of Object.entries(
+        c.modelMaxLimits as Record<string, unknown>,
+      )) {
+        if (typeof val === "number" && val > 0) validated[key] = val;
+        else if (typeof val === "string") validated[key] = val;
+      }
+      if (Object.keys(validated).length > 0)
+        target.compress.modelMaxLimits = validated;
+    }
+    if (
+      c.modelMinLimits &&
+      typeof c.modelMinLimits === "object" &&
+      !Array.isArray(c.modelMinLimits)
+    ) {
+      const validated: Record<string, number | string> = {};
+      for (const [key, val] of Object.entries(
+        c.modelMinLimits as Record<string, unknown>,
+      )) {
+        if (typeof val === "number" && val > 0) validated[key] = val;
+        else if (typeof val === "string") validated[key] = val;
+      }
+      if (Object.keys(validated).length > 0)
+        target.compress.modelMinLimits = validated;
+    }
   }
 
   if (source.manualMode && typeof source.manualMode === "object") {

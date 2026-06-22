@@ -130,13 +130,14 @@ describe("integration", () => {
     expect(userMsg.content[0].text).toContain("<dcp-message-id>");
   });
 
-  it("injects nudge when context is high", async () => {
+  it("injects CONTEXT_LIMIT_NUDGE when tokens >= maxContextLimit (absolute)", async () => {
     const { api, handlers } = createMockApi();
     createExtension(api);
 
     const mockCtx = {
       sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
-      getContextUsage: () => ({ tokens: 170000, contextWindow: 200000, percent: 85 }),
+      // 200K tokens at only 20% of 1M window — proves absolute limit fires, not percentage
+      getContextUsage: () => ({ tokens: 200000, contextWindow: 1000000, percent: 20 }),
       hasUI: false,
       ui: { setStatus: () => {}, notify: () => {} },
     };

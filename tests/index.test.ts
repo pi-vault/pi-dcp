@@ -119,7 +119,7 @@ describe("dcp extension", () => {
     expect(assistantText).toContain("<dcp-message-id>m0002</dcp-message-id>");
   });
 
-  it("context handler injects CONTEXT_LIMIT_NUDGE when percent >= maxContextPercent", async () => {
+  it("context handler injects CONTEXT_LIMIT_NUDGE when tokens >= maxContextLimit", async () => {
     const { api, handlers } = createMockApi();
     createExtension(api);
 
@@ -131,9 +131,9 @@ describe("dcp extension", () => {
 
     const mockCtx = {
       getContextUsage: () => ({
-        tokens: 160000,
-        contextWindow: 200000,
-        percent: 80, // at maxContextPercent default (80)
+        tokens: 200000, // at maxContextLimit default (200K)
+        contextWindow: 1000000,
+        percent: 20, // only 20% of window — proves absolute limit, not percentage
       }),
     };
 
