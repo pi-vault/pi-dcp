@@ -138,3 +138,27 @@ export function applyCompressionState(
 
   return { messageIndices };
 }
+
+/**
+ * Apply pending compression durations to their corresponding blocks.
+ * Called at the start of each pipeline pass.
+ *
+ * Reads callIdToBlockId to find the target block, applies the duration from
+ * pendingDurations, then clears both maps.
+ */
+export function applyPendingCompressionDurations(state: SessionState): void {
+  if (state.compressionTiming.pendingDurations.size === 0) return;
+
+  for (const [callId, durationMs] of state.compressionTiming.pendingDurations) {
+    const blockId = state.compressionTiming.callIdToBlockId.get(callId);
+    if (blockId !== undefined) {
+      const block = state.prune.messages.blocksById.get(blockId);
+      if (block) {
+        block.durationMs = durationMs;
+      }
+    }
+  }
+
+  state.compressionTiming.callIdToBlockId.clear();
+  state.compressionTiming.pendingDurations.clear();
+}
