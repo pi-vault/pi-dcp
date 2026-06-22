@@ -3,8 +3,13 @@ import {
   resolveContextTokenLimit,
   isContextOverLimits,
 } from "../src/utils/context-limits.ts";
+import {
+  injectCompressNudges,
+  assignMessageRefs,
+} from "../src/messages/inject.ts";
 import { createSessionState } from "../src/state/state.ts";
-import { makeDefaultConfig } from "./helpers.ts";
+import { makeDefaultConfig, makeUserMessage, makeAssistantMessage } from "./helpers.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 describe("resolveContextTokenLimit", () => {
   it("returns absolute number directly", () => {
@@ -141,5 +146,53 @@ describe("isContextOverLimits", () => {
     });
     expect(result.overMaxLimit).toBe(true);
     expect(result.overMinLimit).toBe(true);
+  });
+});
+
+describe("injectCompressNudges with absolute limits", () => {
+  it("uses absolute token limits instead of percentage for CONTEXT_LIMIT_NUDGE", () => {
+    const state = createSessionState();
+    state.modelContextWindow = 1000000;
+    const config = makeDefaultConfig({
+      maxContextLimit: 200000,
+      minContextLimit: 100000,
+    });
+
+    const messages: AgentMessage[] = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
+
+    // 250K tokens — only 25% of 1M window, but > 200K absolute limit
+    const result = injectCompressNudges(state, config, messages, {
+      tokens: 250000,
+      contextWindow: 1000000,
+      percent: 25,
+    });
+
+    const text = (result[0] as unknown as { content: Array<{ text: string }> })
+      .content[0].text;
+    expect(text).toContain("CRITICAL WARNING");
+  });
+
+  it("does not trigger when tokens below absolute limit even if percent seems high", () => {
+    const state = createSessionState();
+    state.modelContextWindow = 200000;
+    const config = makeDefaultConfig({
+      maxContextLimit: 200000,
+      minContextLimit: 100000,
+    });
+
+    const messages: AgentMessage[] = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
+
+    // 90K tokens = 45% of 200K — below both absolute limits
+    const result = injectCompressNudges(state, config, messages, {
+      tokens: 90000,
+      contextWindow: 200000,
+      percent: 45,
+    });
+
+    const text = (result[0] as unknown as { content: Array<{ text: string }> })
+      .content[0].text;
+    expect(text).not.toContain("dcp-system-reminder");
   });
 });
