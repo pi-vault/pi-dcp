@@ -20,6 +20,31 @@ describe("strip", () => {
       const result = stripHallucinationsFromString("no tags here");
       expect(result).toBe("no tags here");
     });
+
+    it("removes partial dcp tag at end of string (no closing >)", () => {
+      const input = "Some text <dcp-message-id>m0093</dcp";
+      expect(stripHallucinationsFromString(input)).toBe("Some text ");
+    });
+
+    it("removes partial opening dcp tag at end of string", () => {
+      const input = "Some text <dcp-message-id";
+      expect(stripHallucinationsFromString(input)).toBe("Some text ");
+    });
+
+    it("removes paired dcp tag with missing final >", () => {
+      const input = "Hello <dcp-message-id>m0042</dcp-message-id world";
+      expect(stripHallucinationsFromString(input)).toBe("Hello  world");
+    });
+
+    it("removes multiple truncated patterns in one string", () => {
+      const input = "A <dcp-foo>bar</dcp B <dcp-x";
+      expect(stripHallucinationsFromString(input)).toBe("A  B ");
+    });
+
+    it("removes dcp tag with attributes but no closing >", () => {
+      const input = 'Text <dcp-message-id priority="3"';
+      expect(stripHallucinationsFromString(input)).toBe("Text ");
+    });
   });
 
   describe("stripHallucinations", () => {
