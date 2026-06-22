@@ -43,6 +43,7 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
       protectedTools: [],
       protectUserMessages: false,
       protectTags: false,
+      summaryBuffer: true,
       ...overrides,
     },
     manualMode: { default: false, automaticStrategies: true },
