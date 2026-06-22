@@ -23,6 +23,10 @@ export interface CompressConfig {
   protectTags: boolean;
   /** When true, active summary tokens are excluded from the max-threshold comparison to prevent cascading compressions. */
   summaryBuffer: boolean;
+  maxContextLimit: number | string | undefined;
+  minContextLimit: number | string | undefined;
+  modelMaxLimits: Record<string, number | string> | undefined;
+  modelMinLimits: Record<string, number | string> | undefined;
 }
 
 export interface ManualModeConfig {
@@ -61,6 +65,10 @@ const DEFAULT_CONFIG: DcpConfig = {
     protectUserMessages: false,
     protectTags: false,
     summaryBuffer: true,
+    maxContextLimit: 200000,
+    minContextLimit: 100000,
+    modelMaxLimits: undefined,
+    modelMinLimits: undefined,
   },
   manualMode: {
     default: false,
@@ -105,6 +113,7 @@ const KNOWN_COMPRESS_KEYS = new Set([
   "mode", "permission", "maxContextPercent", "minContextPercent",
   "nudgeFrequency", "iterationNudgeThreshold", "nudgeForce",
   "protectedTools", "protectUserMessages", "protectTags", "summaryBuffer",
+  "maxContextLimit", "minContextLimit", "modelMaxLimits", "modelMinLimits",
 ]);
 
 export interface LoadConfigResult {
@@ -223,6 +232,34 @@ function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
       target.compress.protectTags = c.protectTags;
     if (typeof c.summaryBuffer === "boolean")
       target.compress.summaryBuffer = c.summaryBuffer;
+    if (
+      typeof c.maxContextLimit === "number" ||
+      typeof c.maxContextLimit === "string"
+    )
+      target.compress.maxContextLimit = c.maxContextLimit;
+    if (
+      typeof c.minContextLimit === "number" ||
+      typeof c.minContextLimit === "string"
+    )
+      target.compress.minContextLimit = c.minContextLimit;
+    if (
+      c.modelMaxLimits &&
+      typeof c.modelMaxLimits === "object" &&
+      !Array.isArray(c.modelMaxLimits)
+    )
+      target.compress.modelMaxLimits = c.modelMaxLimits as Record<
+        string,
+        number | string
+      >;
+    if (
+      c.modelMinLimits &&
+      typeof c.modelMinLimits === "object" &&
+      !Array.isArray(c.modelMinLimits)
+    )
+      target.compress.modelMinLimits = c.modelMinLimits as Record<
+        string,
+        number | string
+      >;
   }
 
   if (source.manualMode && typeof source.manualMode === "object") {
