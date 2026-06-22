@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ContextUsage, SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
+import { getActiveSummaryTokenUsage } from "../compress/state.ts";
 import { formatMessageRef, formatMessageIdTag } from "../utils/message-ids.ts";
 import type { PriorityMap } from "./priority.ts";
 import { appendText, mapText } from "../utils/message-content.ts";
@@ -90,7 +91,16 @@ export function injectCompressNudges(
   if (contextUsage.percent == null) return messages;
 
   const percent = contextUsage.percent;
-  const overMax = percent >= config.compress.maxContextPercent;
+
+  // Summary buffer: extend effective max threshold by summary token percentage
+  let effectiveMaxPercent = config.compress.maxContextPercent;
+  if (config.compress.summaryBuffer && contextUsage.contextWindow > 0) {
+    const summaryTokens = getActiveSummaryTokenUsage(state);
+    const summaryPercent = (summaryTokens / contextUsage.contextWindow) * 100;
+    effectiveMaxPercent += summaryPercent;
+  }
+
+  const overMax = percent >= effectiveMaxPercent;
   const overMin = percent >= config.compress.minContextPercent;
 
   if (!overMin) return messages;
