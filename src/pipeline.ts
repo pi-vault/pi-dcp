@@ -12,6 +12,7 @@ import {
 } from "./messages/inject.ts";
 import { buildPriorityMap, type PriorityMap } from "./messages/priority.ts";
 import { applyPruning } from "./messages/prune.ts";
+import { applyPendingCompressionDurations } from "./compress/state.ts";
 
 export interface PipelineResult {
   messages: AgentMessage[];
@@ -29,6 +30,9 @@ export function runPipeline(
   messages: AgentMessage[],
   contextUsage: ContextUsage | undefined,
 ): PipelineResult {
+  // Step 0: Apply any pending compression durations from completed tool calls
+  applyPendingCompressionDurations(state);
+
   // Step 0.5: Sync compression blocks (handle stale anchors)
   syncCompressionBlocks(state, messages.length);
 

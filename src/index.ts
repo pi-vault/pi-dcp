@@ -190,6 +190,38 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   });
 
+  pi.on("tool_execution_start", async (event, _ctx) => {
+    if (!config.enabled) return;
+    if (event.toolName !== "compress") return;
+    state.compressionTiming.startTimes.set(event.toolCallId, Date.now());
+  });
+
+  pi.on("tool_execution_end", async (event, _ctx) => {
+    if (!config.enabled) return;
+    if (event.toolName !== "compress") return;
+
+    const startTime = state.compressionTiming.startTimes.get(event.toolCallId);
+    if (startTime === undefined) return;
+
+    const durationMs = Date.now() - startTime;
+    state.compressionTiming.startTimes.delete(event.toolCallId);
+
+    // Compression is serial — the most recently created block is the one.
+    let latestBlockId: number | undefined;
+    let latestCreatedAt = 0;
+    for (const [blockId, block] of state.prune.messages.blocksById) {
+      if (block.createdAt > latestCreatedAt) {
+        latestCreatedAt = block.createdAt;
+        latestBlockId = blockId;
+      }
+    }
+
+    if (latestBlockId !== undefined) {
+      state.compressionTiming.callIdToBlockId.set(event.toolCallId, latestBlockId);
+    }
+    state.compressionTiming.pendingDurations.set(event.toolCallId, durationMs);
+  });
+
   pi.on("context", async (event, ctx) => {
     if (!config.enabled) return;
 
