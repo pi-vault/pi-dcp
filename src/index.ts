@@ -6,6 +6,8 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadConfig } from "./config.ts";
 import { handleCompress, type CompressArgs } from "./compress/handler.ts";
+import { stripHallucinationsFromString } from "./messages/strip.ts";
+import { mapText } from "./utils/message-content.ts";
 import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
 import { Logger } from "./logger.ts";
 import { DCP_SYSTEM_PROMPT } from "./prompts/system.ts";
@@ -176,6 +178,16 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("turn_end", async (_event, _ctx) => {
     state.currentTurn++;
+  });
+
+  pi.on("message_end", async (event, _ctx) => {
+    if (!config.enabled) return;
+    if (event.message.role !== "assistant") return;
+
+    const stripped = mapText(event.message, stripHallucinationsFromString);
+    if (stripped !== event.message) {
+      return { message: stripped };
+    }
   });
 
   pi.on("context", async (event, ctx) => {
