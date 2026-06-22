@@ -3,7 +3,8 @@ import type { ContextUsage, SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { formatMessageRef, formatMessageIdTag } from "../utils/message-ids.ts";
 import type { PriorityMap } from "./priority.ts";
-import { appendText } from "../utils/message-content.ts";
+import { appendText, mapText } from "../utils/message-content.ts";
+import { stripHallucinationsFromString } from "./strip.ts";
 import {
   CONTEXT_LIMIT_NUDGE,
   TURN_NUDGE,
@@ -31,7 +32,7 @@ export function assignMessageRefs(
 
 /**
  * Inject <dcp-message-id> tags into message text content.
- * Returns a new array. Idempotent: skips if tag is already present.
+ * Returns a new array. Strips existing DCP tags before injecting fresh ones.
  *
  * Handles both array content and plain-string content (E9: UserMessage.content
  * can be a plain string — normalize to array form before injecting).
@@ -53,9 +54,12 @@ export function injectMessageIds(
       priorityEntry ? { priority: priorityEntry.priority } : undefined,
     );
 
-    // Idempotency marker uses "<dcp-message-id" (no closing >) to match both
-    // plain and priority-attribute variants.
-    return appendText(msg, `\n\n${tag}`, "<dcp-message-id");
+    // Strip any existing (stale/partial) DCP tags before injecting fresh ones.
+    // This replaces marker-based idempotency — always inject clean.
+    // Note: not idempotent in isolation (repeated calls add trailing \n\n).
+    // Safe because this runs exactly once per context pass on fresh stored messages.
+    const cleaned = mapText(msg, stripHallucinationsFromString);
+    return appendText(cleaned, `\n\n${tag}`);
   });
 }
 
