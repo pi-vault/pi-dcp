@@ -7,8 +7,9 @@ const DCP_COMPLETE_PAIR = /<dcp[-\w]*(?:\s[^>]*)?>[\s\S]*?<\/dcp[-\w]*>/gi;
 const DCP_TRUNCATED_PAIR = /<dcp[-\w]*(?:\s[^>]*)?>[\s\S]*?<\/dcp[-\w]*/gi;
 // 3. Lone unpaired tags: </dcp-foo> or <dcp-foo>
 const DCP_UNPAIRED_TAG = /<\/?dcp[-\w]*(?:\s[^>]*)?>/gi;
-// 4. Partial tag at end of string: <dcp-message-id or </dcp or <dcp-foo priority="3
-const DCP_PARTIAL_TAG = /<\/?dcp[-\w]*(?:\s[^>]*)?$/gim;
+// 4. Partial tag at end of line/string: <dcp-message-id or </dcp or <dcp-foo priority="3
+// Uses [^\S\n] (non-newline whitespace) so attribute matching doesn't cross lines.
+const DCP_PARTIAL_TAG = /<\/?dcp[-\w]*(?:[^\S\n][^>\n]*)?$/gim;
 
 /**
  * Strip hallucinated DCP tags from a string.

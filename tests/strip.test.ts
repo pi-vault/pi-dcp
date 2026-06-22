@@ -45,6 +45,11 @@ describe("strip", () => {
       const input = 'Text <dcp-message-id priority="3"';
       expect(stripHallucinationsFromString(input)).toBe("Text ");
     });
+
+    it("strips partial tag at end of line but preserves following lines", () => {
+      const input = "line1\n<dcp-foo\nline2";
+      expect(stripHallucinationsFromString(input)).toBe("line1\n\nline2");
+    });
   });
 
   describe("stripHallucinations", () => {

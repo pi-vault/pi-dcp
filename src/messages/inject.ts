@@ -32,7 +32,7 @@ export function assignMessageRefs(
 
 /**
  * Inject <dcp-message-id> tags into message text content.
- * Returns a new array. Idempotent: skips if tag is already present.
+ * Returns a new array. Strips existing DCP tags before injecting fresh ones.
  *
  * Handles both array content and plain-string content (E9: UserMessage.content
  * can be a plain string — normalize to array form before injecting).
@@ -56,6 +56,8 @@ export function injectMessageIds(
 
     // Strip any existing (stale/partial) DCP tags before injecting fresh ones.
     // This replaces marker-based idempotency — always inject clean.
+    // Note: not idempotent in isolation (repeated calls add trailing \n\n).
+    // Safe because this runs exactly once per context pass on fresh stored messages.
     const cleaned = mapText(msg, stripHallucinationsFromString);
     return appendText(cleaned, `\n\n${tag}`);
   });
