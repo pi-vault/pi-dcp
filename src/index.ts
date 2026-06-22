@@ -159,6 +159,9 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.messageIds.byIndex.clear();
     state.messageIds.byRef.clear();
     state.messageIds.nextRefIndex = 1;
+    state.compressionTiming.startTimes.clear();
+    state.compressionTiming.callIdToBlockId.clear();
+    state.compressionTiming.pendingDurations.clear();
     state.lastCompaction = Date.now();
     logger.info("dcp", "compaction detected, pruning state reset");
   });
@@ -206,7 +209,11 @@ export default function createExtension(pi: ExtensionAPI): void {
     const durationMs = Date.now() - startTime;
     state.compressionTiming.startTimes.delete(event.toolCallId);
 
-    // Compression is serial — the most recently created block is the one.
+    if (event.isError) return;
+
+    // Find the block created by this call. Compression is serial, so the most
+    // recently created block corresponds to this call. If the call created
+    // multiple blocks (batch), the duration is attached to the last one.
     let latestBlockId: number | undefined;
     let latestCreatedAt = 0;
     for (const [blockId, block] of state.prune.messages.blocksById) {
