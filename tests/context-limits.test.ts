@@ -31,6 +31,17 @@ describe("resolveContextTokenLimit", () => {
   it("returns undefined for undefined input", () => {
     expect(resolveContextTokenLimit(undefined, 200000)).toBeUndefined();
   });
+
+  it("returns undefined for invalid percentage strings", () => {
+    expect(resolveContextTokenLimit("abc%", 200000)).toBeUndefined();
+    expect(resolveContextTokenLimit("80.5.5%", 200000)).toBeUndefined();
+    expect(resolveContextTokenLimit("80 %", 200000)).toBeUndefined();
+  });
+
+  it("rejects 0% and over-100% percentages", () => {
+    expect(resolveContextTokenLimit("0%", 200000)).toBeUndefined();
+    expect(resolveContextTokenLimit("150%", 200000)).toBeUndefined();
+  });
 });
 
 describe("isContextOverLimits", () => {
@@ -109,6 +120,28 @@ describe("isContextOverLimits", () => {
       tokens: 170000,
       contextWindow: 200000,
       percent: 85,
+    });
+    expect(result.overMaxLimit).toBe(true);
+    expect(result.overMinLimit).toBe(true);
+  });
+
+  it("falls back to global limit when per-model key doesn't match", () => {
+    const state = createSessionState();
+    state.modelContextWindow = 1000000;
+    state.modelId = "gpt-4";
+    state.modelProvider = "openai";
+    const config = makeDefaultConfig({
+      maxContextLimit: 200000,
+      minContextLimit: 100000,
+      modelMaxLimits: { "google/gemini-2.5-pro": 400000 },
+      modelMinLimits: { "google/gemini-2.5-pro": 200000 },
+    });
+
+    // tokens = 250000 > global max (200K) — model override doesn't apply
+    const result = isContextOverLimits(config, state, {
+      tokens: 250000,
+      contextWindow: 1000000,
+      percent: 25,
     });
     expect(result.overMaxLimit).toBe(true);
     expect(result.overMinLimit).toBe(true);

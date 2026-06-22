@@ -20,6 +20,7 @@ export function resolveContextTokenLimit(
   if (!match) return undefined;
 
   const percent = Number.parseFloat(match[1]);
+  if (percent <= 0 || percent > 100) return undefined;
   if (contextWindow === undefined) return undefined;
 
   return Math.round((percent / 100) * contextWindow);

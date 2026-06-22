@@ -67,18 +67,15 @@ export function injectMessageIds(
 
 /**
  * Inject compress nudges into messages based on context usage.
- * Three tiers:
- * - Context limit nudge: percent >= maxContextPercent (urgent)
- * - Turn nudge: percent >= minContextPercent and last message is a user message
- * - Iteration nudge: percent >= minContextPercent and many consecutive assistant messages
+ * Thresholds resolved via isContextOverLimits (absolute tokens, per-model overrides, legacy percentage fallback):
+ * - Context limit nudge: tokens >= maxContextLimit (urgent)
+ * - Turn nudge: tokens >= minContextLimit and last message is a user message
+ * - Iteration nudge: tokens >= minContextLimit and many consecutive assistant messages
  *
  * Nudge text is appended to the last message that has text content.
  * Returns a new array. Idempotent: skips if <dcp-system-reminder> is already present.
  *
  * Handles plain-string user message content (E9).
- *
- * NOTE: config.compress.nudgeFrequency and state.nudges anchor tracking are
- * reserved for Phase 4+ throttling — not yet implemented.
  */
 export function injectCompressNudges(
   state: SessionState,

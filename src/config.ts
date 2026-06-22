@@ -232,34 +232,44 @@ function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
       target.compress.protectTags = c.protectTags;
     if (typeof c.summaryBuffer === "boolean")
       target.compress.summaryBuffer = c.summaryBuffer;
-    if (
-      typeof c.maxContextLimit === "number" ||
-      typeof c.maxContextLimit === "string"
-    )
+    if (typeof c.maxContextLimit === "number" && c.maxContextLimit > 0)
       target.compress.maxContextLimit = c.maxContextLimit;
-    if (
-      typeof c.minContextLimit === "number" ||
-      typeof c.minContextLimit === "string"
-    )
+    else if (typeof c.maxContextLimit === "string")
+      target.compress.maxContextLimit = c.maxContextLimit;
+    if (typeof c.minContextLimit === "number" && c.minContextLimit > 0)
+      target.compress.minContextLimit = c.minContextLimit;
+    else if (typeof c.minContextLimit === "string")
       target.compress.minContextLimit = c.minContextLimit;
     if (
       c.modelMaxLimits &&
       typeof c.modelMaxLimits === "object" &&
       !Array.isArray(c.modelMaxLimits)
-    )
-      target.compress.modelMaxLimits = c.modelMaxLimits as Record<
-        string,
-        number | string
-      >;
+    ) {
+      const validated: Record<string, number | string> = {};
+      for (const [key, val] of Object.entries(
+        c.modelMaxLimits as Record<string, unknown>,
+      )) {
+        if (typeof val === "number" && val > 0) validated[key] = val;
+        else if (typeof val === "string") validated[key] = val;
+      }
+      if (Object.keys(validated).length > 0)
+        target.compress.modelMaxLimits = validated;
+    }
     if (
       c.modelMinLimits &&
       typeof c.modelMinLimits === "object" &&
       !Array.isArray(c.modelMinLimits)
-    )
-      target.compress.modelMinLimits = c.modelMinLimits as Record<
-        string,
-        number | string
-      >;
+    ) {
+      const validated: Record<string, number | string> = {};
+      for (const [key, val] of Object.entries(
+        c.modelMinLimits as Record<string, unknown>,
+      )) {
+        if (typeof val === "number" && val > 0) validated[key] = val;
+        else if (typeof val === "string") validated[key] = val;
+      }
+      if (Object.keys(validated).length > 0)
+        target.compress.modelMinLimits = validated;
+    }
   }
 
   if (source.manualMode && typeof source.manualMode === "object") {
