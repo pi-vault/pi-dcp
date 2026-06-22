@@ -32,6 +32,8 @@ export interface SessionState {
   currentTurn: number;
   /** Model context window size (from Pi's ctx.getContextUsage). */
   modelContextWindow: number | undefined;
+  /** Compression timing tracking. */
+  compressionTiming: CompressionTimingState;
 }
 
 export interface PendingManualTrigger {
@@ -129,6 +131,15 @@ export interface MessageIdState {
   /** Reverse lookup: ref string -> message index. O(1) resolution. */
   byRef: Map<string, number>;
   nextRefIndex: number;
+}
+
+export interface CompressionTimingState {
+  /** Start timestamps for in-flight compress calls. Keyed by toolCallId. */
+  startTimes: Map<string, number>;
+  /** Maps toolCallId to the blockId created by that call. */
+  callIdToBlockId: Map<string, number>;
+  /** Computed durations awaiting application to blocks. Keyed by toolCallId. */
+  pendingDurations: Map<string, number>;
 }
 
 /**

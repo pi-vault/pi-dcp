@@ -23,6 +23,28 @@
 
 ---
 
+## State Design
+
+Each map has a single semantic purpose throughout its lifecycle:
+
+```typescript
+export interface CompressionTimingState {
+  /** Start timestamps for in-flight compress calls. Keyed by toolCallId. Set on tool_execution_start, consumed on tool_execution_end. */
+  startTimes: Map<string, number>;
+  /** Maps toolCallId to the blockId created by that call. Set on tool_execution_end, consumed by applyPendingCompressionDurations. */
+  callIdToBlockId: Map<string, number>;
+  /** Computed durations awaiting application to blocks. Keyed by toolCallId. Set on tool_execution_end, consumed by applyPendingCompressionDurations. */
+  pendingDurations: Map<string, number>;
+}
+```
+
+**Data flow:**
+1. `tool_execution_start` → `startTimes.set(callId, Date.now())`
+2. `tool_execution_end` → compute duration, delete from `startTimes`, set `callIdToBlockId` + `pendingDurations`
+3. Next `context` pass → `applyPendingCompressionDurations` reads `callIdToBlockId` + `pendingDurations`, updates `block.durationMs`, clears both
+
+---
+
 ### Task 1: Add timing state types and initialization
 
 **Files:**
@@ -43,7 +65,8 @@ describe("CompressionTimingState", () => {
   it("initializes with empty maps", () => {
     const state = createSessionState();
     expect(state.compressionTiming).toBeDefined();
-    expect(state.compressionTiming.startsByCallId.size).toBe(0);
+    expect(state.compressionTiming.startTimes.size).toBe(0);
+    expect(state.compressionTiming.callIdToBlockId.size).toBe(0);
     expect(state.compressionTiming.pendingDurations.size).toBe(0);
   });
 });
@@ -61,9 +84,11 @@ In `src/state/types.ts`, add the interface before the `ContextUsage` interface (
 
 ```typescript
 export interface CompressionTimingState {
-  /** Timestamps when compress tool calls started, keyed by toolCallId. */
-  startsByCallId: Map<string, number>;
-  /** Computed durations awaiting application to blocks, keyed by toolCallId. */
+  /** Start timestamps for in-flight compress calls. Keyed by toolCallId. */
+  startTimes: Map<string, number>;
+  /** Maps toolCallId to the blockId created by that call. */
+  callIdToBlockId: Map<string, number>;
+  /** Computed durations awaiting application to blocks. Keyed by toolCallId. */
   pendingDurations: Map<string, number>;
 }
 ```
@@ -92,7 +117,8 @@ Add the factory function:
 ```typescript
 function createCompressionTiming(): CompressionTimingState {
   return {
-    startsByCallId: new Map(),
+    startTimes: new Map(),
+    callIdToBlockId: new Map(),
     pendingDurations: new Map(),
   };
 }
@@ -101,7 +127,8 @@ function createCompressionTiming(): CompressionTimingState {
 In `resetSessionState()`, add after `state.modelContextWindow = undefined`:
 
 ```typescript
-state.compressionTiming.startsByCallId.clear();
+state.compressionTiming.startTimes.clear();
+state.compressionTiming.callIdToBlockId.clear();
 state.compressionTiming.pendingDurations.clear();
 ```
 
@@ -140,13 +167,12 @@ Add to `tests/compression-timing.test.ts`:
 
 ```typescript
 import { applyPendingCompressionDurations } from "../src/compress/state.ts";
-import type { SessionState, CompressionBlock } from "../src/state/types.ts";
+import type { CompressionBlock } from "../src/state/types.ts";
 
 describe("applyPendingCompressionDurations", () => {
-  it("applies pending duration to matching block by compressMessageIndex", () => {
+  it("applies pending duration to matching block", () => {
     const state = createSessionState();
 
-    // Simulate a block whose compress tool call has callId "call-abc"
     const block: CompressionBlock = {
       blockId: 1,
       runId: 1,
@@ -176,17 +202,15 @@ describe("applyPendingCompressionDurations", () => {
     };
     state.prune.messages.blocksById.set(1, block);
 
-    // Add pending duration keyed by the toolCallId used during compression
+    // Simulate state after tool_execution_end: callId mapped to blockId + duration recorded
+    state.compressionTiming.callIdToBlockId.set("call-abc", 1);
     state.compressionTiming.pendingDurations.set("call-abc", 1500);
-
-    // The handler stores compressCallId alongside the block
-    // We use a lookup map approach: store callId -> blockId mapping
-    state.compressionTiming.startsByCallId.set("call-abc", 1); // repurpose: stores blockId after completion
 
     applyPendingCompressionDurations(state);
 
     expect(block.durationMs).toBe(1500);
     expect(state.compressionTiming.pendingDurations.size).toBe(0);
+    expect(state.compressionTiming.callIdToBlockId.size).toBe(0);
   });
 
   it("no-ops when no pending durations", () => {
@@ -197,12 +221,13 @@ describe("applyPendingCompressionDurations", () => {
 
   it("removes pending durations even if block not found", () => {
     const state = createSessionState();
+    state.compressionTiming.callIdToBlockId.set("orphan-call", 999);
     state.compressionTiming.pendingDurations.set("orphan-call", 500);
-    state.compressionTiming.startsByCallId.set("orphan-call", 999);
 
     applyPendingCompressionDurations(state);
 
     expect(state.compressionTiming.pendingDurations.size).toBe(0);
+    expect(state.compressionTiming.callIdToBlockId.size).toBe(0);
   });
 });
 ```
@@ -222,23 +247,23 @@ In `src/compress/state.ts`, add the function (after existing exports):
  * Apply pending compression durations to their corresponding blocks.
  * Called at the start of each pipeline pass.
  *
- * The mapping works via startsByCallId which is repurposed after tool_execution_end:
- * it maps toolCallId -> blockId so we can find the block to update.
+ * Reads callIdToBlockId to find target block, applies duration from
+ * pendingDurations, then clears both maps.
  */
 export function applyPendingCompressionDurations(state: SessionState): void {
   if (state.compressionTiming.pendingDurations.size === 0) return;
 
   for (const [callId, durationMs] of state.compressionTiming.pendingDurations) {
-    const blockId = state.compressionTiming.startsByCallId.get(callId);
+    const blockId = state.compressionTiming.callIdToBlockId.get(callId);
     if (blockId !== undefined) {
       const block = state.prune.messages.blocksById.get(blockId);
       if (block) {
         block.durationMs = durationMs;
       }
     }
-    state.compressionTiming.startsByCallId.delete(callId);
   }
 
+  state.compressionTiming.callIdToBlockId.clear();
   state.compressionTiming.pendingDurations.clear();
 }
 ```
@@ -274,7 +299,7 @@ In `src/index.ts`, add after the `message_end` handler:
 pi.on("tool_execution_start", async (event, _ctx) => {
   if (!config.enabled) return;
   if (event.toolName !== "compress") return;
-  state.compressionTiming.startsByCallId.set(event.toolCallId, Date.now());
+  state.compressionTiming.startTimes.set(event.toolCallId, Date.now());
 });
 ```
 
@@ -287,15 +312,14 @@ pi.on("tool_execution_end", async (event, _ctx) => {
   if (!config.enabled) return;
   if (event.toolName !== "compress") return;
 
-  const startTime = state.compressionTiming.startsByCallId.get(
-    event.toolCallId,
-  );
+  const startTime = state.compressionTiming.startTimes.get(event.toolCallId);
   if (startTime === undefined) return;
 
   const durationMs = Date.now() - startTime;
+  state.compressionTiming.startTimes.delete(event.toolCallId);
 
   // Find which block was just created by this call.
-  // The most recently created block corresponds to this tool call.
+  // Compression is serial, so the most recently created block is the one.
   let latestBlockId: number | undefined;
   let latestCreatedAt = 0;
   for (const [blockId, block] of state.prune.messages.blocksById) {
@@ -305,9 +329,8 @@ pi.on("tool_execution_end", async (event, _ctx) => {
     }
   }
 
-  // Repurpose startsByCallId to store callId -> blockId for pipeline application
   if (latestBlockId !== undefined) {
-    state.compressionTiming.startsByCallId.set(event.toolCallId, latestBlockId);
+    state.compressionTiming.callIdToBlockId.set(event.toolCallId, latestBlockId);
   }
   state.compressionTiming.pendingDurations.set(event.toolCallId, durationMs);
 });
@@ -356,8 +379,8 @@ After all tasks are complete:
 
 - [ ] `npm run check` passes
 - [ ] `state.compressionTiming` initialized correctly in fresh state
-- [ ] `resetSessionState` clears timing maps
-- [ ] `tool_execution_start` records timestamp for compress calls only
-- [ ] `tool_execution_end` computes duration and maps to block
+- [ ] `resetSessionState` clears all three timing maps
+- [ ] `tool_execution_start` records timestamp in `startTimes` for compress calls only
+- [ ] `tool_execution_end` computes duration, cleans `startTimes`, populates `callIdToBlockId` + `pendingDurations`
 - [ ] `applyPendingCompressionDurations` updates `block.durationMs` and clears pending state
 - [ ] Non-compress tools are ignored by both handlers

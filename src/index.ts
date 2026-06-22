@@ -159,6 +159,9 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.messageIds.byIndex.clear();
     state.messageIds.byRef.clear();
     state.messageIds.nextRefIndex = 1;
+    state.compressionTiming.startTimes.clear();
+    state.compressionTiming.callIdToBlockId.clear();
+    state.compressionTiming.pendingDurations.clear();
     state.lastCompaction = Date.now();
     logger.info("dcp", "compaction detected, pruning state reset");
   });
@@ -188,6 +191,42 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (stripped !== event.message) {
       return { message: stripped };
     }
+  });
+
+  pi.on("tool_execution_start", async (event, _ctx) => {
+    if (!config.enabled) return;
+    if (event.toolName !== "compress") return;
+    state.compressionTiming.startTimes.set(event.toolCallId, Date.now());
+  });
+
+  pi.on("tool_execution_end", async (event, _ctx) => {
+    if (!config.enabled) return;
+    if (event.toolName !== "compress") return;
+
+    const startTime = state.compressionTiming.startTimes.get(event.toolCallId);
+    if (startTime === undefined) return;
+
+    const durationMs = Date.now() - startTime;
+    state.compressionTiming.startTimes.delete(event.toolCallId);
+
+    if (event.isError) return;
+
+    // Find the block created by this call. Compression is serial, so the most
+    // recently created block corresponds to this call. If the call created
+    // multiple blocks (batch), the duration is attached to the last one.
+    let latestBlockId: number | undefined;
+    let latestCreatedAt = 0;
+    for (const [blockId, block] of state.prune.messages.blocksById) {
+      if (block.createdAt > latestCreatedAt) {
+        latestCreatedAt = block.createdAt;
+        latestBlockId = blockId;
+      }
+    }
+
+    if (latestBlockId !== undefined) {
+      state.compressionTiming.callIdToBlockId.set(event.toolCallId, latestBlockId);
+    }
+    state.compressionTiming.pendingDurations.set(event.toolCallId, durationMs);
   });
 
   pi.on("context", async (event, ctx) => {

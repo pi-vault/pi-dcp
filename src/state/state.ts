@@ -1,4 +1,5 @@
 import type {
+  CompressionTimingState,
   MessageIdState,
   Nudges,
   Prune,
@@ -22,6 +23,7 @@ export function createSessionState(): SessionState {
     lastCompaction: 0,
     currentTurn: 0,
     modelContextWindow: undefined,
+    compressionTiming: createCompressionTiming(),
   };
 }
 
@@ -47,6 +49,17 @@ export function resetSessionState(state: SessionState): void {
   state.lastCompaction = 0;
   state.currentTurn = 0;
   state.modelContextWindow = undefined;
+  state.compressionTiming.startTimes.clear();
+  state.compressionTiming.callIdToBlockId.clear();
+  state.compressionTiming.pendingDurations.clear();
+}
+
+function createCompressionTiming(): CompressionTimingState {
+  return {
+    startTimes: new Map(),
+    callIdToBlockId: new Map(),
+    pendingDurations: new Map(),
+  };
 }
 
 function createPrune(): Prune {
