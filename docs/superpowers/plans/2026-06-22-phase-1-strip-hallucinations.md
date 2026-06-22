@@ -75,22 +75,27 @@ Replace the entire content of `src/messages/strip.ts` with:
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { mapText } from "../utils/message-content.ts";
 
-// Paired tags: <dcp-foo>content</dcp-foo> (complete)
-const DCP_PAIRED_TAG_REGEX = /<dcp[^>]*>[\s\S]*?<\/dcp[^>]*>/gi;
-// Unpaired complete tags: </dcp-foo> or <dcp-foo>
-const DCP_UNPAIRED_TAG_REGEX = /<\/?dcp[^>]*>/gi;
-// Partial tag at end of string (no closing >): <dcp-message-id or </dcp
-const DCP_PARTIAL_TAG_REGEX = /<\/?dcp[^>]*$/gim;
+// 1. Complete paired tags: <dcp-foo attr="x">content</dcp-foo>
+const DCP_COMPLETE_PAIR = /<dcp[-\w]*(?:\s[^>]*)?>[\s\S]*?<\/dcp[-\w]*>/gi;
+// 2. Truncated pair (no final > on close): <dcp-foo>content</dcp-foo or </dcp
+const DCP_TRUNCATED_PAIR = /<dcp[-\w]*(?:\s[^>]*)?>[\s\S]*?<\/dcp[-\w]*/gi;
+// 3. Lone unpaired tags: </dcp-foo> or <dcp-foo>
+const DCP_UNPAIRED_TAG = /<\/?dcp[-\w]*(?:\s[^>]*)?>/gi;
+// 4. Partial tag at end of string: <dcp-message-id or </dcp or <dcp-foo priority="3
+const DCP_PARTIAL_TAG = /<\/?dcp[-\w]*(?:\s[^>]*)?$/gim;
 
 /**
  * Strip hallucinated DCP tags from a string.
- * Handles complete paired tags, unpaired tags, and truncated partial tags.
+ * Handles complete paired tags, truncated pairs, lone unpaired tags, and
+ * partial tags at end of string. Order matters: complete pairs first (they
+ * consume the closing >), then truncated pairs, then lone tags, then partials.
  */
 export function stripHallucinationsFromString(text: string): string {
   return text
-    .replace(DCP_PAIRED_TAG_REGEX, "")
-    .replace(DCP_UNPAIRED_TAG_REGEX, "")
-    .replace(DCP_PARTIAL_TAG_REGEX, "");
+    .replace(DCP_COMPLETE_PAIR, "")
+    .replace(DCP_TRUNCATED_PAIR, "")
+    .replace(DCP_UNPAIRED_TAG, "")
+    .replace(DCP_PARTIAL_TAG, "");
 }
 
 /**
