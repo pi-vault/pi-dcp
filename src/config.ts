@@ -21,6 +21,7 @@ export interface CompressConfig {
   protectedTools: string[];
   protectUserMessages: boolean;
   protectTags: boolean;
+  summaryBuffer: boolean;
 }
 
 export interface ManualModeConfig {
@@ -58,6 +59,7 @@ const DEFAULT_CONFIG: DcpConfig = {
     protectedTools: ["compress"],
     protectUserMessages: false,
     protectTags: false,
+    summaryBuffer: true,
   },
   manualMode: {
     default: false,
@@ -101,7 +103,7 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
 const KNOWN_COMPRESS_KEYS = new Set([
   "mode", "permission", "maxContextPercent", "minContextPercent",
   "nudgeFrequency", "iterationNudgeThreshold", "nudgeForce",
-  "protectedTools", "protectUserMessages", "protectTags",
+  "protectedTools", "protectUserMessages", "protectTags", "summaryBuffer",
 ]);
 
 export interface LoadConfigResult {
@@ -218,6 +220,8 @@ function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
       target.compress.protectUserMessages = c.protectUserMessages;
     if (typeof c.protectTags === "boolean")
       target.compress.protectTags = c.protectTags;
+    if (typeof c.summaryBuffer === "boolean")
+      target.compress.summaryBuffer = c.summaryBuffer;
   }
 
   if (source.manualMode && typeof source.manualMode === "object") {

@@ -320,7 +320,7 @@ In `src/messages/inject.ts`, add the import:
 import { getActiveSummaryTokenUsage } from "../compress/state.ts";
 ```
 
-Replace the threshold comparison section (lines 88-92) with:
+Replace the threshold comparison section (lines 92-94) with:
 
 ```typescript
 const percent = contextUsage.percent;
