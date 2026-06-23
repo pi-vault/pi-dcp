@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { DcpConfig } from "../config.ts";
 
-const PROTECT_TAG_REGEX = /<protect>([\s\S]*?)<\/protect>/gi;
+const PROTECT_TAG_PATTERN = /<protect>([\s\S]*?)<\/protect>/gi;
 
 /**
  * Extract text from a message's content (handles string and array forms).
@@ -15,7 +15,7 @@ function getMessageText(msg: AgentMessage): string {
       (p): p is { type: "text"; text: string } =>
         typeof p === "object" &&
         p !== null &&
-        (p as Record<string, unknown>).type === "text",
+        (p as unknown as Record<string, unknown>).type === "text",
     )
     .map((p) => (p as unknown as { text: string }).text)
     .join("\n");
@@ -61,9 +61,7 @@ export function appendProtectedPromptInfo(
   for (const msg of messages) {
     if (msg.role !== "user") continue;
     const text = getMessageText(msg);
-    let match: RegExpExecArray | null;
-    PROTECT_TAG_REGEX.lastIndex = 0;
-    while ((match = PROTECT_TAG_REGEX.exec(text)) !== null) {
+    for (const match of text.matchAll(PROTECT_TAG_PATTERN)) {
       const content = match[1].trim();
       if (content) extracted.push(content);
     }
