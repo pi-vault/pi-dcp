@@ -8,6 +8,7 @@ export interface DcpConfig {
   strategies: StrategiesConfig;
   protectedFilePatterns: string[];
   nudgeNotification: "off" | "minimal" | "detailed";
+  nudgeNotificationType: "toast" | "status";
 }
 
 export interface CompressConfig {
@@ -87,6 +88,7 @@ const DEFAULT_CONFIG: DcpConfig = {
   },
   protectedFilePatterns: [],
   nudgeNotification: "minimal",
+  nudgeNotificationType: "status",
 };
 
 /**
@@ -106,7 +108,7 @@ export const BASE_PROTECTED_TOOLS = [
 
 const KNOWN_TOP_LEVEL_KEYS = new Set([
   "enabled", "debug", "compress", "manualMode", "strategies",
-  "protectedFilePatterns", "nudgeNotification",
+  "protectedFilePatterns", "nudgeNotification", "nudgeNotificationType",
 ]);
 
 const KNOWN_COMPRESS_KEYS = new Set([
@@ -195,6 +197,13 @@ function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
         | "off"
         | "minimal"
         | "detailed";
+    }
+  }
+  if (typeof source.nudgeNotificationType === "string") {
+    if (["toast", "status"].includes(source.nudgeNotificationType)) {
+      target.nudgeNotificationType = source.nudgeNotificationType as
+        | "toast"
+        | "status";
     }
   }
   if (Array.isArray(source.protectedFilePatterns)) {

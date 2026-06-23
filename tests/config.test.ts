@@ -92,6 +92,26 @@ describe("config", () => {
       config.compress.minContextPercent,
     );
   });
+
+  it("parses nudgeNotificationType toast", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, JSON.stringify({ nudgeNotificationType: "toast" }));
+    const { config } = loadConfig(configPath);
+    expect(config.nudgeNotificationType).toBe("toast");
+  });
+
+  it("defaults nudgeNotificationType to status", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    const { config } = loadConfig(configPath);
+    expect(config.nudgeNotificationType).toBe("status");
+  });
+
+  it("ignores invalid nudgeNotificationType", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, JSON.stringify({ nudgeNotificationType: "popup" }));
+    const { config } = loadConfig(configPath);
+    expect(config.nudgeNotificationType).toBe("status");
+  });
 });
 
 describe("config validation warnings", () => {
