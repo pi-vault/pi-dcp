@@ -12,6 +12,7 @@ import {
   TURN_NUDGE,
   ITERATION_NUDGE,
 } from "../prompts/nudges.ts";
+import type { RuntimePrompts } from "../prompts/store.ts";
 
 /**
  * Assign sequential message refs (m0001, m0002, ...) using content-derived stable keys.
@@ -105,6 +106,7 @@ export function injectCompressNudges(
   config: DcpConfig,
   messages: AgentMessage[],
   contextUsage: ContextUsage | undefined,
+  runtimePrompts?: RuntimePrompts,
 ): AgentMessage[] {
   if (!contextUsage) return messages;
   if (messages.length === 0) return messages;
@@ -201,7 +203,7 @@ export function injectCompressNudges(
   }
 
   // --- Application Stage ---
-  return applyAnchoredNudges(state, messages);
+  return applyAnchoredNudges(state, messages, runtimePrompts);
 }
 
 /**
@@ -272,6 +274,7 @@ function addAnchorIfAllowed(
 function applyAnchoredNudges(
   state: SessionState,
   messages: AgentMessage[],
+  runtimePrompts?: RuntimePrompts,
 ): AgentMessage[] {
   const result = [...messages];
   let changed = false;
@@ -283,11 +286,11 @@ function applyAnchoredNudges(
     let nudgeText: string | undefined;
 
     if (state.nudges.contextLimitAnchors.has(key)) {
-      nudgeText = CONTEXT_LIMIT_NUDGE;
+      nudgeText = runtimePrompts?.contextLimitNudge ?? CONTEXT_LIMIT_NUDGE;
     } else if (state.nudges.turnAnchors.has(key)) {
-      nudgeText = TURN_NUDGE;
+      nudgeText = runtimePrompts?.turnNudge ?? TURN_NUDGE;
     } else if (state.nudges.iterationAnchors.has(key)) {
-      nudgeText = ITERATION_NUDGE;
+      nudgeText = runtimePrompts?.iterationNudge ?? ITERATION_NUDGE;
     }
 
     if (!nudgeText) continue;

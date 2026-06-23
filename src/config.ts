@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 
 export interface ExperimentalConfig {
   allowSubAgents: boolean;
+  customPrompts: boolean;
 }
 
 export interface DcpConfig {
@@ -96,6 +97,7 @@ const DEFAULT_CONFIG: DcpConfig = {
   nudgeNotificationType: "status",
   experimental: {
     allowSubAgents: false,
+    customPrompts: false,
   },
 };
 
@@ -123,6 +125,7 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
 
 const KNOWN_EXPERIMENTAL_KEYS = new Set([
   "allowSubAgents",
+  "customPrompts",
 ]);
 
 const KNOWN_COMPRESS_KEYS = new Set([
@@ -339,5 +342,7 @@ function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
     const e = source.experimental as Record<string, unknown>;
     if (typeof e.allowSubAgents === "boolean")
       target.experimental.allowSubAgents = e.allowSubAgents;
+    if (typeof e.customPrompts === "boolean")
+      target.experimental.customPrompts = e.customPrompts;
   }
 }

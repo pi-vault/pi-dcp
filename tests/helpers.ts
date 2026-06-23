@@ -85,6 +85,6 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
     protectedFilePatterns: [],
     nudgeNotification: "minimal",
     nudgeNotificationType: "status",
-    experimental: { allowSubAgents: false },
+    experimental: { allowSubAgents: false, customPrompts: false },
   };
 }
