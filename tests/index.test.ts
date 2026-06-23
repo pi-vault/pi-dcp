@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import createExtension from "../src/index.ts";
+import * as subagentResults from "../src/subagents/subagent-results.ts";
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => "/tmp/test-pi-agent",
@@ -357,11 +358,11 @@ describe("sub-agent support", () => {
     } finally {
       if (originalEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
       else process.env.PI_SUBAGENT_CHILD = originalEnv;
-      fs.rmSync(configFile, { force: true });
+      fs.rmSync(configDir, { recursive: true, force: true });
     }
   });
 
-  it("tool_execution_end caches subagent results without error", async () => {
+  it("tool_execution_end calls parseChildSessionResults for subagent events", async () => {
     const sessionFile = path.join(os.tmpdir(), `dcp-test-${Date.now()}.jsonl`);
     fs.writeFileSync(
       sessionFile,
@@ -370,6 +371,8 @@ describe("sub-agent support", () => {
         message: { role: "assistant", content: [{ type: "text", text: "Task done" }] },
       }),
     );
+
+    const spy = vi.spyOn(subagentResults, "parseChildSessionResults");
 
     try {
       const { api, handlers } = createMockApi();
@@ -387,18 +390,20 @@ describe("sub-agent support", () => {
 
       // Fire tool_execution_end with a subagent tool result
       const toolEndHandler = handlers.get("tool_execution_end")?.[0];
-      await expect(
-        (toolEndHandler as (...args: unknown[]) => Promise<void>)(
-          {
-            toolCallId: "call-subagent-1",
-            toolName: "subagent",
-            result: { details: { childSessionPath: sessionFile } },
-            isError: false,
-          },
-          {},
-        ),
-      ).resolves.not.toThrow();
+      await (toolEndHandler as (...args: unknown[]) => Promise<void>)(
+        {
+          toolCallId: "call-subagent-1",
+          toolName: "subagent",
+          result: { details: { childSessionPath: sessionFile } },
+          isError: false,
+        },
+        {},
+      );
+
+      expect(spy).toHaveBeenCalledWith(sessionFile);
+      expect(spy.mock.results[0]?.value).toBe("Task done");
     } finally {
+      spy.mockRestore();
       fs.rmSync(sessionFile, { force: true });
     }
   });
