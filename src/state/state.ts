@@ -26,6 +26,8 @@ export function createSessionState(): SessionState {
     modelId: undefined,
     modelProvider: undefined,
     compressionTiming: createCompressionTiming(),
+    isSubAgent: false,
+    subAgentResultCache: new Map(),
   };
 }
 
@@ -57,6 +59,8 @@ export function resetSessionState(state: SessionState): void {
   state.compressionTiming.startTimes.clear();
   state.compressionTiming.callIdToBlockId.clear();
   state.compressionTiming.pendingDurations.clear();
+  state.isSubAgent = false;
+  state.subAgentResultCache.clear();
 }
 
 function createCompressionTiming(): CompressionTimingState {

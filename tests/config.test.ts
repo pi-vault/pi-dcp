@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig, BASE_PROTECTED_TOOLS } from "../src/config.ts";
 
 describe("config", () => {
   let tempDir: string;
@@ -112,6 +112,22 @@ describe("config", () => {
     const { config } = loadConfig(configPath);
     expect(config.nudgeNotificationType).toBe("status");
   });
+
+  it("parses experimental.allowSubAgents", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ experimental: { allowSubAgents: true } }),
+    );
+    const { config } = loadConfig(configPath);
+    expect(config.experimental.allowSubAgents).toBe(true);
+  });
+
+  it("defaults experimental.allowSubAgents to false", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    const { config } = loadConfig(configPath);
+    expect(config.experimental.allowSubAgents).toBe(false);
+  });
 });
 
 describe("config validation warnings", () => {
@@ -157,6 +173,16 @@ describe("config validation warnings", () => {
     expect(warnings).toHaveLength(0);
   });
 
+  it("warns about unknown experimental keys", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ experimental: { allowSubAgents: true, badFlag: false } }),
+    );
+    const { warnings } = loadConfig(configPath);
+    expect(warnings.some((w) => w.includes("badFlag"))).toBe(true);
+  });
+
   it("warns when maxContextPercent exceeds 100", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(
@@ -166,5 +192,11 @@ describe("config validation warnings", () => {
     const { config, warnings } = loadConfig(configPath);
     expect(warnings.some((w) => w.includes("maxContextPercent"))).toBe(true);
     expect(config.compress.maxContextPercent).toBe(80); // reset to default
+  });
+});
+
+describe("BASE_PROTECTED_TOOLS", () => {
+  it('includes "subagent"', () => {
+    expect(BASE_PROTECTED_TOOLS).toContain("subagent");
   });
 });

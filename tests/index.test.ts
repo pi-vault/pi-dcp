@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import createExtension from "../src/index.ts";
+import * as subagentResults from "../src/subagents/subagent-results.ts";
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => "/tmp/test-pi-agent",
@@ -282,5 +286,170 @@ describe("dcp extension", () => {
         mockCtx,
       ),
     ).resolves.not.toThrow();
+  });
+});
+
+describe("sub-agent support", () => {
+  it("context handler returns early when PI_SUBAGENT_CHILD=1", async () => {
+    const originalEnv = process.env.PI_SUBAGENT_CHILD;
+    process.env.PI_SUBAGENT_CHILD = "1";
+
+    try {
+      const { api, handlers } = createMockApi();
+      createExtension(api);
+
+      // Fire session_start to set isSubAgent
+      const sessionStartHandler = handlers.get("session_start")?.[0];
+      await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        {
+          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+        },
+      );
+
+      // Fire context — should return early (undefined), not { messages: [...] }
+      const contextHandler = handlers.get("context")?.[0];
+      const result = await (contextHandler as (...args: unknown[]) => Promise<unknown>)(
+        { messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() }] },
+        { getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }) },
+      );
+
+      expect(result).toBeUndefined();
+    } finally {
+      if (originalEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
+      else process.env.PI_SUBAGENT_CHILD = originalEnv;
+    }
+  });
+
+  it("context handler proceeds when allowSubAgents is true even with PI_SUBAGENT_CHILD=1", async () => {
+    const originalEnv = process.env.PI_SUBAGENT_CHILD;
+    process.env.PI_SUBAGENT_CHILD = "1";
+
+    // Write a config file to the mocked agent dir enabling allowSubAgents
+    const configDir = "/tmp/test-pi-agent/extensions";
+    const configFile = path.join(configDir, "dcp.json");
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(configFile, JSON.stringify({ experimental: { allowSubAgents: true } }));
+
+    try {
+      const { api, handlers } = createMockApi();
+      createExtension(api);
+
+      // Fire session_start to set isSubAgent = true
+      const sessionStartHandler = handlers.get("session_start")?.[0];
+      await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        {
+          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+        },
+      );
+
+      // Fire context — should NOT return early because allowSubAgents overrides the skip
+      const contextHandler = handlers.get("context")?.[0];
+      const result = await (contextHandler as (...args: unknown[]) => Promise<unknown>)(
+        { messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() }] },
+        { getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }) },
+      );
+
+      // Should have returned { messages: [...] }, not undefined
+      expect(result).not.toBeUndefined();
+    } finally {
+      if (originalEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
+      else process.env.PI_SUBAGENT_CHILD = originalEnv;
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tool_execution_end calls parseChildSessionResults for subagent events", async () => {
+    const sessionFile = path.join(os.tmpdir(), `dcp-test-${Date.now()}.jsonl`);
+    fs.writeFileSync(
+      sessionFile,
+      JSON.stringify({
+        type: "message",
+        message: { role: "assistant", content: [{ type: "text", text: "Task done" }] },
+      }),
+    );
+
+    const spy = vi.spyOn(subagentResults, "parseChildSessionResults");
+
+    try {
+      const { api, handlers } = createMockApi();
+      createExtension(api);
+
+      // Fire session_start
+      const sessionStartHandler = handlers.get("session_start")?.[0];
+      await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        {
+          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+        },
+      );
+
+      // Fire tool_execution_end with a subagent tool result
+      const toolEndHandler = handlers.get("tool_execution_end")?.[0];
+      await (toolEndHandler as (...args: unknown[]) => Promise<void>)(
+        {
+          toolCallId: "call-subagent-1",
+          toolName: "subagent",
+          result: { details: { childSessionPath: sessionFile } },
+          isError: false,
+        },
+        {},
+      );
+
+      expect(spy).toHaveBeenCalledWith(sessionFile);
+      expect(await spy.mock.results[0]?.value).toBe("Task done");
+    } finally {
+      spy.mockRestore();
+      fs.rmSync(sessionFile, { force: true });
+    }
+  });
+
+  it("session_compact handler clears subagent cache without error", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    const sessionCompactHandler = handlers.get("session_compact")?.[0];
+    await expect(
+      (sessionCompactHandler as (...args: unknown[]) => Promise<void>)(
+        {},
+        {},
+      ),
+    ).resolves.not.toThrow();
+  });
+
+  it("before_agent_start returns early when PI_SUBAGENT_CHILD=1", async () => {
+    const originalEnv = process.env.PI_SUBAGENT_CHILD;
+    process.env.PI_SUBAGENT_CHILD = "1";
+
+    try {
+      const { api, handlers } = createMockApi();
+      createExtension(api);
+
+      // Fire session_start
+      const sessionStartHandler = handlers.get("session_start")?.[0];
+      await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        {
+          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+        },
+      );
+
+      // Fire before_agent_start — should return early (undefined)
+      const handler = handlers.get("before_agent_start")?.[0];
+      const result = await (handler as (...args: unknown[]) => Promise<unknown>)(
+        { systemPrompt: "Original", prompt: "input" },
+        {},
+      );
+
+      expect(result).toBeUndefined();
+    } finally {
+      if (originalEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
+      else process.env.PI_SUBAGENT_CHILD = originalEnv;
+    }
   });
 });

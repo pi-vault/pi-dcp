@@ -56,6 +56,7 @@ export function handleCompress(
       entry.summary,
       rangeMessages,
       config,
+      state.subAgentResultCache,
     );
     const wrappedSummary = wrapCompressedSummary(blockId, enrichedSummary);
     const summaryTokens = countTokens(wrappedSummary);
