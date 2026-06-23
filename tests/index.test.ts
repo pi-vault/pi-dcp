@@ -148,6 +148,115 @@ describe("dcp extension", () => {
     expect(text).toContain("<dcp-system-reminder>");
   });
 
+  it("context handler calls setStatus with new formatted message when tools are pruned", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    const contextHandlers = handlers.get("context") ?? [];
+    const setStatus = vi.fn();
+    const mockCtx = {
+      hasUI: true,
+      ui: { setStatus, notify: vi.fn() },
+      getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 5 }),
+    };
+
+    // Two identical tool calls — deduplication will prune the first one
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "read the file" }], timestamp: 1001 },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-1", name: "search_files", arguments: { query: "foo" } }],
+        stopReason: "toolUse",
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        timestamp: 1002,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "search_files",
+        content: [{ type: "text", text: "result one" }],
+        isError: false,
+        timestamp: 1003,
+      },
+      { role: "user", content: [{ type: "text", text: "read it again" }], timestamp: 1004 },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-2", name: "search_files", arguments: { query: "foo" } }],
+        stopReason: "toolUse",
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        timestamp: 1005,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call-2",
+        toolName: "search_files",
+        content: [{ type: "text", text: "result one" }],
+        isError: false,
+        timestamp: 1006,
+      },
+    ];
+
+    await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)(
+      { messages },
+      mockCtx,
+    );
+
+    // setStatus should have been called with the new formatted message
+    expect(setStatus).toHaveBeenCalled();
+    const calledWith = setStatus.mock.calls[0][1] as string;
+    // New format: "DCP: ~N tokens saved (N items pruned)" — includes "items pruned"
+    expect(calledWith).toContain("items pruned");
+    // Old format was "DCP: N tokens saved" without "items pruned"
+    expect(calledWith).toContain("tokens saved");
+  });
+
+  it("context handler does not call ui methods when hasUI is false", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    const contextHandlers = handlers.get("context") ?? [];
+    const setStatus = vi.fn();
+    const notify = vi.fn();
+    const mockCtx = {
+      hasUI: false,
+      ui: { setStatus, notify },
+      getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 5 }),
+    };
+
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() },
+    ];
+    await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)(
+      { messages },
+      mockCtx,
+    );
+    expect(setStatus).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("context handler does not call setStatus when nothing is pruned", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    const contextHandlers = handlers.get("context") ?? [];
+    const setStatus = vi.fn();
+    const mockCtx = {
+      hasUI: true,
+      ui: { setStatus, notify: vi.fn() },
+      getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 5 }),
+    };
+
+    // Single user message — nothing to prune
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() },
+    ];
+    await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)(
+      { messages },
+      mockCtx,
+    );
+    expect(setStatus).not.toHaveBeenCalled();
+  });
+
   it("session_start resolves logDir from sessionManager", async () => {
     const { api, handlers } = createMockApi();
 

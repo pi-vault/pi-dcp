@@ -11,6 +11,7 @@ import { isStaleError } from "./purge-errors.ts";
 export interface StrategyResult {
   pruned: number;
   tokensSaved: number;
+  prunedToolNames: string[];
 }
 
 /**
@@ -22,14 +23,15 @@ export function runStrategies(
   config: DcpConfig,
 ): StrategyResult {
   if (state.toolIdList.length === 0) {
-    return { pruned: 0, tokensSaved: 0 };
+    return { pruned: 0, tokensSaved: 0, prunedToolNames: [] };
   }
   if (state.manualMode === "active" && !config.manualMode.automaticStrategies) {
-    return { pruned: 0, tokensSaved: 0 };
+    return { pruned: 0, tokensSaved: 0, prunedToolNames: [] };
   }
 
   let pruned = 0;
   let tokensSaved = 0;
+  const prunedToolNames: string[] = [];
 
   // --- Deduplication ---
   if (config.strategies.deduplication.enabled) {
@@ -72,6 +74,7 @@ export function runStrategies(
         state.prune.tools.set(callId, tokens);
         pruned++;
         tokensSaved += tokens;
+        if (entry) prunedToolNames.push(entry.tool);
       }
     }
   }
@@ -104,6 +107,7 @@ export function runStrategies(
       state.prune.tools.set(callId, tokens);
       pruned++;
       tokensSaved += tokens;
+      prunedToolNames.push(entry.tool);
     }
   }
 
@@ -111,7 +115,7 @@ export function runStrategies(
   state.stats.totalPruneTokens += tokensSaved;
   state.stats.toolsPruned += pruned;
 
-  return { pruned, tokensSaved };
+  return { pruned, tokensSaved, prunedToolNames };
 }
 
 /**
@@ -129,6 +133,7 @@ export function sweepAll(
 
   let pruned = 0;
   let tokensSaved = 0;
+  const prunedToolNames: string[] = [];
 
   for (const [toolCallId, entry] of state.toolParameters) {
     if (state.prune.tools.has(toolCallId)) continue;
@@ -139,11 +144,12 @@ export function sweepAll(
     state.prune.tools.set(toolCallId, tokens);
     pruned++;
     tokensSaved += tokens;
+    prunedToolNames.push(entry.tool);
   }
 
   state.stats.toolsPruned += pruned;
   state.stats.totalPruneTokens += tokensSaved;
   state.stats.pruneTokenCounter += tokensSaved;
 
-  return { pruned, tokensSaved };
+  return { pruned, tokensSaved, prunedToolNames };
 }
