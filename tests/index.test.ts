@@ -284,3 +284,69 @@ describe("dcp extension", () => {
     ).resolves.not.toThrow();
   });
 });
+
+describe("sub-agent support", () => {
+  it("context handler returns early when PI_SUBAGENT_CHILD=1", async () => {
+    const originalEnv = process.env.PI_SUBAGENT_CHILD;
+    process.env.PI_SUBAGENT_CHILD = "1";
+
+    try {
+      const { api, handlers } = createMockApi();
+      createExtension(api);
+
+      // Fire session_start to set isSubAgent
+      const sessionStartHandler = handlers.get("session_start")?.[0];
+      await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        {
+          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+        },
+      );
+
+      // Fire context — should return early (undefined), not { messages: [...] }
+      const contextHandler = handlers.get("context")?.[0];
+      const result = await (contextHandler as (...args: unknown[]) => Promise<unknown>)(
+        { messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() }] },
+        { getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }) },
+      );
+
+      expect(result).toBeUndefined();
+    } finally {
+      if (originalEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
+      else process.env.PI_SUBAGENT_CHILD = originalEnv;
+    }
+  });
+
+  it("before_agent_start returns early when PI_SUBAGENT_CHILD=1", async () => {
+    const originalEnv = process.env.PI_SUBAGENT_CHILD;
+    process.env.PI_SUBAGENT_CHILD = "1";
+
+    try {
+      const { api, handlers } = createMockApi();
+      createExtension(api);
+
+      // Fire session_start
+      const sessionStartHandler = handlers.get("session_start")?.[0];
+      await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        {
+          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+        },
+      );
+
+      // Fire before_agent_start — should return early (undefined)
+      const handler = handlers.get("before_agent_start")?.[0];
+      const result = await (handler as (...args: unknown[]) => Promise<unknown>)(
+        { systemPrompt: "Original", prompt: "input" },
+        {},
+      );
+
+      expect(result).toBeUndefined();
+    } finally {
+      if (originalEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
+      else process.env.PI_SUBAGENT_CHILD = originalEnv;
+    }
+  });
+});

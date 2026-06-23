@@ -112,6 +112,22 @@ describe("config", () => {
     const { config } = loadConfig(configPath);
     expect(config.nudgeNotificationType).toBe("status");
   });
+
+  it("parses experimental.allowSubAgents", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ experimental: { allowSubAgents: true } }),
+    );
+    const { config } = loadConfig(configPath);
+    expect(config.experimental.allowSubAgents).toBe(true);
+  });
+
+  it("defaults experimental.allowSubAgents to false", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    const { config } = loadConfig(configPath);
+    expect(config.experimental.allowSubAgents).toBe(false);
+  });
 });
 
 describe("config validation warnings", () => {
