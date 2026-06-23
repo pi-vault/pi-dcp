@@ -131,9 +131,12 @@ export interface SessionStats {
 }
 
 export interface MessageIdState {
+  /** Content-derived key -> ref string (e.g. "user:1719100000000:0" -> "m0001"). */
+  byRawId: Map<string, string>;
+  /** Reverse lookup: ref string -> content-derived key. */
+  byRef: Map<string, string>;
+  /** Runtime index cache: rebuilt each pipeline pass. Maps message index -> ref. */
   byIndex: Map<number, string>;
-  /** Reverse lookup: ref string -> message index. O(1) resolution. */
-  byRef: Map<string, number>;
   nextRefIndex: number;
 }
 

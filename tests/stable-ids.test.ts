@@ -20,7 +20,7 @@ describe("getMessageKey", () => {
       timestamp: 1719100001000,
       stopReason: "stop",
       usage: { inputTokens: 0, outputTokens: 0 },
-    } as AgentMessage;
+    } as unknown as AgentMessage;
     expect(getMessageKey(msg, 0)).toBe("assistant:1719100001000:0");
   });
 

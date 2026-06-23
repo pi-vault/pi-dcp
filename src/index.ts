@@ -157,8 +157,9 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.prune.messages.activeBlockIds.clear();
     state.prune.messages.activeByAnchorIndex.clear();
     state.messageIds.byIndex.clear();
-    state.messageIds.byRef.clear();
-    state.messageIds.nextRefIndex = 1;
+    // Retain byRawId and byRef — stable keys survive compaction.
+    // Only clear index cache (rebuilt each pipeline pass).
+    // Do NOT reset nextRefIndex — new messages continue the sequence.
     state.compressionTiming.startTimes.clear();
     state.compressionTiming.callIdToBlockId.clear();
     state.compressionTiming.pendingDurations.clear();
