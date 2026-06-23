@@ -20,6 +20,7 @@ import type { SessionState } from "./state/types.ts";
 import { registerDcpCommands } from "./commands/register.ts";
 import { saveSessionState, loadSessionState } from "./state/persistence.ts";
 import { runPipeline } from "./pipeline.ts";
+import { parseChildSessionResults } from "./subagents/subagent-results.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
@@ -115,6 +116,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", async (event, _ctx) => {
     if (!config.enabled) return;
     if (config.compress.permission === "deny") return;
+    if (state.isSubAgent && !config.experimental.allowSubAgents) return;
 
     return {
       systemPrompt: (event.systemPrompt ?? "") + DCP_SYSTEM_PROMPT,
@@ -130,6 +132,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     resetSessionState(state);
     state.sessionId = `pi-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
     state.manualMode = config.manualMode.default;
+    state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
 
     // Load persisted state if resuming
     if (event.reason === "resume") {
@@ -178,6 +181,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.compressionTiming.startTimes.clear();
     state.compressionTiming.callIdToBlockId.clear();
     state.compressionTiming.pendingDurations.clear();
+    state.subAgentResultCache.clear();
     state.lastCompaction = Date.now();
     logger.info("dcp", "compaction detected, pruning state reset");
   });
@@ -217,36 +221,54 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("tool_execution_end", async (event, _ctx) => {
     if (!config.enabled) return;
-    if (event.toolName !== "compress") return;
 
-    const startTime = state.compressionTiming.startTimes.get(event.toolCallId);
-    if (startTime === undefined) return;
+    // Compression timing (Phase 2)
+    if (event.toolName === "compress") {
+      const startTime = state.compressionTiming.startTimes.get(event.toolCallId);
+      if (startTime === undefined) return;
 
-    const durationMs = Date.now() - startTime;
-    state.compressionTiming.startTimes.delete(event.toolCallId);
+      const durationMs = Date.now() - startTime;
+      state.compressionTiming.startTimes.delete(event.toolCallId);
 
-    if (event.isError) return;
+      if (event.isError) return;
 
-    // Find the block created by this call. Compression is serial, so the most
-    // recently created block corresponds to this call. If the call created
-    // multiple blocks (batch), the duration is attached to the last one.
-    let latestBlockId: number | undefined;
-    let latestCreatedAt = 0;
-    for (const [blockId, block] of state.prune.messages.blocksById) {
-      if (block.createdAt > latestCreatedAt) {
-        latestCreatedAt = block.createdAt;
-        latestBlockId = blockId;
+      // Find the block created by this call. Compression is serial, so the most
+      // recently created block corresponds to this call. If the call created
+      // multiple blocks (batch), the duration is attached to the last one.
+      let latestBlockId: number | undefined;
+      let latestCreatedAt = 0;
+      for (const [blockId, block] of state.prune.messages.blocksById) {
+        if (block.createdAt > latestCreatedAt) {
+          latestCreatedAt = block.createdAt;
+          latestBlockId = blockId;
+        }
+      }
+
+      if (latestBlockId !== undefined) {
+        state.compressionTiming.callIdToBlockId.set(event.toolCallId, latestBlockId);
+      }
+      state.compressionTiming.pendingDurations.set(event.toolCallId, durationMs);
+      return;
+    }
+
+    // Sub-agent result caching (Phase 9)
+    if (event.toolName === "subagent" && !event.isError) {
+      const details = event.result?.details as
+        | Record<string, unknown>
+        | undefined;
+      const childSessionPath = details?.childSessionPath;
+      if (typeof childSessionPath === "string") {
+        const resultText = parseChildSessionResults(childSessionPath);
+        if (resultText) {
+          state.subAgentResultCache.set(event.toolCallId, resultText);
+        }
       }
     }
-
-    if (latestBlockId !== undefined) {
-      state.compressionTiming.callIdToBlockId.set(event.toolCallId, latestBlockId);
-    }
-    state.compressionTiming.pendingDurations.set(event.toolCallId, durationMs);
   });
 
   pi.on("context", async (event, ctx) => {
     if (!config.enabled) return;
+    if (state.isSubAgent && !config.experimental.allowSubAgents) return;
 
     const usage = ctx.getContextUsage();
     if (usage) state.modelContextWindow = usage.contextWindow;
