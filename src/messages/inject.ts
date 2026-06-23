@@ -142,13 +142,24 @@ export function injectCompressNudges(
 
   if (!overMin) return messages;
 
+  // Anchor at the last injectable (user/assistant) message, not necessarily the absolute last.
+  // toolResult and other roles cannot receive nudge text.
+  let targetIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user" || messages[i].role === "assistant") {
+      targetIndex = i;
+      break;
+    }
+  }
+  if (targetIndex === -1) return messages; // no injectable message
+
   // Determine which nudge to add
   let nudgeType: "contextLimit" | "turn" | "iteration" | undefined;
   if (effectiveOverMax) {
     nudgeType = "contextLimit";
   } else {
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg.role === "user") {
+    const targetMsg = messages[targetIndex];
+    if (targetMsg.role === "user") {
       nudgeType = "turn";
     } else {
       let messagesSinceUser = 0;
@@ -163,7 +174,6 @@ export function injectCompressNudges(
   }
 
   if (nudgeType) {
-    const targetIndex = messages.length - 1;
     const targetKey = getKeyForIndex(state, targetIndex);
 
     if (targetKey) {

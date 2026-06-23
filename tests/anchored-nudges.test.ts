@@ -207,6 +207,38 @@ describe("anchored nudge system", () => {
     expect(text).toContain("dcp-system-reminder");
   });
 
+  it("context limit nudge injects when last message is toolResult", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 });
+
+    const messages: AgentMessage[] = [
+      userMsg("user message", 1000),
+      assistantMsg("assistant response", 2000),
+      {
+        role: "toolResult",
+        content: [{ type: "text", text: "tool output" }],
+        toolCallId: "call-123",
+      } as unknown as AgentMessage,
+    ];
+    assignMessageRefs(state, messages);
+
+    // Context over max → context limit nudge should fire
+    const result = injectCompressNudges(state, config, messages, {
+      tokens: 90000,
+      contextWindow: 100000,
+      percent: 90,
+    });
+
+    // Should anchor at the last user/assistant message (index 1, the assistant message)
+    expect(state.nudges.contextLimitAnchors.has("assistant:2000:0")).toBe(true);
+    // And inject nudge text there
+    const text = (result[1] as unknown as { content: Array<{ text: string }> })
+      .content[0].text;
+    expect(text).toContain("dcp-system-reminder");
+    // toolResult at index 2 should be unchanged
+    expect(result[2]).toBe(messages[2]);
+  });
+
   it("anchor set in pass 1 injects at non-last position in pass 2", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ nudgeFrequency: 1 });
