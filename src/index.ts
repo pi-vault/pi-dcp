@@ -140,6 +140,11 @@ export default function createExtension(pi: ExtensionAPI): void {
           state.messageIds.nextRefIndex = persisted.messageIds.nextRefIndex;
           // byIndex is rebuilt by assignMessageRefs on first pipeline pass
         }
+        if (persisted.nudges) {
+          state.nudges.contextLimitAnchors = persisted.nudges.contextLimitAnchors;
+          state.nudges.turnAnchors = persisted.nudges.turnAnchors;
+          state.nudges.iterationAnchors = persisted.nudges.iterationAnchors;
+        }
         logger.info("dcp", "resumed persisted state", { turn: state.currentTurn });
       }
     }

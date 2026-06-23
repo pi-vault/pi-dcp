@@ -89,6 +89,49 @@ describe("persistence", () => {
     expect(loaded!.messageIds!.byIndex.size).toBe(0);
   });
 
+  it("saves and loads nudge anchor sets", () => {
+    const state = createSessionState();
+    state.sessionId = "test-session";
+    state.nudges.contextLimitAnchors.add("user:1000:0");
+    state.nudges.contextLimitAnchors.add("user:2000:0");
+    state.nudges.turnAnchors.add("assistant:3000:0");
+    state.nudges.iterationAnchors.add("user:4000:0");
+    state.nudges.iterationAnchors.add("assistant:5000:0");
+
+    const stateDir = path.join(tempDir, "nudges-test");
+    fs.mkdirSync(stateDir, { recursive: true });
+    saveSessionState(state, stateDir);
+
+    const loaded = loadSessionState(stateDir);
+    expect(loaded).toBeDefined();
+    expect(loaded!.nudges).toBeDefined();
+    expect(loaded!.nudges!.contextLimitAnchors).toEqual(
+      new Set(["user:1000:0", "user:2000:0"]),
+    );
+    expect(loaded!.nudges!.turnAnchors).toEqual(new Set(["assistant:3000:0"]));
+    expect(loaded!.nudges!.iterationAnchors).toEqual(
+      new Set(["user:4000:0", "assistant:5000:0"]),
+    );
+  });
+
+  it("handles legacy state files without nudges", () => {
+    const dcpDir = path.join(tempDir, "dcp");
+    fs.mkdirSync(dcpDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dcpDir, "state.json"),
+      JSON.stringify({
+        currentTurn: 7,
+        stats: { pruneTokenCounter: 0, totalPruneTokens: 0, toolsPruned: 0, messagesCompressed: 0 },
+        lastCompaction: 0,
+      }),
+    );
+
+    const loaded = loadSessionState(tempDir);
+    expect(loaded).toBeDefined();
+    expect(loaded!.nudges).toBeUndefined();
+    expect(loaded!.currentTurn).toBe(7);
+  });
+
   it("handles legacy state files without messageIds", () => {
     const dcpDir = path.join(tempDir, "dcp");
     fs.mkdirSync(dcpDir, { recursive: true });
