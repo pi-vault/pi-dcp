@@ -43,8 +43,9 @@ describe("assignMessageRefs", () => {
 
   it("extends refs when messages grow", () => {
     const state = createSessionState();
-    const one = [makeUserMessage("a")];
-    const two = [makeUserMessage("a"), makeAssistantMessage("b")];
+    const msg = makeUserMessage("a");
+    const one = [msg];
+    const two = [msg, makeAssistantMessage("b")];
 
     assignMessageRefs(state, one);
     expect(state.messageIds.nextRefIndex).toBe(2);
