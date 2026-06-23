@@ -40,6 +40,17 @@ describe("appendProtectedUserMessages", () => {
     const result = appendProtectedUserMessages("Summary", messages, true);
     expect(result).toContain("String content");
   });
+
+  it("strips <protect> tags from user message text", () => {
+    const messages: AgentMessage[] = [
+      makeUserMessage("Do <protect>important</protect> thing"),
+    ];
+
+    const result = appendProtectedUserMessages("Summary", messages, true);
+    expect(result).toContain("Do important thing");
+    expect(result).not.toContain("<protect>");
+    expect(result).not.toContain("</protect>");
+  });
 });
 
 describe("appendProtectedPromptInfo", () => {

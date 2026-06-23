@@ -35,7 +35,7 @@ export function appendProtectedUserMessages(
   for (const msg of messages) {
     if (msg.role !== "user") continue;
     const text = getMessageText(msg);
-    if (text.trim()) userTexts.push(text);
+    if (text.trim()) userTexts.push(text.replace(/<\/?protect>/gi, ""));
   }
 
   if (userTexts.length === 0) return summary;
