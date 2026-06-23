@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState, ContextUsage } from "./state/types.ts";
 import type { DcpConfig } from "./config.ts";
+import type { RuntimePrompts } from "./prompts/store.ts";
 import { syncCompressionBlocks } from "./messages/sync.ts";
 import { stripHallucinations } from "./messages/strip.ts";
 import { syncToolCache, buildToolIdList } from "./state/tool-cache.ts";
@@ -29,6 +30,7 @@ export function runPipeline(
   config: DcpConfig,
   messages: AgentMessage[],
   contextUsage: ContextUsage | undefined,
+  runtimePrompts?: RuntimePrompts,
 ): PipelineResult {
   // Step 0: Apply any pending compression durations from completed tool calls
   applyPendingCompressionDurations(state);
@@ -62,7 +64,7 @@ export function runPipeline(
   result = applyPruning(state, result);
 
   // Step 7: Inject nudges based on context usage
-  result = injectCompressNudges(state, config, result, contextUsage);
+  result = injectCompressNudges(state, config, result, contextUsage, runtimePrompts);
 
   return { messages: result, strategyResult };
 }

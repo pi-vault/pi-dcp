@@ -380,4 +380,59 @@ describe("injectCompressNudges", () => {
     expect(text).toContain("plain user message");
     expect(text).toContain("<dcp-system-reminder>");
   });
+
+  it("uses custom context-limit nudge text from runtimePrompts", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 }); // maxContextPercent: 80
+    const messages = [makeAssistantMessage("done")];
+    assignMessageRefs(state, messages);
+    const usage: ContextUsage = { tokens: 160000, contextWindow: 200000, percent: 80 };
+
+    const customPrompts = {
+      system: "custom system",
+      contextLimitNudge: "CUSTOM CONTEXT LIMIT NUDGE",
+      turnNudge: "CUSTOM TURN NUDGE",
+      iterationNudge: "CUSTOM ITERATION NUDGE",
+    };
+
+    const result = injectCompressNudges(state, config, messages, usage, customPrompts);
+
+    const text = (result[result.length - 1] as any).content[0].text as string;
+    expect(text).toContain("CUSTOM CONTEXT LIMIT NUDGE");
+    expect(text).not.toContain("CRITICAL WARNING");
+  });
+
+  it("uses custom turn nudge text from runtimePrompts", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 }); // minContextPercent: 50, maxContextPercent: 80
+    const messages = [makeAssistantMessage("previous"), makeUserMessage("new user msg")];
+    assignMessageRefs(state, messages);
+    const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
+
+    const customPrompts = {
+      system: "custom system",
+      contextLimitNudge: "CUSTOM CONTEXT LIMIT NUDGE",
+      turnNudge: "CUSTOM TURN NUDGE",
+      iterationNudge: "CUSTOM ITERATION NUDGE",
+    };
+
+    const result = injectCompressNudges(state, config, messages, usage, customPrompts);
+
+    const text = (result[result.length - 1] as any).content[0].text as string;
+    expect(text).toContain("CUSTOM TURN NUDGE");
+    expect(text).not.toContain("Evaluate the conversation");
+  });
+
+  it("falls back to bundled nudge text when runtimePrompts is undefined", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 }); // maxContextPercent: 80
+    const messages = [makeAssistantMessage("done")];
+    assignMessageRefs(state, messages);
+    const usage: ContextUsage = { tokens: 160000, contextWindow: 200000, percent: 80 };
+
+    const result = injectCompressNudges(state, config, messages, usage, undefined);
+
+    const text = (result[result.length - 1] as any).content[0].text as string;
+    expect(text).toContain("CRITICAL WARNING");
+  });
 });

@@ -5,6 +5,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadConfig } from "./config.ts";
+import { PromptStore, writeDefaultPrompts } from "./prompts/store.ts";
+import type { RuntimePrompts } from "./prompts/store.ts";
 import {
   buildMinimalMessage,
   buildDetailedMessage,
@@ -31,6 +33,8 @@ export default function createExtension(pi: ExtensionAPI): void {
   const state: SessionState = createSessionState();
   let latestMessages: AgentMessage[] = [];
   let sessionDir: string = "";
+  let promptStore: PromptStore | undefined;
+  let runtimePrompts: RuntimePrompts | undefined;
 
   function reloadConfig(logDir?: string): void {
     const result = loadConfig(configFilePath);
@@ -118,8 +122,9 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (config.compress.permission === "deny") return;
     if (state.isSubAgent && !config.experimental.allowSubAgents) return;
 
+    const systemPromptText = runtimePrompts?.system ?? DCP_SYSTEM_PROMPT;
     return {
-      systemPrompt: (event.systemPrompt ?? "") + DCP_SYSTEM_PROMPT,
+      systemPrompt: (event.systemPrompt ?? "") + systemPromptText,
     };
   });
 
@@ -133,6 +138,36 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.sessionId = `pi-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
     state.manualMode = config.manualMode.default;
     state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
+
+    if (config.experimental.customPrompts) {
+      const projectOverrideDir = path.join(
+        process.cwd(),
+        ".pi",
+        "dcp-prompts",
+        "overrides",
+      );
+      const globalOverrideDir = path.join(
+        agentDir,
+        "extensions",
+        "dcp-prompts",
+        "overrides",
+      );
+      promptStore = new PromptStore({ projectOverrideDir, globalOverrideDir });
+      promptStore.reload();
+      runtimePrompts = promptStore.getRuntimePrompts();
+
+      // Write defaults for reference on first run
+      const defaultsDir = path.join(
+        agentDir,
+        "extensions",
+        "dcp-prompts",
+        "defaults",
+      );
+      writeDefaultPrompts(defaultsDir);
+    } else {
+      promptStore = undefined;
+      runtimePrompts = undefined;
+    }
 
     // Load persisted state if resuming
     if (event.reason === "resume") {
@@ -278,6 +313,11 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
     latestMessages = event.messages;
 
+    if (promptStore) {
+      promptStore.reload();
+      runtimePrompts = promptStore.getRuntimePrompts();
+    }
+
     const result = runPipeline(
       state,
       config,
@@ -289,6 +329,7 @@ export default function createExtension(pi: ExtensionAPI): void {
             percent: usage.percent,
           }
         : undefined,
+      runtimePrompts,
     );
 
     if (result.strategyResult.pruned > 0) {
