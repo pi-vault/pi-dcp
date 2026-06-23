@@ -10,6 +10,7 @@ import {
   COMPRESSED_BLOCK_HEADER,
 } from "./state.ts";
 import { countTokens } from "../utils/tokens.ts";
+import { enrichSummaryWithProtectedContent } from "./protected-content.ts";
 
 export interface CompressArgs {
   topic: string;
@@ -38,7 +39,7 @@ interface NormalizedEntry {
  */
 export function handleCompress(
   state: SessionState,
-  _config: DcpConfig,
+  config: DcpConfig,
   messages: AgentMessage[],
   args: CompressArgs,
 ): string {
@@ -50,7 +51,13 @@ export function handleCompress(
 
   for (const entry of entries) {
     const blockId = allocateBlockId(state);
-    const wrappedSummary = wrapCompressedSummary(blockId, entry.summary);
+    const rangeMessages = messages.slice(entry.startIndex, entry.endIndex + 1);
+    const enrichedSummary = enrichSummaryWithProtectedContent(
+      entry.summary,
+      rangeMessages,
+      config,
+    );
+    const wrappedSummary = wrapCompressedSummary(blockId, enrichedSummary);
     const summaryTokens = countTokens(wrappedSummary);
     const compressMessageIndex = messages.length - 1;
 
