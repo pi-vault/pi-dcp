@@ -239,6 +239,32 @@ describe("anchored nudge system", () => {
     expect(result[2]).toBe(messages[2]);
   });
 
+  it("existing anchors render even when no new nudge type fires", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 });
+
+    // Pre-populate a turn anchor from a previous pass
+    state.nudges.turnAnchors.add("user:1000:0");
+
+    // Last injectable message is assistant, not enough iterations → nudgeType is undefined
+    const messages: AgentMessage[] = [
+      userMsg("user message", 1000),
+      assistantMsg("assistant response", 2000),
+    ];
+    assignMessageRefs(state, messages);
+
+    const result = injectCompressNudges(state, config, messages, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+
+    // Pre-existing anchor should still be applied even though no new nudge fires
+    const text = (result[0] as unknown as { content: Array<{ text: string }> })
+      .content[0].text;
+    expect(text).toContain("dcp-system-reminder");
+  });
+
   it("anchor set in pass 1 injects at non-last position in pass 2", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ nudgeFrequency: 1 });
