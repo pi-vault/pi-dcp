@@ -5,6 +5,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadConfig } from "./config.ts";
+import {
+  buildMinimalMessage,
+  buildDetailedMessage,
+} from "./ui/notification.ts";
 import { handleCompress, type CompressArgs } from "./compress/handler.ts";
 import { stripHallucinationsFromString } from "./messages/strip.ts";
 import { mapText } from "./utils/message-content.ts";
@@ -272,11 +276,31 @@ export default function createExtension(pi: ExtensionAPI): void {
       });
     }
 
-    if (ctx.hasUI && state.stats.totalPruneTokens > 0) {
-      ctx.ui.setStatus(
-        "dcp",
-        `DCP: ${state.stats.totalPruneTokens} tokens saved`,
-      );
+    if (ctx.hasUI && config.nudgeNotification !== "off") {
+      if (config.nudgeNotificationType === "toast") {
+        // Toast: per-pass stats, only fire when something was pruned this pass
+        if (result.strategyResult.pruned > 0) {
+          const stats = {
+            tokensSaved: result.strategyResult.tokensSaved,
+            pruned: result.strategyResult.pruned,
+          };
+          const message =
+            config.nudgeNotification === "detailed"
+              ? buildDetailedMessage(stats, result.strategyResult.prunedToolNames)
+              : buildMinimalMessage(stats);
+          if (message) ctx.ui.notify(message, "info");
+        }
+      } else {
+        // Status: cumulative stats, always update when savings exist
+        if (state.stats.totalPruneTokens > 0) {
+          const stats = {
+            tokensSaved: state.stats.totalPruneTokens,
+            pruned: state.stats.toolsPruned,
+          };
+          const message = buildMinimalMessage(stats);
+          if (message) ctx.ui.setStatus("dcp", message);
+        }
+      }
     }
 
     return { messages: result.messages };
