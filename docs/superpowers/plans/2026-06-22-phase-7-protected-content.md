@@ -16,6 +16,7 @@
 | ----------------------------------- | --------------------------------------------------------------- |
 | `src/compress/protected-content.ts` | New: three append functions + integration helper                |
 | `src/compress/handler.ts`           | Call `enrichSummaryWithProtectedContent` after building summary |
+| `tests/helpers.ts`                  | Add `makeToolResultMessage` shared helper                       |
 | `tests/protected-content.test.ts`   | Unit tests for extraction/append logic                          |
 
 ---
@@ -25,9 +26,34 @@
 **Files:**
 
 - Create: `src/compress/protected-content.ts`
-- Test: `tests/protected-content.test.ts` (create)
+- Modify: `tests/helpers.ts` (add `makeToolResultMessage`)
+- Create: `tests/protected-content.test.ts`
 
-- [ ] **Step 1: Write tests for all three append functions**
+- [ ] **Step 1: Add `makeToolResultMessage` helper to `tests/helpers.ts`**
+
+Append to `tests/helpers.ts`:
+
+```typescript
+export function makeToolResultMessage(
+  toolCallId: string,
+  toolName: string,
+  text: string,
+  isError = false,
+  timestamp?: number,
+): AgentMessage {
+  const ts = timestamp ?? nextTestTimestamp++;
+  return {
+    role: "toolResult",
+    toolCallId,
+    toolName,
+    content: [{ type: "text", text }],
+    isError,
+    timestamp: ts,
+  } as AgentMessage;
+}
+```
+
+- [ ] **Step 2: Write tests for all three append functions**
 
 Create `tests/protected-content.test.ts`:
 
@@ -40,23 +66,19 @@ import {
   appendProtectedToolOutputs,
   enrichSummaryWithProtectedContent,
 } from "../src/compress/protected-content.ts";
-import { makeDefaultConfig } from "./helpers.ts";
+import {
+  makeDefaultConfig,
+  makeUserMessage,
+  makeUserMessageString,
+  makeAssistantMessage,
+  makeToolResultMessage,
+} from "./helpers.ts";
 
 describe("appendProtectedUserMessages", () => {
   it("appends user message text verbatim when protectUserMessages is true", () => {
     const messages: AgentMessage[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "Important instruction" }],
-        timestamp: 1000,
-      } as AgentMessage,
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "response" }],
-        timestamp: 2000,
-        stopReason: "stop",
-        usage: { inputTokens: 0, outputTokens: 0 },
-      } as AgentMessage,
+      makeUserMessage("Important instruction"),
+      makeAssistantMessage("response"),
     ];
 
     const result = appendProtectedUserMessages("Base summary", messages, true);
@@ -66,26 +88,14 @@ describe("appendProtectedUserMessages", () => {
   });
 
   it("returns summary unchanged when protectUserMessages is false", () => {
-    const messages: AgentMessage[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "Important" }],
-        timestamp: 1000,
-      } as AgentMessage,
-    ];
+    const messages: AgentMessage[] = [makeUserMessage("Important")];
 
     const result = appendProtectedUserMessages("Base summary", messages, false);
     expect(result).toBe("Base summary");
   });
 
   it("handles plain-string user message content", () => {
-    const messages: AgentMessage[] = [
-      {
-        role: "user",
-        content: "String content",
-        timestamp: 1000,
-      } as AgentMessage,
-    ];
+    const messages: AgentMessage[] = [makeUserMessageString("String content")];
 
     const result = appendProtectedUserMessages("Summary", messages, true);
     expect(result).toContain("String content");
@@ -95,16 +105,9 @@ describe("appendProtectedUserMessages", () => {
 describe("appendProtectedPromptInfo", () => {
   it("extracts content within <protect> tags and appends", () => {
     const messages: AgentMessage[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "Normal text <protect>Critical data: API_KEY=abc</protect> more text",
-          },
-        ],
-        timestamp: 1000,
-      } as AgentMessage,
+      makeUserMessage(
+        "Normal text <protect>Critical data: API_KEY=abc</protect> more text",
+      ),
     ];
 
     const result = appendProtectedPromptInfo("Base summary", messages, true);
@@ -115,16 +118,9 @@ describe("appendProtectedPromptInfo", () => {
 
   it("handles multiple protect tags in one message", () => {
     const messages: AgentMessage[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<protect>Item A</protect> gap <protect>Item B</protect>",
-          },
-        ],
-        timestamp: 1000,
-      } as AgentMessage,
+      makeUserMessage(
+        "<protect>Item A</protect> gap <protect>Item B</protect>",
+      ),
     ];
 
     const result = appendProtectedPromptInfo("Summary", messages, true);
@@ -134,11 +130,7 @@ describe("appendProtectedPromptInfo", () => {
 
   it("returns unchanged when protectTags is false", () => {
     const messages: AgentMessage[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "<protect>secret</protect>" }],
-        timestamp: 1000,
-      } as AgentMessage,
+      makeUserMessage("<protect>secret</protect>"),
     ];
 
     const result = appendProtectedPromptInfo("Summary", messages, false);
@@ -146,13 +138,7 @@ describe("appendProtectedPromptInfo", () => {
   });
 
   it("returns unchanged when no protect tags found", () => {
-    const messages: AgentMessage[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "No tags here" }],
-        timestamp: 1000,
-      } as AgentMessage,
-    ];
+    const messages: AgentMessage[] = [makeUserMessage("No tags here")];
 
     const result = appendProtectedPromptInfo("Summary", messages, true);
     expect(result).toBe("Summary");
@@ -162,14 +148,7 @@ describe("appendProtectedPromptInfo", () => {
 describe("appendProtectedToolOutputs", () => {
   it("appends tool output when tool name matches protectedTools", () => {
     const messages: AgentMessage[] = [
-      {
-        role: "toolResult",
-        toolCallId: "call1",
-        toolName: "read",
-        content: [{ type: "text", text: "file content here" }],
-        isError: false,
-        timestamp: 1000,
-      } as unknown as AgentMessage,
+      makeToolResultMessage("call1", "read", "file content here"),
     ];
 
     const result = appendProtectedToolOutputs("Summary", messages, ["read"]);
@@ -179,14 +158,7 @@ describe("appendProtectedToolOutputs", () => {
 
   it("does not append when tool name not in protectedTools", () => {
     const messages: AgentMessage[] = [
-      {
-        role: "toolResult",
-        toolCallId: "call1",
-        toolName: "grep",
-        content: [{ type: "text", text: "grep output" }],
-        isError: false,
-        timestamp: 1000,
-      } as unknown as AgentMessage,
+      makeToolResultMessage("call1", "grep", "grep output"),
     ];
 
     const result = appendProtectedToolOutputs("Summary", messages, ["read"]);
@@ -195,14 +167,7 @@ describe("appendProtectedToolOutputs", () => {
 
   it("skips error tool results", () => {
     const messages: AgentMessage[] = [
-      {
-        role: "toolResult",
-        toolCallId: "call1",
-        toolName: "read",
-        content: [{ type: "text", text: "error: file not found" }],
-        isError: true,
-        timestamp: 1000,
-      } as unknown as AgentMessage,
+      makeToolResultMessage("call1", "read", "error: file not found", true),
     ];
 
     const result = appendProtectedToolOutputs("Summary", messages, ["read"]);
@@ -218,21 +183,8 @@ describe("enrichSummaryWithProtectedContent", () => {
       protectedTools: ["read"],
     });
     const messages: AgentMessage[] = [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "Do <protect>critical</protect> task" },
-        ],
-        timestamp: 1000,
-      } as AgentMessage,
-      {
-        role: "toolResult",
-        toolCallId: "c1",
-        toolName: "read",
-        content: [{ type: "text", text: "file data" }],
-        isError: false,
-        timestamp: 2000,
-      } as unknown as AgentMessage,
+      makeUserMessage("Do <protect>critical</protect> task"),
+      makeToolResultMessage("c1", "read", "file data"),
     ];
 
     const result = enrichSummaryWithProtectedContent("Base", messages, config);
@@ -246,13 +198,13 @@ describe("enrichSummaryWithProtectedContent", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cd /Users/lanh/Developer/pi-vault/pi-dcp && npx vitest run tests/protected-content.test.ts`
+Run: `npx vitest run tests/protected-content.test.ts`
 
-Expected: FAIL — module does not exist.
+Expected: FAIL — module `../src/compress/protected-content.ts` does not exist.
 
-- [ ] **Step 3: Implement `src/compress/protected-content.ts`**
+- [ ] **Step 4: Implement `src/compress/protected-content.ts`**
 
 ```typescript
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -348,18 +300,12 @@ export function appendProtectedToolOutputs(
   const outputs: string[] = [];
   for (const msg of messages) {
     if (msg.role !== "toolResult") continue;
-    const toolMsg = msg as unknown as {
-      toolCallId: string;
-      toolName?: string;
-      isError?: boolean;
-    };
-    if (toolMsg.isError) continue;
-    if (!toolMsg.toolName || !protectedTools.includes(toolMsg.toolName))
-      continue;
+    if (msg.isError) continue;
+    if (!protectedTools.includes(msg.toolName)) continue;
 
     const text = getMessageText(msg);
     if (text.trim()) {
-      outputs.push(`[Protected Tool Output: ${toolMsg.toolName}]\n${text}`);
+      outputs.push(`[Protected Tool Output: ${msg.toolName}]\n${text}`);
     }
   }
 
@@ -396,17 +342,18 @@ export function enrichSummaryWithProtectedContent(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+Note on `appendProtectedToolOutputs`: After a `msg.role !== "toolResult"` guard, TypeScript narrows `msg` to `ToolResultMessage` which has `toolName`, `toolCallId`, and `isError` as direct properties. The codebase accesses these without casts in `search.ts` and `tool-cache.ts`. Follow that pattern — no `as unknown as` cast needed.
 
-Run: `cd /Users/lanh/Developer/pi-vault/pi-dcp && npx vitest run tests/protected-content.test.ts`
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `npx vitest run tests/protected-content.test.ts`
 
 Expected: All PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/lanh/Developer/pi-vault/pi-dcp
-git add src/compress/protected-content.ts tests/protected-content.test.ts
+git add tests/helpers.ts src/compress/protected-content.ts tests/protected-content.test.ts
 git commit -m "feat(protect): implement protected content extraction for summaries"
 ```
 
@@ -417,55 +364,156 @@ git commit -m "feat(protect): implement protected content extraction for summari
 **Files:**
 
 - Modify: `src/compress/handler.ts`
+- Create: `tests/protected-content-integration.test.ts`
 
-- [ ] **Step 1: Import and call `enrichSummaryWithProtectedContent`**
+- [ ] **Step 1: Rename `_config` to `config` and add enrichment call**
 
-In `src/compress/handler.ts`, add the import:
+In `src/compress/handler.ts`:
+
+1. Add the import at the top:
 
 ```typescript
 import { enrichSummaryWithProtectedContent } from "./protected-content.ts";
 ```
 
-In `handleCompress`, after the summary is built for each entry (inside the normalization loop where `summary` is available), enrich it before passing to `applyCompressionState`. Find where summary is used and wrap:
+2. In the `handleCompress` signature, rename `_config` to `config`:
 
 ```typescript
-// Before calling wrapCompressedSummary or passing to applyCompressionState:
-const rangeMessages = messages.slice(startIndex, endIndex + 1);
+export function handleCompress(
+  state: SessionState,
+  config: DcpConfig,
+  messages: AgentMessage[],
+  args: CompressArgs,
+): string {
+```
+
+3. Inside the `for (const entry of entries)` loop, insert enrichment between `allocateBlockId` and `wrapCompressedSummary`. The current code (lines 51-53) is:
+
+```typescript
+const blockId = allocateBlockId(state);
+const wrappedSummary = wrapCompressedSummary(blockId, entry.summary);
+```
+
+Change to:
+
+```typescript
+const blockId = allocateBlockId(state);
+const rangeMessages = messages.slice(entry.startIndex, entry.endIndex + 1);
 const enrichedSummary = enrichSummaryWithProtectedContent(
   entry.summary,
   rangeMessages,
   config,
 );
+const wrappedSummary = wrapCompressedSummary(blockId, enrichedSummary);
 ```
 
-Use `enrichedSummary` instead of `entry.summary` for the subsequent `wrapCompressedSummary` call and token counting.
+- [ ] **Step 2: Write integration test**
 
-Note: The exact integration point depends on the loop structure in `handleCompress`. Read the current code and insert at the point where each entry's summary is finalized before state application.
-
-- [ ] **Step 2: Update the `handleCompress` signature to accept config**
-
-The current signature is `handleCompress(state, _config, messages, args)`. The `_config` parameter is already there but unused (prefixed with `_`). Remove the underscore:
+Create `tests/protected-content-integration.test.ts`:
 
 ```typescript
-function handleCompress(
-  state: SessionState,
-  config: DcpConfig,
-  messages: AgentMessage[],
-  args: CompressArgs,
-): string;
+import { describe, it, expect } from "vitest";
+import { handleCompress } from "../src/compress/handler.ts";
+import { createSessionState } from "../src/state/state.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import {
+  makeDefaultConfig,
+  makeUserMessage,
+  makeAssistantMessage,
+} from "./helpers.ts";
+
+describe("handleCompress with protected content", () => {
+  it("enriches summary with protected user messages when enabled", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ protectUserMessages: true });
+
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(1, "m0002");
+    state.messageIds.nextRefIndex = 3;
+
+    const messages: AgentMessage[] = [
+      makeUserMessage("Remember this instruction"),
+      makeAssistantMessage("Got it"),
+    ];
+
+    handleCompress(state, config, messages, {
+      topic: "test",
+      content: [
+        {
+          startId: "m0001",
+          endId: "m0002",
+          summary: "User gave instruction",
+        },
+      ],
+      mode: "range",
+    });
+
+    const block = [...state.prune.messages.blocksById.values()][0];
+    expect(block.summary).toContain("[Protected User Message]");
+    expect(block.summary).toContain("Remember this instruction");
+  });
+
+  it("enriches summary with protect-tag content when enabled", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ protectTags: true });
+
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(1, "m0002");
+    state.messageIds.nextRefIndex = 3;
+
+    const messages: AgentMessage[] = [
+      makeUserMessage("Normal <protect>critical secret</protect> text"),
+      makeAssistantMessage("Noted"),
+    ];
+
+    handleCompress(state, config, messages, {
+      topic: "test",
+      content: [
+        { startId: "m0001", endId: "m0002", summary: "Exchange summary" },
+      ],
+      mode: "range",
+    });
+
+    const block = [...state.prune.messages.blocksById.values()][0];
+    expect(block.summary).toContain("[Protected Content]");
+    expect(block.summary).toContain("critical secret");
+  });
+
+  it("does not enrich when protection flags are off (default)", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(1, "m0002");
+    state.messageIds.nextRefIndex = 3;
+
+    const messages: AgentMessage[] = [
+      makeUserMessage("Regular message"),
+      makeAssistantMessage("Reply"),
+    ];
+
+    handleCompress(state, config, messages, {
+      topic: "test",
+      content: [{ startId: "m0001", endId: "m0002", summary: "Basic summary" }],
+      mode: "range",
+    });
+
+    const block = [...state.prune.messages.blocksById.values()][0];
+    expect(block.summary).not.toContain("[Protected");
+  });
+});
 ```
 
 - [ ] **Step 3: Run full check**
 
-Run: `cd /Users/lanh/Developer/pi-vault/pi-dcp && npm run check`
+Run: `npm run check`
 
 Expected: All pass.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/lanh/Developer/pi-vault/pi-dcp
-git add src/compress/handler.ts
+git add src/compress/handler.ts tests/protected-content-integration.test.ts
 git commit -m "feat(protect): enrich compression summaries with protected content"
 ```
 
@@ -480,3 +528,4 @@ git commit -m "feat(protect): enrich compression summaries with protected conten
 - [ ] Error tool results skipped
 - [ ] No size cap on appended content
 - [ ] Config defaults unchanged (`protectUserMessages: false`, `protectTags: false`)
+- [ ] Integration test confirms enriched content appears in compression block summary
