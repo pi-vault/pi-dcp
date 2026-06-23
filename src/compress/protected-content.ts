@@ -110,6 +110,7 @@ export function enrichSummaryWithProtectedContent(
   summary: string,
   messages: AgentMessage[],
   config: DcpConfig,
+  subAgentResultCache?: Map<string, string>,
 ): string {
   let enriched = summary;
   enriched = appendProtectedUserMessages(
@@ -127,5 +128,36 @@ export function enrichSummaryWithProtectedContent(
     messages,
     config.compress.protectedTools,
   );
+  if (subAgentResultCache) {
+    enriched = appendSubAgentResults(enriched, messages, subAgentResultCache);
+  }
   return enriched;
+}
+
+/**
+ * Append cached sub-agent child session results to the summary.
+ * Looks up toolCallId for subagent tool results in the compressed range.
+ */
+export function appendSubAgentResults(
+  summary: string,
+  messages: AgentMessage[],
+  cache: Map<string, string>,
+): string {
+  if (cache.size === 0) return summary;
+
+  const outputs: string[] = [];
+  for (const msg of messages) {
+    if (msg.role !== "toolResult") continue;
+    if (msg.isError) continue;
+    if (msg.toolName !== "subagent") continue;
+
+    const cached = cache.get(msg.toolCallId);
+    if (cached?.trim()) {
+      outputs.push(`[Sub-Agent Results: ${msg.toolCallId}]\n${cached}`);
+    }
+  }
+
+  if (outputs.length === 0) return summary;
+
+  return `${summary}\n\n---\n${outputs.join("\n\n")}`;
 }
