@@ -1,3 +1,17 @@
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+
+/**
+ * Derive a stable key from a message's properties plus a collision counter.
+ * Counter is the 0-based occurrence index among messages sharing the same role:timestamp.
+ * ToolResult messages use toolCallId (unique) so counter is ignored for them.
+ */
+export function getMessageKey(msg: AgentMessage, counter: number): string {
+  if (msg.role === "toolResult") {
+    return `toolResult:${(msg as unknown as { toolCallId: string }).toolCallId}`;
+  }
+  return `${msg.role}:${(msg as unknown as { timestamp: number }).timestamp}:${counter}`;
+}
+
 export function formatMessageRef(index: number): string {
   return `m${String(index).padStart(4, "0")}`;
 }

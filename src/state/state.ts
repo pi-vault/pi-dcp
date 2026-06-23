@@ -45,8 +45,9 @@ export function resetSessionState(state: SessionState): void {
   state.stats.messagesCompressed = 0;
   state.toolParameters.clear();
   state.toolIdList = [];
-  state.messageIds.byIndex.clear();
+  state.messageIds.byRawId.clear();
   state.messageIds.byRef.clear();
+  state.messageIds.byIndex.clear();
   state.messageIds.nextRefIndex = 1;
   state.lastCompaction = 0;
   state.currentTurn = 0;
@@ -112,8 +113,9 @@ function createStats(): SessionStats {
 
 function createMessageIdState(): MessageIdState {
   return {
-    byIndex: new Map(),
+    byRawId: new Map(),
     byRef: new Map(),
+    byIndex: new Map(),
     nextRefIndex: 1,
   };
 }

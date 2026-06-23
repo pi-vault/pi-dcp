@@ -13,7 +13,13 @@ export function resolveBoundaryIndex(
   if (!parsed) return undefined;
 
   if (parsed.type === "message") {
-    return state.messageIds.byRef.get(boundaryId);
+    const ref = boundaryId;
+    // Reverse-lookup: find the index that maps to this ref in the runtime cache.
+    // byRef now maps ref->rawId (not ref->index), so we scan byIndex instead.
+    for (const [idx, r] of state.messageIds.byIndex) {
+      if (r === ref) return idx;
+    }
+    return undefined;
   }
 
   if (parsed.type === "block") {

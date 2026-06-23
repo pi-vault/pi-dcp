@@ -3,7 +3,7 @@ import type { ContextUsage, SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { getActiveSummaryTokenUsage } from "../compress/state.ts";
 import { isContextOverLimits } from "../utils/context-limits.ts";
-import { formatMessageRef, formatMessageIdTag } from "../utils/message-ids.ts";
+import { formatMessageRef, formatMessageIdTag, getMessageKey } from "../utils/message-ids.ts";
 import type { PriorityMap } from "./priority.ts";
 import { appendText, mapText } from "../utils/message-content.ts";
 import { stripHallucinationsFromString } from "./strip.ts";
@@ -14,21 +14,48 @@ import {
 } from "../prompts/nudges.ts";
 
 /**
- * Assign sequential message refs (m0001, m0002, ...) to messages.
- * Refs are cached in state.messageIds.byIndex so re-runs don't reallocate.
- * Also maintains a reverse map (byRef) for O(1) ref-to-index resolution.
+ * Assign sequential message refs (m0001, m0002, ...) using content-derived stable keys.
+ * Refs are stored in state.messageIds.byRawId (persistent) and byIndex (runtime cache).
+ * A message always gets the same ref regardless of its position in the array.
+ *
+ * Counter logic: For messages sharing the same role:timestamp, a 0-based counter
+ * disambiguates them based on their order in the array. ToolResult messages use
+ * toolCallId (unique) and bypass the counter.
  */
 export function assignMessageRefs(
   state: SessionState,
   messages: AgentMessage[],
 ): void {
-  for (let i = 0; i < messages.length; i++) {
-    if (state.messageIds.byIndex.has(i)) continue;
+  // Clear runtime index cache — rebuilt each pass
+  state.messageIds.byIndex.clear();
 
-    const ref = formatMessageRef(state.messageIds.nextRefIndex);
+  // Count occurrences of each role:timestamp prefix to assign counters
+  const prefixCounters = new Map<string, number>();
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
+    let key: string;
+    if (msg.role === "toolResult") {
+      key = getMessageKey(msg, 0); // counter ignored for toolResult
+    } else {
+      const ts = (msg as unknown as { timestamp: number }).timestamp;
+      const prefix = `${msg.role}:${ts}`;
+      const counter = prefixCounters.get(prefix) ?? 0;
+      prefixCounters.set(prefix, counter + 1);
+      key = getMessageKey(msg, counter);
+    }
+
+    let ref = state.messageIds.byRawId.get(key);
+
+    if (!ref) {
+      ref = formatMessageRef(state.messageIds.nextRefIndex);
+      state.messageIds.byRawId.set(key, ref);
+      state.messageIds.byRef.set(ref, key);
+      state.messageIds.nextRefIndex++;
+    }
+
     state.messageIds.byIndex.set(i, ref);
-    state.messageIds.byRef.set(ref, i);
-    state.messageIds.nextRefIndex++;
   }
 }
 
