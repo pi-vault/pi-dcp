@@ -206,4 +206,37 @@ describe("anchored nudge system", () => {
       .content[0].text;
     expect(text).toContain("dcp-system-reminder");
   });
+
+  it("anchor set in pass 1 injects at non-last position in pass 2", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 });
+
+    // Pass 1: two-message array, last is user → turn nudge anchors at "user:2000:0"
+    const msgA = userMsg("first user", 1000);
+    const msgB = userMsg("second user", 2000);
+    const passOneMessages = [msgA, msgB];
+    assignMessageRefs(state, passOneMessages);
+    injectCompressNudges(state, config, passOneMessages, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+    expect(state.nudges.turnAnchors.has("user:2000:0")).toBe(true);
+
+    // Pass 2: extend array — msgB (index 1) is no longer the last message
+    const msgC = assistantMsg("assistant response", 3000);
+    const msgD = userMsg("third user", 4000);
+    const passTwoMessages = [msgA, msgB, msgC, msgD];
+    assignMessageRefs(state, passTwoMessages);
+    const result = injectCompressNudges(state, config, passTwoMessages, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+
+    // msgB (index 1) should still have nudge text from the persisted anchor
+    const textB = (result[1] as unknown as { content: Array<{ text: string }> })
+      .content[0].text;
+    expect(textB).toContain("dcp-system-reminder");
+  });
 });
