@@ -118,9 +118,12 @@ export interface ToolParameterEntry {
 }
 
 export interface Nudges {
-  contextLimitAnchors: Set<number>;
-  turnAnchors: Set<number>;
-  iterationAnchors: Set<number>;
+  /** Message keys where context limit nudges are anchored. */
+  contextLimitAnchors: Set<string>;
+  /** Message keys where turn nudges are anchored. */
+  turnAnchors: Set<string>;
+  /** Message keys where iteration nudges are anchored. */
+  iterationAnchors: Set<string>;
 }
 
 export interface SessionStats {
