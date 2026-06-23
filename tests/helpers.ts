@@ -37,6 +37,24 @@ export function makeAssistantMessage(text: string, timestamp?: number): AgentMes
   } as unknown as AgentMessage;
 }
 
+export function makeToolResultMessage(
+  toolCallId: string,
+  toolName: string,
+  text: string,
+  isError = false,
+  timestamp?: number,
+): AgentMessage {
+  const ts = timestamp ?? nextTestTimestamp++;
+  return {
+    role: "toolResult",
+    toolCallId,
+    toolName,
+    content: [{ type: "text", text }],
+    isError,
+    timestamp: ts,
+  } as AgentMessage;
+}
+
 export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): DcpConfig {
   return {
     enabled: true,
