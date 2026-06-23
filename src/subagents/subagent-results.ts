@@ -37,7 +37,8 @@ function extractText(content: unknown): string {
       (p): p is { type: string; text: string } =>
         typeof p === "object" &&
         p !== null &&
-        (p as Record<string, unknown>).type === "text",
+        (p as Record<string, unknown>).type === "text" &&
+        typeof (p as Record<string, unknown>).text === "string",
     )
     .map((p) => p.text)
     .join("\n");

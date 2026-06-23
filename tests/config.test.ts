@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig, BASE_PROTECTED_TOOLS } from "../src/config.ts";
 
 describe("config", () => {
   let tempDir: string;
@@ -182,5 +182,11 @@ describe("config validation warnings", () => {
     const { config, warnings } = loadConfig(configPath);
     expect(warnings.some((w) => w.includes("maxContextPercent"))).toBe(true);
     expect(config.compress.maxContextPercent).toBe(80); // reset to default
+  });
+});
+
+describe("BASE_PROTECTED_TOOLS", () => {
+  it('includes "subagent"', () => {
+    expect(BASE_PROTECTED_TOOLS).toContain("subagent");
   });
 });

@@ -13,6 +13,8 @@ describe("state", () => {
       expect(state.stats.totalPruneTokens).toBe(0);
       expect(state.currentTurn).toBe(0);
       expect(state.messageIds.nextRefIndex).toBe(1);
+      expect(state.isSubAgent).toBe(false);
+      expect(state.subAgentResultCache.size).toBe(0);
     });
   });
 
@@ -23,6 +25,8 @@ describe("state", () => {
       state.currentTurn = 5;
       state.prune.tools.set("tool1", 100);
       state.stats.totalPruneTokens = 500;
+      state.isSubAgent = true;
+      state.subAgentResultCache.set("x", "y");
 
       resetSessionState(state);
 
@@ -30,6 +34,8 @@ describe("state", () => {
       expect(state.currentTurn).toBe(0);
       expect(state.prune.tools.size).toBe(0);
       expect(state.stats.totalPruneTokens).toBe(0);
+      expect(state.isSubAgent).toBe(false);
+      expect(state.subAgentResultCache.size).toBe(0);
     });
 
     it("preserves object reference", () => {
