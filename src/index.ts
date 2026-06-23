@@ -258,7 +258,7 @@ export default function createExtension(pi: ExtensionAPI): void {
         | undefined;
       const childSessionPath = details?.childSessionPath;
       if (typeof childSessionPath === "string") {
-        const resultText = parseChildSessionResults(childSessionPath);
+        const resultText = await parseChildSessionResults(childSessionPath);
         if (resultText) {
           state.subAgentResultCache.set(event.toolCallId, resultText);
         }

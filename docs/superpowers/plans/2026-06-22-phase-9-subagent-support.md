@@ -38,7 +38,7 @@
 - Modify: `src/config.ts`
 - Modify: `tests/helpers.ts`
 
-- [ ] **Step 1: Add fields to `SessionState`**
+- [x] **Step 1: Add fields to `SessionState`**
 
 In `src/state/types.ts`, add to `SessionState` (after `compressionTiming`):
 
@@ -49,7 +49,7 @@ isSubAgent: boolean;
 subAgentResultCache: Map<string, string>;
 ```
 
-- [ ] **Step 2: Initialize in state factory**
+- [x] **Step 2: Initialize in state factory**
 
 In `src/state/state.ts`, add to `createSessionState()` (after `compressionTiming`):
 
@@ -65,7 +65,7 @@ state.isSubAgent = false;
 state.subAgentResultCache.clear();
 ```
 
-- [ ] **Step 3: Add config and protected tools**
+- [x] **Step 3: Add config and protected tools**
 
 In `src/config.ts`:
 
@@ -127,7 +127,7 @@ export const BASE_PROTECTED_TOOLS = [
 ];
 ```
 
-- [ ] **Step 4: Update test helper**
+- [x] **Step 4: Update test helper**
 
 In `tests/helpers.ts`, add `experimental` to `makeDefaultConfig()`:
 
@@ -142,13 +142,13 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
 
 This is required because `DcpConfig` now requires `experimental`. Without this change, the entire test suite (42 files, 319 tests) will fail with type errors.
 
-- [ ] **Step 5: Run typecheck + tests**
+- [x] **Step 5: Run typecheck + tests**
 
 Run: `npm run check`
 
 Expected: No errors. All 319 existing tests still pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/state/types.ts src/state/state.ts src/config.ts tests/helpers.ts
@@ -164,7 +164,7 @@ git commit -m "feat(subagents): add state fields and config for sub-agent suppor
 - Create: `src/subagents/subagent-results.ts`
 - Create: `tests/subagent-support.test.ts`
 
-- [ ] **Step 1: Write tests for session parsing**
+- [x] **Step 1: Write tests for session parsing**
 
 Create `tests/subagent-support.test.ts`:
 
@@ -291,13 +291,13 @@ describe("parseChildSessionResults", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run tests/subagent-support.test.ts`
 
 Expected: FAIL — module does not exist.
 
-- [ ] **Step 3: Implement `src/subagents/subagent-results.ts`**
+- [x] **Step 3: Implement `src/subagents/subagent-results.ts`**
 
 Create directory `src/subagents/` and create the file:
 
@@ -348,13 +348,13 @@ function extractText(content: unknown): string {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/subagent-support.test.ts`
 
 Expected: All PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/subagents/subagent-results.ts tests/subagent-support.test.ts
@@ -371,7 +371,7 @@ git commit -m "feat(subagents): implement child session .jsonl parser"
 
 **Important:** There is an existing `tool_execution_end` handler at line 218 for compression timing. Do NOT register a second handler — merge subagent logic into the existing one.
 
-- [ ] **Step 1: Add import**
+- [x] **Step 1: Add import**
 
 Add at top of `src/index.ts`:
 
@@ -379,7 +379,7 @@ Add at top of `src/index.ts`:
 import { parseChildSessionResults } from "./subagents/subagent-results.ts";
 ```
 
-- [ ] **Step 2: Add sub-agent detection on session_start**
+- [x] **Step 2: Add sub-agent detection on session_start**
 
 In the `session_start` handler, after `state.manualMode = config.manualMode.default;` (line 132):
 
@@ -387,7 +387,7 @@ In the `session_start` handler, after `state.manualMode = config.manualMode.defa
 state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
 ```
 
-- [ ] **Step 3: Add early return in `before_agent_start` handler**
+- [x] **Step 3: Add early return in `before_agent_start` handler**
 
 In the `before_agent_start` handler (line 115), after `if (config.compress.permission === "deny") return;`:
 
@@ -397,7 +397,7 @@ if (state.isSubAgent && !config.experimental.allowSubAgents) return;
 
 This prevents DCP system prompt injection in sub-agent sessions. Without the DCP prompt, the child model won't produce DCP-related tags, so `message_end` stripping becomes harmless (no-op).
 
-- [ ] **Step 4: Add early return in `context` handler**
+- [x] **Step 4: Add early return in `context` handler**
 
 In the `context` handler (line 248), after `if (!config.enabled) return;`:
 
@@ -407,7 +407,7 @@ if (state.isSubAgent && !config.experimental.allowSubAgents) return;
 
 This is the primary skip — prevents the full DCP pipeline from running in sub-agent sessions.
 
-- [ ] **Step 5: Merge result caching into existing `tool_execution_end` handler**
+- [x] **Step 5: Merge result caching into existing `tool_execution_end` handler**
 
 The existing handler (line 218) currently returns early if `event.toolName !== "compress"`. Restructure it to handle both compress and subagent tool names:
 
@@ -459,7 +459,7 @@ pi.on("tool_execution_end", async (event, _ctx) => {
 
 Note on `event.result`: `ToolExecutionEndEvent.result` is typed as `any` in Pi's extension API. `AgentToolResult<T>` has `details: T` for arbitrary structured data. The subagent tool is expected to populate `details.childSessionPath` with the child session file path. If this property is absent (e.g., different subagent implementation), caching silently skips.
 
-- [ ] **Step 6: Clear cache on session_compact**
+- [x] **Step 6: Clear cache on session_compact**
 
 In the `session_compact` handler (line 168), add after the compression timing clears:
 
@@ -469,13 +469,13 @@ state.subAgentResultCache.clear();
 
 This prevents stale cached results from referencing tool calls that no longer exist after compaction.
 
-- [ ] **Step 7: Run full check**
+- [x] **Step 7: Run full check**
 
 Run: `npm run check`
 
 Expected: All pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/index.ts
@@ -494,7 +494,7 @@ git commit -m "feat(subagents): detect child sessions, cache results, skip DCP i
 
 The spec requires: "When compressing messages containing subagent tool results, read cached result text and merge into the summary." Without this, `subAgentResultCache` is dead state.
 
-- [ ] **Step 1: Write tests for sub-agent enrichment**
+- [x] **Step 1: Write tests for sub-agent enrichment**
 
 Create `tests/subagent-enrichment.test.ts`:
 
@@ -579,13 +579,13 @@ describe("appendSubAgentResults", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run tests/subagent-enrichment.test.ts`
 
 Expected: FAIL — `appendSubAgentResults` does not exist.
 
-- [ ] **Step 3: Implement `appendSubAgentResults` in `protected-content.ts`**
+- [x] **Step 3: Implement `appendSubAgentResults` in `protected-content.ts`**
 
 Add to `src/compress/protected-content.ts`:
 
@@ -619,7 +619,7 @@ export function appendSubAgentResults(
 }
 ```
 
-- [ ] **Step 4: Wire into `enrichSummaryWithProtectedContent`**
+- [x] **Step 4: Wire into `enrichSummaryWithProtectedContent`**
 
 Update the function signature to accept an optional cache parameter:
 
@@ -641,7 +641,7 @@ export function enrichSummaryWithProtectedContent(
 }
 ```
 
-- [ ] **Step 5: Pass cache from `handleCompress`**
+- [x] **Step 5: Pass cache from `handleCompress`**
 
 In `src/compress/handler.ts`, the `handleCompress` function already receives `state: SessionState`. Update the `enrichSummaryWithProtectedContent` call to pass the cache:
 
@@ -654,19 +654,19 @@ const enrichedSummary = enrichSummaryWithProtectedContent(
 );
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `npx vitest run tests/subagent-enrichment.test.ts`
 
 Expected: All PASS.
 
-- [ ] **Step 7: Run full check**
+- [x] **Step 7: Run full check**
 
 Run: `npm run check`
 
 Expected: All pass (including existing protected-content tests).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/compress/protected-content.ts src/compress/handler.ts tests/subagent-enrichment.test.ts
@@ -682,7 +682,7 @@ git commit -m "feat(subagents): enrich compression summaries with cached child s
 - Modify: `tests/index.test.ts`
 - Modify: `tests/config.test.ts`
 
-- [ ] **Step 1: Add integration tests to `tests/index.test.ts`**
+- [x] **Step 1: Add integration tests to `tests/index.test.ts`**
 
 Add these tests (follow existing patterns — use `createMockApi()`, fire handlers directly):
 
@@ -754,7 +754,7 @@ describe("sub-agent support", () => {
 });
 ```
 
-- [ ] **Step 2: Add config test to `tests/config.test.ts`**
+- [x] **Step 2: Add config test to `tests/config.test.ts`**
 
 Add to the existing `describe("config")` block:
 
@@ -776,13 +776,13 @@ it("defaults experimental.allowSubAgents to false", () => {
 });
 ```
 
-- [ ] **Step 3: Run full check**
+- [x] **Step 3: Run full check**
 
 Run: `npm run check`
 
 Expected: All pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/index.test.ts tests/config.test.ts
@@ -803,12 +803,12 @@ git commit -m "test(subagents): add integration tests for detection, skip, confi
 
 ## Verification Checklist
 
-- [ ] `npm run check` passes (all existing 319+ tests still green)
-- [ ] `PI_SUBAGENT_CHILD=1` causes early return from `context` and `before_agent_start`
-- [ ] `experimental.allowSubAgents: true` overrides the skip
-- [ ] `"subagent"` in `BASE_PROTECTED_TOOLS` prevents pruning by strategies
-- [ ] Child session `.jsonl` parsed correctly (handles malformed lines, empty files, string content)
-- [ ] Cached results keyed by `toolCallId` in state
-- [ ] Cached results enriched into compression summaries via `appendSubAgentResults`
-- [ ] `subAgentResultCache` cleared on `session_compact`
-- [ ] `makeDefaultConfig` in test helper includes `experimental` field
+- [x] `npm run check` passes (all existing 319+ tests still green)
+- [x] `PI_SUBAGENT_CHILD=1` causes early return from `context` and `before_agent_start`
+- [x] `experimental.allowSubAgents: true` overrides the skip
+- [x] `"subagent"` in `BASE_PROTECTED_TOOLS` prevents pruning by strategies
+- [x] Child session `.jsonl` parsed correctly (handles malformed lines, empty files, string content)
+- [x] Cached results keyed by `toolCallId` in state
+- [x] Cached results enriched into compression summaries via `appendSubAgentResults`
+- [x] `subAgentResultCache` cleared on `session_compact`
+- [x] `makeDefaultConfig` in test helper includes `experimental` field

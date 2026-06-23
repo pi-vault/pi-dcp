@@ -173,6 +173,16 @@ describe("config validation warnings", () => {
     expect(warnings).toHaveLength(0);
   });
 
+  it("warns about unknown experimental keys", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ experimental: { allowSubAgents: true, badFlag: false } }),
+    );
+    const { warnings } = loadConfig(configPath);
+    expect(warnings.some((w) => w.includes("badFlag"))).toBe(true);
+  });
+
   it("warns when maxContextPercent exceeds 100", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(

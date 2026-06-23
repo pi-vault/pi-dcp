@@ -121,6 +121,10 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
   "experimental",
 ]);
 
+const KNOWN_EXPERIMENTAL_KEYS = new Set([
+  "allowSubAgents",
+]);
+
 const KNOWN_COMPRESS_KEYS = new Set([
   "mode", "permission", "maxContextPercent", "minContextPercent",
   "nudgeFrequency", "iterationNudgeThreshold", "nudgeForce",
@@ -158,6 +162,15 @@ export function loadConfig(configFilePath: string): LoadConfigResult {
       for (const key of Object.keys(parsed.compress as object)) {
         if (!KNOWN_COMPRESS_KEYS.has(key)) {
           warnings.push(`Unknown compress key "${key}" — ignored`);
+        }
+      }
+    }
+
+    // Check for unknown experimental keys
+    if (parsed.experimental && typeof parsed.experimental === "object") {
+      for (const key of Object.keys(parsed.experimental as object)) {
+        if (!KNOWN_EXPERIMENTAL_KEYS.has(key)) {
+          warnings.push(`Unknown experimental key "${key}" — ignored`);
         }
       }
     }

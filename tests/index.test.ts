@@ -401,7 +401,7 @@ describe("sub-agent support", () => {
       );
 
       expect(spy).toHaveBeenCalledWith(sessionFile);
-      expect(spy.mock.results[0]?.value).toBe("Task done");
+      expect(await spy.mock.results[0]?.value).toBe("Task done");
     } finally {
       spy.mockRestore();
       fs.rmSync(sessionFile, { force: true });

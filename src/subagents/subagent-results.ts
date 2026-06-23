@@ -1,12 +1,12 @@
-import * as fs from "node:fs";
+import * as fs from "node:fs/promises";
 
 /**
  * Parse a child sub-agent session .jsonl file and extract assistant message text.
  * Returns concatenated assistant text.
  */
-export function parseChildSessionResults(sessionFilePath: string): string {
+export async function parseChildSessionResults(sessionFilePath: string): Promise<string> {
   try {
-    const content = fs.readFileSync(sessionFilePath, "utf-8");
+    const content = await fs.readFile(sessionFilePath, "utf-8");
     const lines = content.split("\n").filter((line) => line.trim());
     const assistantTexts: string[] = [];
 

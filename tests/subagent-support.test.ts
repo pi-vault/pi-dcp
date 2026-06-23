@@ -15,7 +15,7 @@ describe("parseChildSessionResults", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("extracts assistant message text from jsonl session file", () => {
+  it("extracts assistant message text from jsonl session file", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const entries = [
       JSON.stringify({
@@ -39,17 +39,17 @@ describe("parseChildSessionResults", () => {
     ];
     fs.writeFileSync(sessionFile, entries.join("\n"));
 
-    const result = parseChildSessionResults(sessionFile);
+    const result = await parseChildSessionResults(sessionFile);
     expect(result).toContain("I completed the task. Result: OK");
     expect(result).toContain("Final summary here");
   });
 
-  it("returns empty string for non-existent file", () => {
-    const result = parseChildSessionResults("/nonexistent/path.jsonl");
+  it("returns empty string for non-existent file", async () => {
+    const result = await parseChildSessionResults("/nonexistent/path.jsonl");
     expect(result).toBe("");
   });
 
-  it("skips non-assistant entries", () => {
+  it("skips non-assistant entries", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const entries = [
       JSON.stringify({
@@ -70,12 +70,12 @@ describe("parseChildSessionResults", () => {
     ];
     fs.writeFileSync(sessionFile, entries.join("\n"));
 
-    const result = parseChildSessionResults(sessionFile);
+    const result = await parseChildSessionResults(sessionFile);
     expect(result).toBe("Result");
     expect(result).not.toContain("User msg");
   });
 
-  it("handles malformed JSON lines gracefully", () => {
+  it("handles malformed JSON lines gracefully", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const entries = [
       "not valid json",
@@ -89,11 +89,11 @@ describe("parseChildSessionResults", () => {
     ];
     fs.writeFileSync(sessionFile, entries.join("\n"));
 
-    const result = parseChildSessionResults(sessionFile);
+    const result = await parseChildSessionResults(sessionFile);
     expect(result).toBe("Good line");
   });
 
-  it("handles string content (non-array)", () => {
+  it("handles string content (non-array)", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const entries = [
       JSON.stringify({
@@ -106,15 +106,15 @@ describe("parseChildSessionResults", () => {
     ];
     fs.writeFileSync(sessionFile, entries.join("\n"));
 
-    const result = parseChildSessionResults(sessionFile);
+    const result = await parseChildSessionResults(sessionFile);
     expect(result).toBe("Plain string content");
   });
 
-  it("handles empty file", () => {
+  it("handles empty file", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     fs.writeFileSync(sessionFile, "");
 
-    const result = parseChildSessionResults(sessionFile);
+    const result = await parseChildSessionResults(sessionFile);
     expect(result).toBe("");
   });
 });
