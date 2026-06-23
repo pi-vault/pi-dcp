@@ -1,5 +1,9 @@
 import * as fs from "node:fs";
 
+export interface ExperimentalConfig {
+  allowSubAgents: boolean;
+}
+
 export interface DcpConfig {
   enabled: boolean;
   debug: boolean;
@@ -9,6 +13,7 @@ export interface DcpConfig {
   protectedFilePatterns: string[];
   nudgeNotification: "off" | "minimal" | "detailed";
   nudgeNotificationType: "toast" | "status";
+  experimental: ExperimentalConfig;
 }
 
 export interface CompressConfig {
@@ -89,6 +94,9 @@ const DEFAULT_CONFIG: DcpConfig = {
   protectedFilePatterns: [],
   nudgeNotification: "minimal",
   nudgeNotificationType: "status",
+  experimental: {
+    allowSubAgents: false,
+  },
 };
 
 /**
@@ -104,11 +112,13 @@ export const BASE_PROTECTED_TOOLS = [
   "grep",
   "find",
   "ls",
+  "subagent",
 ];
 
 const KNOWN_TOP_LEVEL_KEYS = new Set([
   "enabled", "debug", "compress", "manualMode", "strategies",
   "protectedFilePatterns", "nudgeNotification", "nudgeNotificationType",
+  "experimental",
 ]);
 
 const KNOWN_COMPRESS_KEYS = new Set([
@@ -310,5 +320,11 @@ function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
           (t): t is string => typeof t === "string",
         );
     }
+  }
+
+  if (source.experimental && typeof source.experimental === "object") {
+    const e = source.experimental as Record<string, unknown>;
+    if (typeof e.allowSubAgents === "boolean")
+      target.experimental.allowSubAgents = e.allowSubAgents;
   }
 }

@@ -38,6 +38,10 @@ export interface SessionState {
   modelProvider: string | undefined;
   /** Compression timing tracking. */
   compressionTiming: CompressionTimingState;
+  /** True if this session is running as a sub-agent child. */
+  isSubAgent: boolean;
+  /** Cached sub-agent results from completed child sessions, keyed by toolCallId. */
+  subAgentResultCache: Map<string, string>;
 }
 
 export interface PendingManualTrigger {
