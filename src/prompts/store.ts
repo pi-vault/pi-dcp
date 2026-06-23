@@ -68,7 +68,7 @@ export class PromptStore {
   }
 
   getRuntimePrompts(): RuntimePrompts {
-    return this.prompts;
+    return { ...this.prompts };
   }
 
   private loadOverride(filename: string): string | undefined {
