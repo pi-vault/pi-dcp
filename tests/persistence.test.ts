@@ -66,6 +66,47 @@ describe("persistence", () => {
     expect(fs.existsSync(path.join(dcpDir, "state.json"))).toBe(false);
   });
 
+  it("saves and loads messageIds state", () => {
+    const state = createSessionState();
+    state.sessionId = "test-session";
+    state.messageIds.byRawId.set("user:1000:0", "m0001");
+    state.messageIds.byRawId.set("assistant:2000:0", "m0002");
+    state.messageIds.byRef.set("m0001", "user:1000:0");
+    state.messageIds.byRef.set("m0002", "assistant:2000:0");
+    state.messageIds.nextRefIndex = 3;
+
+    const stateDir = path.join(tempDir, "ids-test");
+    fs.mkdirSync(stateDir, { recursive: true });
+    saveSessionState(state, stateDir);
+
+    const loaded = loadSessionState(stateDir);
+    expect(loaded).toBeDefined();
+    expect(loaded!.messageIds).toBeDefined();
+    expect(loaded!.messageIds!.byRawId.get("user:1000:0")).toBe("m0001");
+    expect(loaded!.messageIds!.byRef.get("m0001")).toBe("user:1000:0");
+    expect(loaded!.messageIds!.nextRefIndex).toBe(3);
+    // byIndex is not persisted — runtime-only
+    expect(loaded!.messageIds!.byIndex.size).toBe(0);
+  });
+
+  it("handles legacy state files without messageIds", () => {
+    const dcpDir = path.join(tempDir, "dcp");
+    fs.mkdirSync(dcpDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dcpDir, "state.json"),
+      JSON.stringify({
+        currentTurn: 3,
+        stats: { pruneTokenCounter: 0, totalPruneTokens: 100, toolsPruned: 1, messagesCompressed: 0 },
+        lastCompaction: 0,
+      }),
+    );
+
+    const loaded = loadSessionState(tempDir);
+    expect(loaded).toBeDefined();
+    expect(loaded!.messageIds).toBeUndefined(); // gracefully absent
+    expect(loaded!.currentTurn).toBe(3);
+  });
+
   describe("loadAllSessionStats", () => {
     it("aggregates stats from multiple session dirs", () => {
       // Create two session dirs with state files

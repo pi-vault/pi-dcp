@@ -134,6 +134,12 @@ export default function createExtension(pi: ExtensionAPI): void {
         state.currentTurn = persisted.currentTurn;
         state.stats = persisted.stats;
         state.lastCompaction = persisted.lastCompaction;
+        if (persisted.messageIds) {
+          state.messageIds.byRawId = persisted.messageIds.byRawId;
+          state.messageIds.byRef = persisted.messageIds.byRef;
+          state.messageIds.nextRefIndex = persisted.messageIds.nextRefIndex;
+          // byIndex is rebuilt by assignMessageRefs on first pipeline pass
+        }
         logger.info("dcp", "resumed persisted state", { turn: state.currentTurn });
       }
     }

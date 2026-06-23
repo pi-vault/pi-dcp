@@ -10,6 +10,11 @@ interface SerializedState {
   currentTurn: number;
   stats: SessionStats;
   lastCompaction: number;
+  messageIds?: {
+    byRawId: Record<string, string>;
+    byRef: Record<string, string>;
+    nextRefIndex: number;
+  };
 }
 
 /**
@@ -27,6 +32,11 @@ export function saveSessionState(state: SessionState, sessionDir: string): void 
     currentTurn: state.currentTurn,
     stats: { ...state.stats },
     lastCompaction: state.lastCompaction,
+    messageIds: {
+      byRawId: Object.fromEntries(state.messageIds.byRawId),
+      byRef: Object.fromEntries(state.messageIds.byRef),
+      nextRefIndex: state.messageIds.nextRefIndex,
+    },
   };
 
   fs.writeFileSync(
@@ -38,16 +48,29 @@ export function saveSessionState(state: SessionState, sessionDir: string): void 
 /**
  * Load session state from {sessionDir}/dcp/state.json.
  * Returns undefined if the file doesn't exist or is corrupt.
+ * messageIds is optional — legacy state files without it are handled gracefully.
  */
 export function loadSessionState(
   sessionDir: string,
-): Pick<SessionState, "currentTurn" | "stats" | "lastCompaction"> | undefined {
+): (Pick<SessionState, "currentTurn" | "stats" | "lastCompaction"> & { messageIds?: SessionState["messageIds"] }) | undefined {
   const filePath = path.join(sessionDir, "dcp", "state.json");
 
   try {
     if (!fs.existsSync(filePath)) return undefined;
     const content = fs.readFileSync(filePath, "utf-8");
     const parsed = JSON.parse(content) as SerializedState;
+
+    // Restore message IDs if present (backward-compatible: old state files lack this)
+    let messageIds: SessionState["messageIds"] | undefined;
+    if (parsed.messageIds && typeof parsed.messageIds === "object") {
+      const m = parsed.messageIds;
+      messageIds = {
+        byRawId: new Map(Object.entries(m.byRawId ?? {})),
+        byRef: new Map(Object.entries(m.byRef ?? {})),
+        byIndex: new Map(), // runtime cache — not persisted
+        nextRefIndex: typeof m.nextRefIndex === "number" ? m.nextRefIndex : 1,
+      };
+    }
 
     return {
       currentTurn: parsed.currentTurn ?? 0,
@@ -58,6 +81,7 @@ export function loadSessionState(
         messagesCompressed: parsed.stats?.messagesCompressed ?? 0,
       },
       lastCompaction: parsed.lastCompaction ?? 0,
+      messageIds,
     };
   } catch {
     return undefined;
