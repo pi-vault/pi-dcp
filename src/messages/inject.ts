@@ -93,16 +93,12 @@ export function injectMessageIds(
 }
 
 /**
- * Inject compress nudges into messages based on context usage.
- * Thresholds resolved via isContextOverLimits (absolute tokens, per-model overrides, legacy percentage fallback):
- * - Context limit nudge: tokens >= maxContextLimit (urgent)
- * - Turn nudge: tokens >= minContextLimit and last message is a user message
- * - Iteration nudge: tokens >= minContextLimit and many consecutive assistant messages
+ * Inject compress nudges using persistent anchored positions.
+ * Two stages:
+ *   1. Decision: determine nudge type, add anchor if frequency allows
+ *   2. Application: inject nudge text at all anchored positions
  *
- * Nudge text is appended to the last message that has text content.
- * Returns a new array. Idempotent: skips if <dcp-system-reminder> is already present.
- *
- * Handles plain-string user message content (E9).
+ * Requires assignMessageRefs to have been called for this pipeline pass.
  */
 export function injectCompressNudges(
   state: SessionState,
@@ -111,17 +107,24 @@ export function injectCompressNudges(
   contextUsage: ContextUsage | undefined,
 ): AgentMessage[] {
   if (!contextUsage) return messages;
+  if (messages.length === 0) return messages;
+  if (state.manualMode) return messages;
+  if (state.compressPermission === "deny") return messages;
 
-  // Resolve context limits (absolute tokens, per-model overrides, legacy percentage fallback)
-  let { overMaxLimit: overMax, overMinLimit: overMin } = isContextOverLimits(
+  // --- Decision Stage ---
+  const { overMaxLimit: overMax, overMinLimit: overMin } = isContextOverLimits(
     config,
     state,
     contextUsage,
   );
 
-  // Summary buffer: if over max, check whether summary tokens account for the overshoot.
-  // Subtract active summary tokens from effective usage and re-check.
-  if (overMax && config.compress.summaryBuffer && contextUsage.tokens != null) {
+  // Summary buffer adjustment (from Phase 3)
+  let effectiveOverMax = overMax;
+  if (
+    effectiveOverMax &&
+    config.compress.summaryBuffer &&
+    contextUsage.tokens != null
+  ) {
     const summaryTokens = getActiveSummaryTokenUsage(state);
     if (summaryTokens > 0) {
       const effectiveTokens = contextUsage.tokens - summaryTokens;
@@ -133,65 +136,187 @@ export function injectCompressNudges(
             ? (effectiveTokens / contextUsage.contextWindow) * 100
             : contextUsage.percent,
       });
-      overMax = adjusted.overMaxLimit;
+      effectiveOverMax = adjusted.overMaxLimit;
     }
   }
 
   if (!overMin) return messages;
 
-  if (state.manualMode) return messages;
-  if (state.compressPermission === "deny") return messages;
+  // Anchor at the last injectable (user/assistant) message, not necessarily the absolute last.
+  // toolResult and other roles cannot receive nudge text.
+  let targetIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user" || messages[i].role === "assistant") {
+      targetIndex = i;
+      break;
+    }
+  }
+  if (targetIndex === -1) return messages; // no injectable message
 
-  if (messages.length === 0) return messages;
-
-  let nudgeText: string | undefined;
-
-  if (overMax) {
-    nudgeText = CONTEXT_LIMIT_NUDGE;
+  // Determine which nudge to add
+  let nudgeType: "contextLimit" | "turn" | "iteration" | undefined;
+  if (effectiveOverMax) {
+    nudgeType = "contextLimit";
   } else {
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg.role === "user") {
-      nudgeText = TURN_NUDGE;
+    const targetMsg = messages[targetIndex];
+    if (targetMsg.role === "user") {
+      nudgeType = "turn";
     } else {
-      // Count only assistant messages since the last user message
       let messagesSinceUser = 0;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role === "user") break;
         if (messages[i].role === "assistant") messagesSinceUser++;
       }
       if (messagesSinceUser >= config.compress.iterationNudgeThreshold) {
-        nudgeText = ITERATION_NUDGE;
+        nudgeType = "iteration";
       }
     }
   }
 
-  if (!nudgeText) return messages;
+  if (nudgeType) {
+    const targetKey = getKeyForIndex(state, targetIndex);
 
-  // Inject into the last message that has text content
+    if (targetKey) {
+      const anchorSet =
+        nudgeType === "contextLimit"
+          ? state.nudges.contextLimitAnchors
+          : nudgeType === "turn"
+            ? state.nudges.turnAnchors
+            : state.nudges.iterationAnchors;
+
+      // Context limit nudges always anchor (ignore frequency)
+      if (nudgeType === "contextLimit") {
+        anchorSet.add(targetKey);
+      } else {
+        addAnchorIfAllowed(
+          anchorSet,
+          targetKey,
+          targetIndex,
+          state,
+          messages.length,
+          config.compress.nudgeFrequency,
+        );
+      }
+    }
+  }
+
+  // --- Application Stage ---
+  return applyAnchoredNudges(state, messages);
+}
+
+/**
+ * Get the stable message key for a message at a given index.
+ * Requires assignMessageRefs to have been called on this pass.
+ * Returns undefined if the index has no assigned key.
+ */
+function getKeyForIndex(state: SessionState, index: number): string | undefined {
+  const ref = state.messageIds.byIndex.get(index);
+  if (!ref) return undefined;
+  return state.messageIds.byRef.get(ref);
+}
+
+/**
+ * Build a reverse map from message key to array index for the current messages.
+ * Used by anchor distance calculations.
+ */
+function buildKeyToIndexMap(state: SessionState, messageCount: number): Map<string, number> {
+  const map = new Map<string, number>();
+  for (let i = 0; i < messageCount; i++) {
+    const key = getKeyForIndex(state, i);
+    if (key) map.set(key, i);
+  }
+  return map;
+}
+
+/**
+ * Add anchor only if the nearest existing anchor in the set is >= frequency messages away.
+ */
+function addAnchorIfAllowed(
+  anchorSet: Set<string>,
+  targetKey: string,
+  targetIndex: number,
+  state: SessionState,
+  messageCount: number,
+  frequency: number,
+): void {
+  if (anchorSet.has(targetKey)) return;
+
+  // Build key → index lookup for current messages
+  const keyToIndex = buildKeyToIndexMap(state, messageCount);
+
+  // Find the closest existing anchor by message distance
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (const existingKey of anchorSet) {
+    const existingIndex = keyToIndex.get(existingKey);
+    if (existingIndex !== undefined) {
+      closestDistance = Math.min(
+        closestDistance,
+        Math.abs(targetIndex - existingIndex),
+      );
+    }
+    // Anchors not in current messages (stale) are ignored for distance calculation
+  }
+
+  // TODO: Stale anchors (keys not present in current messages) are never pruned from the Sets.
+  // In sessions with heavy compaction, Sets may grow over time. A future task should clean them
+  // up — e.g., after compaction by intersecting anchor sets with keys of surviving messages.
+
+  if (closestDistance >= frequency) {
+    anchorSet.add(targetKey);
+  }
+}
+
+/**
+ * Inject nudge text at all anchored message positions.
+ */
+function applyAnchoredNudges(
+  state: SessionState,
+  messages: AgentMessage[],
+): AgentMessage[] {
   const result = [...messages];
-  for (let i = result.length - 1; i >= 0; i--) {
+  let changed = false;
+
+  for (let i = 0; i < result.length; i++) {
+    const key = getKeyForIndex(state, i);
+    if (!key) continue;
+
+    let nudgeText: string | undefined;
+
+    if (state.nudges.contextLimitAnchors.has(key)) {
+      nudgeText = CONTEXT_LIMIT_NUDGE;
+    } else if (state.nudges.turnAnchors.has(key)) {
+      nudgeText = TURN_NUDGE;
+    } else if (state.nudges.iterationAnchors.has(key)) {
+      nudgeText = ITERATION_NUDGE;
+    }
+
+    if (!nudgeText) continue;
+
     const msg = result[i];
     if (msg.role !== "user" && msg.role !== "assistant") continue;
 
-    // Check for existing marker — stop searching if found
-    if (typeof msg.content === "string") {
-      if (msg.content.includes("<dcp-system-reminder>")) break;
-    } else if (Array.isArray(msg.content)) {
-      const tp = msg.content.find(
-        (p) =>
-          typeof p === "object" &&
-          p !== null &&
-          (p as unknown as Record<string, unknown>).type === "text",
-      ) as unknown as { text: string } | undefined;
-      if (!tp) continue;
-      if (tp.text.includes("<dcp-system-reminder>")) break;
-    } else {
-      continue;
-    }
+    // Skip if already has nudge text
+    if (hasExistingNudge(msg)) continue;
 
     result[i] = appendText(msg, `\n\n${nudgeText}`);
-    break;
+    changed = true;
   }
 
-  return result;
+  return changed ? result : messages;
+}
+
+function hasExistingNudge(msg: AgentMessage): boolean {
+  if (!("content" in msg)) return false;
+  if (typeof msg.content === "string")
+    return msg.content.includes("<dcp-system-reminder>");
+  if (!Array.isArray(msg.content)) return false;
+  return msg.content.some((p) => {
+    if (typeof p !== "object" || p === null) return false;
+    const part = p as unknown as Record<string, unknown>;
+    return (
+      part.type === "text" &&
+      typeof part.text === "string" &&
+      (part.text as string).includes("<dcp-system-reminder>")
+    );
+  });
 }

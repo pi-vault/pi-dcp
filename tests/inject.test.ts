@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   assignMessageRefs,
   injectMessageIds,
@@ -8,7 +8,7 @@ import type { ContextUsage } from "../src/state/types.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { CONTEXT_LIMIT_NUDGE, TURN_NUDGE, ITERATION_NUDGE } from "../src/prompts/nudges.ts";
-import { makeUserMessage, makeUserMessageString, makeAssistantMessage, makeDefaultConfig } from "./helpers.ts";
+import { makeUserMessage, makeUserMessageString, makeAssistantMessage, makeDefaultConfig, resetTestTimestamp } from "./helpers.ts";
 import { buildPriorityMap } from "../src/messages/priority.ts";
 
 // ---------------------------------------------------------------------------
@@ -223,10 +223,13 @@ describe("injectMessageIds with priorityMap", () => {
 // ---------------------------------------------------------------------------
 
 describe("injectCompressNudges", () => {
+  beforeEach(() => resetTestTimestamp());
+
   it("returns messages unchanged when contextUsage is undefined", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 });
     const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
 
     const result = injectCompressNudges(state, config, messages, undefined);
 
@@ -235,8 +238,9 @@ describe("injectCompressNudges", () => {
 
   it("returns messages unchanged when percent is null (E5)", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 });
     const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: null, contextWindow: 200000, percent: null };
 
     const result = injectCompressNudges(state, config, messages, usage);
@@ -246,8 +250,9 @@ describe("injectCompressNudges", () => {
 
   it("returns messages unchanged when percent is below minContextPercent", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig(); // minContextPercent: 50
+    const config = makeDefaultConfig({ nudgeFrequency: 1 }); // minContextPercent: 50
     const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 1000, contextWindow: 200000, percent: 30 };
 
     const result = injectCompressNudges(state, config, messages, usage);
@@ -257,8 +262,9 @@ describe("injectCompressNudges", () => {
 
   it("injects CONTEXT_LIMIT_NUDGE when percent >= maxContextPercent", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig(); // maxContextPercent: 80
+    const config = makeDefaultConfig({ nudgeFrequency: 1 }); // maxContextPercent: 80
     const messages = [makeAssistantMessage("done")];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 160000, contextWindow: 200000, percent: 80 };
 
     const result = injectCompressNudges(state, config, messages, usage);
@@ -270,8 +276,9 @@ describe("injectCompressNudges", () => {
 
   it("injects TURN_NUDGE when last message is user and percent >= minContextPercent", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig(); // minContextPercent: 50, maxContextPercent: 80
+    const config = makeDefaultConfig({ nudgeFrequency: 1 }); // minContextPercent: 50, maxContextPercent: 80
     const messages = [makeAssistantMessage("previous"), makeUserMessage("new user msg")];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
 
     const result = injectCompressNudges(state, config, messages, usage);
@@ -282,13 +289,14 @@ describe("injectCompressNudges", () => {
 
   it("injects ITERATION_NUDGE when many assistant iterations since last user message", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig({ iterationNudgeThreshold: 3 });
+    const config = makeDefaultConfig({ iterationNudgeThreshold: 3, nudgeFrequency: 1 });
     const messages = [
       makeUserMessage("go"),
       makeAssistantMessage("step 1"),
       makeAssistantMessage("step 2"),
       makeAssistantMessage("step 3"),
     ];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
 
     const result = injectCompressNudges(state, config, messages, usage);
@@ -299,8 +307,9 @@ describe("injectCompressNudges", () => {
 
   it("is idempotent — does not double-inject nudge", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 });
     const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
 
     const first = injectCompressNudges(state, config, messages, usage);
@@ -314,8 +323,9 @@ describe("injectCompressNudges", () => {
   it("skips nudge injection when manualMode is active", () => {
     const state = createSessionState();
     state.manualMode = "active";
-    const config = makeDefaultConfig();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 });
     const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 160000, contextWindow: 200000, percent: 80 };
 
     const result = injectCompressNudges(state, config, messages, usage);
@@ -326,8 +336,9 @@ describe("injectCompressNudges", () => {
   it("skips nudge injection when compressPermission is deny", () => {
     const state = createSessionState();
     state.compressPermission = "deny";
-    const config = makeDefaultConfig();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 });
     const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 160000, contextWindow: 200000, percent: 80 };
 
     const result = injectCompressNudges(state, config, messages, usage);
@@ -337,7 +348,7 @@ describe("injectCompressNudges", () => {
 
   it("counts only assistant messages for iteration nudge, not toolResult/custom", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig({ iterationNudgeThreshold: 3 });
+    const config = makeDefaultConfig({ iterationNudgeThreshold: 3, nudgeFrequency: 1 });
     const messages = [
       makeUserMessage("go"),
       makeAssistantMessage("step 1"),
@@ -345,6 +356,7 @@ describe("injectCompressNudges", () => {
       { role: "toolResult", content: [{ type: "text", text: "result" }], toolCallId: "t2" } as unknown as AgentMessage,
       makeAssistantMessage("step 2"),
     ];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
 
     const result = injectCompressNudges(state, config, messages, usage);
@@ -356,8 +368,9 @@ describe("injectCompressNudges", () => {
 
   it("handles user messages with plain-string content for nudge injection (E9)", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig();
+    const config = makeDefaultConfig({ nudgeFrequency: 1 });
     const messages = [makeUserMessageString("plain user message")];
+    assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
 
     const result = injectCompressNudges(state, config, messages, usage);

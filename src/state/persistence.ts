@@ -15,6 +15,11 @@ interface SerializedState {
     byRef: Record<string, string>;
     nextRefIndex: number;
   };
+  nudges?: {
+    contextLimitAnchors: string[];
+    turnAnchors: string[];
+    iterationAnchors: string[];
+  };
 }
 
 /**
@@ -37,6 +42,11 @@ export function saveSessionState(state: SessionState, sessionDir: string): void 
       byRef: Object.fromEntries(state.messageIds.byRef),
       nextRefIndex: state.messageIds.nextRefIndex,
     },
+    nudges: {
+      contextLimitAnchors: [...state.nudges.contextLimitAnchors],
+      turnAnchors: [...state.nudges.turnAnchors],
+      iterationAnchors: [...state.nudges.iterationAnchors],
+    },
   };
 
   fs.writeFileSync(
@@ -52,7 +62,10 @@ export function saveSessionState(state: SessionState, sessionDir: string): void 
  */
 export function loadSessionState(
   sessionDir: string,
-): (Pick<SessionState, "currentTurn" | "stats" | "lastCompaction"> & { messageIds?: SessionState["messageIds"] }) | undefined {
+): (Pick<SessionState, "currentTurn" | "stats" | "lastCompaction"> & {
+  messageIds?: SessionState["messageIds"];
+  nudges?: SessionState["nudges"];
+}) | undefined {
   const filePath = path.join(sessionDir, "dcp", "state.json");
 
   try {
@@ -72,6 +85,28 @@ export function loadSessionState(
       };
     }
 
+    let nudges: SessionState["nudges"] | undefined;
+    if (parsed.nudges && typeof parsed.nudges === "object") {
+      const n = parsed.nudges;
+      nudges = {
+        contextLimitAnchors: new Set(
+          Array.isArray(n.contextLimitAnchors)
+            ? n.contextLimitAnchors.filter((x): x is string => typeof x === "string")
+            : [],
+        ),
+        turnAnchors: new Set(
+          Array.isArray(n.turnAnchors)
+            ? n.turnAnchors.filter((x): x is string => typeof x === "string")
+            : [],
+        ),
+        iterationAnchors: new Set(
+          Array.isArray(n.iterationAnchors)
+            ? n.iterationAnchors.filter((x): x is string => typeof x === "string")
+            : [],
+        ),
+      };
+    }
+
     return {
       currentTurn: parsed.currentTurn ?? 0,
       stats: {
@@ -82,6 +117,7 @@ export function loadSessionState(
       },
       lastCompaction: parsed.lastCompaction ?? 0,
       messageIds,
+      nudges,
     };
   } catch {
     return undefined;
