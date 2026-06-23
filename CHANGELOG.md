@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-06-23
+
+### Added
+
+- Absolute token limits via `compress.maxContextLimit` / `minContextLimit` (default 200000/100000) plus per-model overrides via `compress.modelMaxLimits` / `modelMinLimits`. Percentage fields now derive from the active model's detected context window.
+- Summary buffer via `compress.summaryBuffer` (default `true`) so active compression summaries don't push usage over the threshold and trigger cascading compressions.
+- UI notifications via `nudgeNotificationType` (`"toast"` or `"status"`, default `"status"`) on top of the existing `nudgeNotification` verbosity (`off|minimal|detailed`).
+- Anchored nudge system: context-limit, turn, and iteration nudges are now anchored to specific messages (content-derived keys) with `nudgeFrequency`-throttled spacing, so they persist across turns and don't drift.
+- Protected content preserved in compression summaries: verbatim append of `compress.protectedTools` outputs, user messages when `compress.protectUserMessages: true`, and `<protect>...</protect>` tag content when `compress.protectTags: true`.
+- Sub-agent support (experimental, opt-in via `experimental.allowSubAgents`): detects `PI_SUBAGENT_CHILD=1`, skips DCP processing in child sessions, and caches sub-agent tool results so they can be merged into parent compression summaries. `"subagent"` added to base protected tools.
+- Custom prompts (experimental, opt-in via `experimental.customPrompts`): `PromptStore` reads `system.md`, `context-limit-nudge.md`, `turn-nudge.md`, `iteration-nudge.md` from project `.pi/dcp-prompts/overrides/` then global `~/.pi/agent/extensions/dcp-prompts/overrides/`, with hot-reload on every context pass and bundled defaults written on first run for reference.
+- Compression timing: each compression block now records `durationMs`, populated via `tool_execution_start`/`tool_execution_end` handlers.
+- Hallucination guard: a `message_end` handler strips truncated or malformed `<dcp-message-id>` / `<dcp-system-reminder>` tags from assistant messages before storage, and inject pre-strips existing tags for idempotency.
+
+### Changed
+
+- Message refs (`m0001`, `m0002`, ...) are now assigned via content-derived stable keys (`user:<timestamp>`, `assistant:<timestamp>`, `toolResult:<toolCallId>`) and persisted across sessions and compactions, replacing the previous index-based mapping.
+- Strategy runner, message ID handling, context pipeline, and per-strategy protection checks refactored; behavior unchanged but tool-output file-path protection (`protectedFilePatterns`) is now honored by both deduplication and purge-errors.
+- Default notification mode changed from implicit-none to explicit `status` mode with cumulative session stats shown after pruning runs.
+
+### Fixed
+
+- Truncated DCP tags emitted by the model (e.g. `<dcp-message-id>m0093</dcp`) are stripped on output and prevented from blocking re-injection on input.
+- Token counts in the tool cache now sync from `toolResult` content instead of remaining `undefined` after rehydration.
+- Anchor sets no longer shift with new messages (anchored to keys, not indices) and persist across sessions.
+
 ## [0.2.0] - 2026-06-16
 
 ### Added
