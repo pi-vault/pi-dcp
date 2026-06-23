@@ -1,30 +1,39 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { DcpConfig } from "../src/config.ts";
 
-export function makeUserMessage(text: string): AgentMessage {
+let nextTestTimestamp = 1000;
+
+export function resetTestTimestamp(): void {
+  nextTestTimestamp = 1000;
+}
+
+export function makeUserMessage(text: string, timestamp?: number): AgentMessage {
+  const ts = timestamp ?? nextTestTimestamp++;
   return {
     role: "user",
     content: [{ type: "text", text }],
-    timestamp: Date.now(),
+    timestamp: ts,
   } as AgentMessage;
 }
 
 /** E9: UserMessage.content can be a plain string */
-export function makeUserMessageString(text: string): AgentMessage {
+export function makeUserMessageString(text: string, timestamp?: number): AgentMessage {
+  const ts = timestamp ?? nextTestTimestamp++;
   return {
     role: "user",
     content: text,
-    timestamp: Date.now(),
+    timestamp: ts,
   } as AgentMessage;
 }
 
-export function makeAssistantMessage(text: string): AgentMessage {
+export function makeAssistantMessage(text: string, timestamp?: number): AgentMessage {
+  const ts = timestamp ?? nextTestTimestamp++;
   return {
     role: "assistant",
     content: [{ type: "text", text }],
     stopReason: "stop",
     usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
-    timestamp: Date.now(),
+    timestamp: ts,
   } as unknown as AgentMessage;
 }
 
