@@ -9,15 +9,11 @@ describe("handleCompress (range mode)", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
 
-    // Assign message refs (both forward and reverse maps)
+    // Assign message refs (byIndex is the runtime cache used by resolveBoundaryIndex)
     state.messageIds.byIndex.set(0, "m0001");
-    state.messageIds.byRef.set("m0001", 0);
     state.messageIds.byIndex.set(1, "m0002");
-    state.messageIds.byRef.set("m0002", 1);
     state.messageIds.byIndex.set(2, "m0003");
-    state.messageIds.byRef.set("m0003", 2);
     state.messageIds.byIndex.set(3, "m0004");
-    state.messageIds.byRef.set("m0004", 3);
     state.messageIds.nextRefIndex = 5;
 
     const messages: AgentMessage[] = [
@@ -74,9 +70,7 @@ describe("handleCompress (range mode)", () => {
 
     // Only m0001..m0002 are valid; m9999 is not registered
     state.messageIds.byIndex.set(0, "m0001");
-    state.messageIds.byRef.set("m0001", 0);
     state.messageIds.byIndex.set(1, "m0002");
-    state.messageIds.byRef.set("m0002", 1);
     state.messageIds.nextRefIndex = 3;
 
     const messages: AgentMessage[] = [
@@ -103,8 +97,8 @@ describe("handleCompress (range mode)", () => {
 describe("handleCompress tool chain protection", () => {
   it("auto-expands range to include orphaned toolResult", () => {
     const state = createSessionState();
-    state.messageIds.byRef.set("m0001", 0);
-    state.messageIds.byRef.set("m0002", 1);
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(1, "m0002");
 
     const messages: AgentMessage[] = [
       { role: "user", content: [{ type: "text", text: "read it" }], timestamp: Date.now() } as AgentMessage,
@@ -142,8 +136,8 @@ describe("handleCompress tool chain protection", () => {
 describe("handleCompress token reporting", () => {
   it("includes token savings in response when tokens are known", () => {
     const state = createSessionState();
-    state.messageIds.byRef.set("m0001", 0);
-    state.messageIds.byRef.set("m0003", 2);
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(2, "m0003");
 
     // Pre-populate byMessageIndex with token counts (simulating Phase 1 sync having run)
     state.prune.messages.byMessageIndex.set(0, { tokenCount: 150, blockIds: [], activeBlockIds: [] });
@@ -171,8 +165,8 @@ describe("handleCompress token reporting", () => {
 
   it("omits token savings when token counts are zero", () => {
     const state = createSessionState();
-    state.messageIds.byRef.set("m0001", 0);
-    state.messageIds.byRef.set("m0002", 1);
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(1, "m0002");
 
     const messages: AgentMessage[] = [
       { role: "user", content: [{ type: "text", text: "msg" }], timestamp: Date.now() } as AgentMessage,
@@ -193,10 +187,10 @@ describe("handleCompress token reporting", () => {
 
   it("accumulates token savings across multiple ranges", () => {
     const state = createSessionState();
-    state.messageIds.byRef.set("m0001", 0);
-    state.messageIds.byRef.set("m0002", 1);
-    state.messageIds.byRef.set("m0003", 2);
-    state.messageIds.byRef.set("m0004", 3);
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(1, "m0002");
+    state.messageIds.byIndex.set(2, "m0003");
+    state.messageIds.byIndex.set(3, "m0004");
 
     state.prune.messages.byMessageIndex.set(0, { tokenCount: 100, blockIds: [], activeBlockIds: [] });
     state.prune.messages.byMessageIndex.set(1, { tokenCount: 200, blockIds: [], activeBlockIds: [] });

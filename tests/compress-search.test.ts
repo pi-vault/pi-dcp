@@ -10,9 +10,7 @@ describe("compress/search", () => {
     it("resolves message ref to index", () => {
       const state = createSessionState();
       state.messageIds.byIndex.set(0, "m0001");
-      state.messageIds.byRef.set("m0001", 0);
       state.messageIds.byIndex.set(5, "m0006");
-      state.messageIds.byRef.set("m0006", 5);
 
       expect(resolveBoundaryIndex(state, "m0001")).toBe(0);
       expect(resolveBoundaryIndex(state, "m0006")).toBe(5);
