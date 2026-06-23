@@ -24,6 +24,16 @@ describe("buildMinimalMessage", () => {
     const result = buildMinimalMessage({ tokensSaved: 0, pruned: 0 });
     expect(result).toBeUndefined();
   });
+
+  it("reports when pruned > 0 but tokensSaved is 0", () => {
+    const result = buildMinimalMessage({ tokensSaved: 0, pruned: 1 });
+    expect(result).toBe("DCP: ~0 tokens saved (1 items pruned)");
+  });
+
+  it("reports when tokensSaved > 0 but pruned is 0", () => {
+    const result = buildMinimalMessage({ tokensSaved: 100, pruned: 0 });
+    expect(result).toBe("DCP: ~100 tokens saved (0 items pruned)");
+  });
 });
 
 describe("buildDetailedMessage", () => {
