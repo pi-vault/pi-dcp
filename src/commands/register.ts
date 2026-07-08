@@ -10,6 +10,7 @@ import { manualCommand } from "./manual.ts";
 import { decompressCommand } from "./decompress.ts";
 import { recompressCommand } from "./recompress.ts";
 import { lifetimeCommand } from "./lifetime.ts";
+import { permissionCommand } from "./permission.ts";
 
 export function registerDcpCommands(
   pi: ExtensionAPI,
@@ -74,6 +75,13 @@ export function registerDcpCommands(
     handler: async (_args, ctx) => {
       const parentDir = path.resolve(ctx.sessionManager.getSessionDir(), "..");
       ctx.ui.notify(lifetimeCommand(parentDir), "info");
+    },
+  });
+
+  pi.registerCommand("dcp:permission", {
+    description: "Toggle compress permission (allow/deny)",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify(permissionCommand(state), "info");
     },
   });
 }
