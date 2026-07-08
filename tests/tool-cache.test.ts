@@ -17,7 +17,13 @@ function makeAssistantWithToolCall(
     provider: "test",
     model: "test-model",
     stopReason: "toolUse",
-    usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      totalTokens: 0,
+    },
     timestamp: Date.now(),
   } as unknown as AgentMessage;
 }
@@ -88,8 +94,8 @@ describe("tool-cache", () => {
       syncToolCache(state, messages);
 
       const entry = state.toolParameters.get("call1")!;
-      // 400 chars / 4 = 100 tokens
-      expect(entry.tokenCount).toBe(100);
+      // "a".repeat(400) → 25 tokens (Anthropic tokenizer; heuristic was 400/4 = 100)
+      expect(entry.tokenCount).toBe(25);
     });
 
     it("sets tokenCount undefined when toolResult not yet received", () => {
@@ -128,7 +134,14 @@ describe("tool-cache", () => {
 
       syncToolCache(state, messages);
       // Original entry preserved
-      expect((state.toolParameters.get("call1")!.parameters as Record<string, unknown>).filePath).toBe("/old");
+      expect(
+        (
+          state.toolParameters.get("call1")!.parameters as Record<
+            string,
+            unknown
+          >
+        ).filePath,
+      ).toBe("/old");
     });
 
     it("records assistantIndex and resultIndex", () => {
@@ -136,7 +149,11 @@ describe("tool-cache", () => {
       state.currentTurn = 1;
 
       const messages: AgentMessage[] = [
-        { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
+        {
+          role: "user",
+          content: [{ type: "text", text: "do it" }],
+          timestamp: Date.now(),
+        } as AgentMessage,
         makeAssistantWithToolCall("call1", "read", { filePath: "/tmp/foo.ts" }),
         {
           role: "toolResult",
