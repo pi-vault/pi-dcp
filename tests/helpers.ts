@@ -94,7 +94,7 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
       nudgeFrequency: 5,
       iterationNudgeThreshold: 15,
       nudgeForce: "soft",
-      protectedTools: [],
+      protectedTools: ["compress"],
       protectUserMessages: false,
       protectTags: false,
       showCompression: false,

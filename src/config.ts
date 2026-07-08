@@ -43,7 +43,9 @@ export const BASE_PROTECTED_TOOLS = [
 // concrete defaults for threshold calculations.
 export const DEFAULT_CONFIG: DcpConfig = (() => {
   const config = Value.Create(DcpConfigSchema) as DcpConfig;
+  // Protect compress tool outputs from being pruned to prevent recursive compression
   config.compress.protectedTools = ["compress"];
+  // Optional fields without schema defaults — set concrete values for threshold calculations
   config.compress.maxContextLimit = 200000;
   config.compress.minContextLimit = 100000;
   return config;
