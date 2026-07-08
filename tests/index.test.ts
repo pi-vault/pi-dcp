@@ -296,7 +296,7 @@ describe("permission gating (tool_call handler)", () => {
     expect(handlers.has("tool_call")).toBe(true);
   });
 
-  it("tool_call handler blocks compress when permission is deny", async () => {
+  it("tool_call handler allows compress when permission is allow", async () => {
     const { api, handlers } = createMockApi();
     createExtension(api);
 
