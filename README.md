@@ -2,8 +2,8 @@
 
 [![npm version](https://img.shields.io/npm/v/%40pi-vault%2Fpi-dcp)](https://www.npmjs.com/package/@pi-vault/pi-dcp)
 [![Quality](https://github.com/pi-vault/pi-dcp/actions/workflows/quality.yml/badge.svg?branch=master)](https://github.com/pi-vault/pi-dcp/actions/workflows/quality.yml)
-[![Node >=22.19.0](https://img.shields.io/badge/node-%3E%3D22.19.0-339933)](https://nodejs.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://github.com/pi-vault/pi-dcp/blob/master/README.md#license)
+[![Node >= 24.15.0](https://img.shields.io/badge/node-%3E%3D24.15.0-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 Keep long Pi sessions usable by pruning stale tool output and nudging the model to compress old context before the window fills up.
 
@@ -220,20 +220,18 @@ Create `~/.pi/agent/extensions/dcp.json` to override defaults. Every field is op
 - **Experimental opt-ins** — sub-agent support (`experimental.allowSubAgents`) and custom prompts via `PromptStore` (`experimental.customPrompts`).
 - **Stable message IDs and compression timing** — refs persist across sessions and compactions; each compression block records its duration.
 
-## Compatibility
+## Development And Verification
 
-- Node `>=22.19.0`
-- Peer dependencies: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `typebox`
-- Intended for Pi sessions with package and extension support
-
-## Development
-
-```sh
+```bash
 pnpm install
-pnpm run check
-pnpm run pack --dry-run
+pnpm check
+pnpm release:check
 ```
+
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE).
