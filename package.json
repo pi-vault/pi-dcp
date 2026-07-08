@@ -46,19 +46,19 @@
     "README.md"
   ],
   "dependencies": {
-    "@anthropic-ai/tokenizer": "^0.0.4"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-agent-core": "*",
-    "@earendil-works/pi-coding-agent": "*"
+    "@anthropic-ai/tokenizer": "^0.0.4",
+    "typebox": "^1.3.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
     "@earendil-works/pi-agent-core": "^0.79.10",
     "@earendil-works/pi-coding-agent": "^0.79.10",
     "@types/node": "^25.9.3",
-    "typebox": "^1.3.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-coding-agent": "*"
   }
 }

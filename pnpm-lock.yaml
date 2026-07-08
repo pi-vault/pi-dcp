@@ -11,6 +11,9 @@ importers:
       '@anthropic-ai/tokenizer':
         specifier: ^0.0.4
         version: 0.0.4
+      typebox:
+        specifier: ^1.3.6
+        version: 1.3.6
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.0
@@ -24,9 +27,6 @@ importers:
       '@types/node':
         specifier: ^25.9.3
         version: 25.9.3
-      typebox:
-        specifier: ^1.3.0
-        version: 1.3.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -989,8 +989,8 @@ packages:
   typebox@1.1.38:
     resolution: {integrity: sha512-pZ0aQPmMmXoUvSbeuWf/Hzsc+avNw/Zd6VeE8CFgkVGWyuHPJvqeJJDeJqLve+K70LvjYIoleGcoJHPT17cWoA==}
 
-  typebox@1.3.0:
-    resolution: {integrity: sha512-3HaX5iZ13wSzcLSflDH1UJwaXnRghtc8LhQtKnq8qnlcnZvmGOpBOM6rY9PdyPBKNOYBpDHfE9r6BmI41fvp4g==}
+  typebox@1.3.6:
+    resolution: {integrity: sha512-Sc8RA0NCMEFmApHNU9ZMzqcpQj46She44J8ffpLM/bdhLNUZKq7DJumcLcsFx1gRmDfQPgCgOmFFJ7rcnfWNyA==}
 
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
@@ -2140,7 +2140,7 @@ snapshots:
 
   typebox@1.1.38: {}
 
-  typebox@1.3.0: {}
+  typebox@1.3.6: {}
 
   typescript@6.0.3: {}
 
