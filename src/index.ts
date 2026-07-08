@@ -57,6 +57,7 @@ function sendCompressNotification(
   ctx: ExtensionContext,
 ): void {
   if (!ctx.hasUI || config.nudgeNotification === "off") return;
+  if (result.messagesCompressed === 0) return;
   const notifParams = {
     compressedTokens: result.compressedTokens,
     summaryTokens: result.summaryTokens,
