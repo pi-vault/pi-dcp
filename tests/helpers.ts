@@ -70,6 +70,7 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
       protectedTools: [],
       protectUserMessages: false,
       protectTags: false,
+      showCompression: false,
       summaryBuffer: true,
       maxContextLimit: undefined,
       minContextLimit: undefined,
