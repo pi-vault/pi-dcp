@@ -4,40 +4,24 @@
 
 **Goal:** Replace hand-written config interfaces and validation with TypeBox schemas. Derive TypeScript types, runtime validation, and a JSON Schema file from a single source of truth.
 
-**Architecture:** Create `src/config-schema.ts` with TypeBox schema definitions. Refactor `src/config.ts` to use TypeBox's `Value.*` utilities for validation. Add `scripts/generate-schema.ts` to emit `dcp.schema.json`. Move `typebox` from devDependencies to dependencies since it's now used at runtime.
+**Architecture:** Create `src/config-schema.ts` with TypeBox schema definitions. Refactor `src/config.ts` to use TypeBox's `Value.*` utilities for validation. Add `scripts/generate-schema.ts` to emit `dcp.schema.json`. TypeBox is already a runtime dependency (moved in commit `89885d8`).
 
-**Tech Stack:** TypeScript, Vitest, TypeBox
+**Tech Stack:** TypeScript, Vitest, TypeBox (1.3.6)
 
-**Prerequisites:** Phases 1-3 must be completed first. This phase absorbs the config fields added there (`showCompression`, `turnProtection`).
+**Prerequisites:** Phases 1-4 completed. This phase absorbs the config fields added there (`showCompression`, `turnProtection`).
+
+**Corrections from original plan (review 2026-07-08):**
+
+1. `showCompression` default fixed: `true` → `false` (matches current code, Phase 1 plan, spec, and opencode reference)
+2. `turnProtection` default fixed: `3` → `0` (matches current code; Phase 3 implementation intentionally deviated from spec's `3` to keep protection disabled by default)
+3. Added type mismatch handling: `deepMerge` can overwrite a default with a wrong-typed user value (e.g. `"yes"` for a boolean). After `Value.Check`, invalid paths are now reset to their default values.
+4. Task 1 marked as already completed (commit `89885d8`)
 
 ---
 
-### Task 1: Move TypeBox to runtime dependency
+### Task 1: Move TypeBox to runtime dependency — ALREADY COMPLETED
 
-**Files:**
-- Modify: `package.json`
-
-- [ ] **Step 1: Move typebox to dependencies**
-
-Run:
-
-```bash
-cd /Users/lanh/Developer/pi-vault/pi-dcp && pnpm remove typebox && pnpm add typebox
-```
-
-Expected: `typebox` moves from `devDependencies` to `dependencies` in `package.json`.
-
-- [ ] **Step 2: Verify typecheck**
-
-Run: `pnpm typecheck`
-Expected: PASS — all existing `Type` imports from typebox still resolve.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add package.json pnpm-lock.yaml
-git commit -m "deps: move typebox to runtime dependencies"
-```
+Completed in commit `89885d8`. TypeBox is already in `dependencies` in `package.json`.
 
 ---
 
@@ -63,7 +47,7 @@ export const DeduplicationConfigSchema = Type.Object({
     description: "Tool names excluded from deduplication (glob patterns)",
   }),
   turnProtection: Type.Number({
-    default: 3,
+    default: 0,
     minimum: 0,
     description:
       "Protect duplicate tool outputs from pruning for N turns after invocation. 0 disables.",
@@ -97,9 +81,9 @@ export const CompressConfigSchema = Type.Object({
     description: "Whether the compress tool is allowed to run",
   }),
   showCompression: Type.Boolean({
-    default: true,
+    default: false,
     description:
-      "When false, compressed ranges are silently removed without injecting summary blocks",
+      "Include compression summary text in user notifications (does not affect model context)",
   }),
   maxContextPercent: Type.Number({
     default: 80,
@@ -286,9 +270,9 @@ describe("config loading", () => {
     expect(config.debug).toBe(false);
     expect(config.compress.mode).toBe("range");
     expect(config.compress.permission).toBe("allow");
-    expect(config.compress.showCompression).toBe(true);
+    expect(config.compress.showCompression).toBe(false);
     expect(config.strategies.deduplication.enabled).toBe(true);
-    expect(config.strategies.deduplication.turnProtection).toBe(3);
+    expect(config.strategies.deduplication.turnProtection).toBe(0);
     expect(config.strategies.purgeErrors.enabled).toBe(true);
     expect(config.nudgeNotification).toBe("minimal");
     expect(config.nudgeNotificationType).toBe("status");
@@ -310,7 +294,7 @@ describe("config loading", () => {
     expect(config.compress.mode).toBe("message");
     // Other compress fields should have defaults
     expect(config.compress.permission).toBe("allow");
-    expect(config.compress.showCompression).toBe(true);
+    expect(config.compress.showCompression).toBe(false);
     expect(config.compress.nudgeFrequency).toBe(5);
     expect(config.enabled).toBe(true);
   });
@@ -373,14 +357,14 @@ describe("config loading", () => {
     expect(config.experimental.allowSubAgents).toBe(true);
   });
 
-  it("parses showCompression false", () => {
+  it("parses showCompression true", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(
       configPath,
-      JSON.stringify({ compress: { showCompression: false } }),
+      JSON.stringify({ compress: { showCompression: true } }),
     );
     const { config } = loadConfig(configPath);
-    expect(config.compress.showCompression).toBe(false);
+    expect(config.compress.showCompression).toBe(true);
   });
 
   it("parses turnProtection", () => {
@@ -388,11 +372,27 @@ describe("config loading", () => {
     fs.writeFileSync(
       configPath,
       JSON.stringify({
-        strategies: { deduplication: { turnProtection: 0 } },
+        strategies: { deduplication: { turnProtection: 5 } },
       }),
     );
     const { config } = loadConfig(configPath);
-    expect(config.strategies.deduplication.turnProtection).toBe(0);
+    expect(config.strategies.deduplication.turnProtection).toBe(5);
+  });
+
+  it("resets wrong-typed values to defaults", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        debug: "yes",
+        compress: { showCompression: "yes", mode: "range" },
+      }),
+    );
+    const { config, warnings } = loadConfig(configPath);
+    expect(config.debug).toBe(false); // reset to default
+    expect(config.compress.showCompression).toBe(false); // reset to default
+    expect(config.compress.mode).toBe("range"); // valid value preserved
+    expect(warnings.length).toBeGreaterThan(0);
   });
 });
 
@@ -427,6 +427,17 @@ describe("config validation warnings", () => {
     expect(warnings.some((w) => w.includes("maxContextPercent"))).toBe(true);
     expect(config.compress.maxContextPercent).toBe(80); // reset to default
   });
+
+  it("warns about invalid enum values", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ nudgeNotificationType: "popup" }),
+    );
+    const { config, warnings } = loadConfig(configPath);
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(config.nudgeNotificationType).toBe("status"); // reset to default
+  });
 });
 
 describe("BASE_PROTECTED_TOOLS", () => {
@@ -439,7 +450,7 @@ describe("BASE_PROTECTED_TOOLS", () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm vitest run tests/config.test.ts`
-Expected: Some tests pass (behavior is the same), some may fail if they depend on fields added in Phases 1-3 (`showCompression`, `turnProtection`). This is expected — the tests are forward-looking.
+Expected: Most tests pass (behavior is the same), some may fail because the test structure changed. The "resets wrong-typed values to defaults" test will fail until Task 4 adds type mismatch handling.
 
 - [ ] **Step 3: Commit**
 
@@ -522,6 +533,7 @@ export interface LoadConfigResult {
  * Load DCP configuration from a single JSON file.
  * Falls back to defaults on missing file, parse error, or invalid content.
  * Returns warnings for validation errors and out-of-range values.
+ * Invalid-typed values are reset to their defaults.
  *
  * @param configFilePath - Absolute path to dcp.json (typically resolved via getAgentDir())
  */
@@ -534,17 +546,30 @@ export function loadConfig(configFilePath: string): LoadConfigResult {
 
   // Deep merge raw user config over defaults so partial nested objects
   // (e.g. { compress: { mode: "message" } }) don't wipe sibling defaults.
-  const merged = deepMerge(structuredClone(defaults), parsed);
+  const merged = deepMerge(
+    structuredClone(defaults) as Record<string, unknown>,
+    parsed,
+  );
 
-  // Validate and collect errors
+  // Clean unknown properties first
+  Value.Clean(DcpConfigSchema, merged);
+
+  // Validate and reset invalid values to defaults
   if (!Value.Check(DcpConfigSchema, merged)) {
     for (const error of Value.Errors(DcpConfigSchema, merged)) {
       warnings.push(`Config error at ${error.path}: ${error.message}`);
+      // Reset invalid path to default value
+      const defaultValue = getByPath(
+        defaults as unknown as Record<string, unknown>,
+        error.path,
+      );
+      if (defaultValue !== undefined) {
+        setByPath(merged, error.path, structuredClone(defaultValue));
+      }
     }
   }
 
-  // Clean unknown properties
-  const config = Value.Clean(DcpConfigSchema, merged) as DcpConfig;
+  const config = merged as unknown as DcpConfig;
 
   // Post-validation range fixes (semantic constraints TypeBox can't express)
   if (config.compress.maxContextPercent > 100) {
@@ -611,6 +636,38 @@ function deepMerge(
   }
   return target;
 }
+
+/**
+ * Get a value from a nested object using a JSON Pointer path (e.g. "/compress/mode").
+ */
+function getByPath(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split("/").filter(Boolean);
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+/**
+ * Set a value in a nested object using a JSON Pointer path (e.g. "/compress/mode").
+ */
+function setByPath(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length === 0) return;
+  let current: Record<string, unknown> = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const next = current[parts[i]];
+    if (next === null || typeof next !== "object") return;
+    current = next as Record<string, unknown>;
+  }
+  current[parts[parts.length - 1]] = value;
+}
 ```
 
 - [ ] **Step 2: Fix any import mismatches**
@@ -626,7 +683,7 @@ Expected: PASS
 - [ ] **Step 3: Run all tests**
 
 Run: `pnpm check`
-Expected: All tests pass. The refactored `loadConfig` produces the same behavior for valid configs. Warning messages may differ in format (TypeBox uses JSON Pointer paths), but the test assertions are flexible enough.
+Expected: All tests pass. The refactored `loadConfig` produces the same behavior for valid configs and now correctly resets wrong-typed values to defaults.
 
 - [ ] **Step 4: Commit**
 
@@ -642,9 +699,9 @@ git commit -m "refactor: replace hand-written config validation with TypeBox"
 **Files:**
 - Modify: `tests/helpers.ts`
 
-- [ ] **Step 1: Import DcpConfig from config.ts**
+- [ ] **Step 1: Verify makeDefaultConfig matches TypeBox-derived type**
 
-The import `import type { DcpConfig } from "../src/config.ts"` should still work since types are re-exported. Verify the `makeDefaultConfig` function matches the TypeBox-derived type. If Phase 1-3 updates are already in place, `showCompression` and `turnProtection` should already be there. If not, add them now:
+The import `import type { DcpConfig } from "../src/config.ts"` should still work since types are re-exported. Verify the `makeDefaultConfig` function matches the TypeBox-derived type. The defaults should match the current implemented values:
 
 Ensure `tests/helpers.ts` `makeDefaultConfig` has this structure:
 
@@ -664,7 +721,7 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
       protectedTools: [],
       protectUserMessages: false,
       protectTags: false,
-      showCompression: true,
+      showCompression: false,
       summaryBuffer: true,
       maxContextLimit: undefined,
       minContextLimit: undefined,
@@ -674,7 +731,7 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
     },
     manualMode: { default: false, automaticStrategies: true },
     strategies: {
-      deduplication: { enabled: true, protectedTools: [], turnProtection: 3 },
+      deduplication: { enabled: true, protectedTools: [], turnProtection: 0 },
       purgeErrors: { enabled: true, turns: 4, protectedTools: [] },
     },
     protectedFilePatterns: [],
@@ -684,6 +741,8 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
   };
 }
 ```
+
+This should already match the current `tests/helpers.ts`. If it does, no changes are needed.
 
 - [ ] **Step 2: Run all tests**
 
