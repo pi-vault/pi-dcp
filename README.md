@@ -5,7 +5,7 @@
 [![Node >= 24.15.0](https://img.shields.io/badge/node-%3E%3D24.15.0-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-Keep long Pi sessions usable by pruning stale tool output and nudging the model to compress old context before the window fills up.
+Keep long Pi sessions usable by pruning stale tool output, reporting what changed, and nudging the model to compress older context before the window fills up.
 
 ## Install
 
@@ -25,114 +25,66 @@ pi -e /absolute/path/to/pi-dcp
 
 pi-dcp works out of the box — no configuration needed.
 
-Check that it's loaded and see what it knows about your session:
-
 ```text
 dcp:context
-```
-
-List all available commands:
-
-```text
 dcp:help
-```
-
-After a long session, see how many tokens the extension has saved:
-
-```text
 dcp:stats
-```
-
-Before an intensive design or debugging session, force-prune dead output:
-
-```text
 dcp:sweep
 ```
 
+Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list commands, `dcp:stats` to check savings, and `dcp:sweep` to clear dead tool output before a heavy session.
+
 ## What it does
 
-- **Prunes automatically** — deduplicates repeated tool outputs (e.g. two identical file reads) without losing the first occurrence; clears old failed tool results after `strategies.purgeErrors.turns`.
-- **Compresses with the model** — exposes a `compress` tool in `range` or `message` mode. Tool-call / tool-result pairs are never split across a compression boundary; protected tool outputs, user messages (when enabled), and `<protect>` tag content survive summaries verbatim.
-- **Nudges the model** — anchored, frequency-throttled nudges fire when context crosses configured limits. They persist across turns and don't drift as new messages arrive.
-- **Notifies you** — toast or status-bar updates with per-pass pruning stats.
-- **Respects sub-agents** — skips child sessions by default; with `experimental.allowSubAgents` enabled, caches child results so they can be merged into parent-side compression summaries.
-- **Reports savings** — `dcp:stats` for the session, `dcp:lifetime` across all sessions.
-- **Survives the long session** — persisted anchor sets, stable message IDs, and rehydrated state on resume.
+- **Prunes automatically** — deduplicates repeated tool outputs and clears stale failed tool results.
+- **Compresses with the model** — exposes a `compress` tool in `range` or `message` mode while keeping tool-call/tool-result pairs intact.
+- **Nudges before the window fills** — context-limit, turn, and iteration nudges are anchored and frequency-throttled.
+- **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
+- **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
 ## Commands
 
 All commands are also discoverable in-session via `dcp:help`.
 
-| Command                    | Purpose                                                                |
-| -------------------------- | ---------------------------------------------------------------------- |
-| `dcp:help`                 | List all available commands                                            |
-| `dcp:context`              | Current token usage, pruned outputs, active blocks, manual mode status |
-| `dcp:stats`                | Session token savings and compression counts                           |
-| `dcp:sweep`                | Force-prune all eligible tool outputs immediately                      |
-| `dcp:manual on`            | Pause automatic compression (take manual control)                      |
-| `dcp:manual off`           | Resume automatic compression                                           |
-| `dcp:decompress <blockId>` | Restore a previously compressed block                                  |
-| `dcp:recompress <blockId>` | Re-activate a decompressed block                                       |
-| `dcp:lifetime`             | Aggregate statistics across all saved sessions                         |
+| Command                    | Purpose                                         |
+| -------------------------- | ----------------------------------------------- |
+| `dcp:help`                 | List all available commands                     |
+| `dcp:context`              | Show context usage and DCP state                |
+| `dcp:stats`                | Show compression and token savings statistics   |
+| `dcp:sweep`                | Force-prune all eligible tool outputs           |
+| `dcp:manual on`            | Pause automatic compression                     |
+| `dcp:manual off`           | Resume automatic compression                    |
+| `dcp:decompress <blockId>` | Deactivate a compression block                  |
+| `dcp:recompress <blockId>` | Reactivate a compression block                  |
+| `dcp:lifetime`             | Show aggregate statistics across saved sessions |
+| `dcp:permission`           | Toggle compress permission between allow/deny   |
 
 ## Typical workflows
 
-**Default — just install it.** DCP prunes duplicates and stale errors on its own and nudges the model when context fills up. Watch `dcp:context` to see what's happening.
+**Default:** install it and let DCP prune duplicates and stale errors automatically.
 
-**Long design or debug session.** Run `dcp:sweep` first to clear dead weight, then check `dcp:context` periodically.
+**Need a cleanup pass first?** Run `dcp:sweep`, then `dcp:context`.
 
-**Take manual control of compression.** Turn automatic compression off:
+**Want manual compression control?** Use `dcp:manual on`, compress selectively, then `dcp:manual off`.
 
-```text
-dcp:manual on
-```
+**Need to block compression temporarily?** Run `dcp:permission` to flip between `allow` and `deny`.
 
-Then use the `compress` tool directly on whatever you decide is safe to summarize. Resume automatic mode with:
+**Need to undo a compression block?** Use `dcp:decompress <blockId>` and `dcp:recompress <blockId>`.
 
-```text
-dcp:manual off
-```
+**Need lifetime totals?** Use `dcp:lifetime` to see aggregate savings across saved sessions.
 
-**Undo a bad compression.** Get the block ID from `dcp:context` or `dcp:stats`, then:
-
-```text
-dcp:decompress b3
-```
-
-Re-activate it with:
-
-```text
-dcp:recompress b3
-```
-
-**Check the savings.** Session totals:
-
-```text
-dcp:stats
-```
-
-Across all saved sessions:
-
-```text
-dcp:lifetime
-```
-
-**Customize prompts (experimental).** Enable the prompt store in your config:
-
-```json
-{ "experimental": { "customPrompts": true } }
-```
-
-On first run, defaults are written to `~/.pi/agent/extensions/dcp-prompts/defaults/` for reference. Edit overrides at either of these paths (project wins):
+**Customize prompts (experimental).** Enable `experimental.customPrompts`, then edit prompt overrides in either:
 
 - Project: `.pi/dcp-prompts/overrides/<file>.md`
 - Global: `~/.pi/agent/extensions/dcp-prompts/overrides/<file>.md`
 
-Files: `system.md`, `context-limit-nudge.md`, `turn-nudge.md`, `iteration-nudge.md`. Reloaded on every context pass.
+Files: `system.md`, `context-limit-nudge.md`, `turn-nudge.md`, `iteration-nudge.md`.
 
 ## Configuration
 
-Create `~/.pi/agent/extensions/dcp.json` to override defaults. Every field is optional; missing keys fall back to built-in defaults:
+Create `~/.pi/agent/extensions/dcp.json` to override defaults. Every field is optional; missing keys fall back to built-in defaults.
+
+You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor tooling or config validation workflows.
 
 ```json
 {
@@ -144,6 +96,7 @@ Create `~/.pi/agent/extensions/dcp.json` to override defaults. Every field is op
   "compress": {
     "mode": "range",
     "permission": "allow",
+    "showCompression": false,
     "maxContextPercent": 80,
     "minContextPercent": 50,
     "maxContextLimit": 200000,
@@ -163,8 +116,16 @@ Create `~/.pi/agent/extensions/dcp.json` to override defaults. Every field is op
     "automaticStrategies": true
   },
   "strategies": {
-    "deduplication": { "enabled": true, "protectedTools": [] },
-    "purgeErrors": { "enabled": true, "turns": 4, "protectedTools": [] }
+    "deduplication": {
+      "enabled": true,
+      "protectedTools": [],
+      "turnProtection": 0
+    },
+    "purgeErrors": {
+      "enabled": true,
+      "turns": 4,
+      "protectedTools": []
+    }
   },
   "experimental": {
     "allowSubAgents": false,
@@ -177,50 +138,54 @@ Create `~/.pi/agent/extensions/dcp.json` to override defaults. Every field is op
 
 - `enabled` — set to `false` to disable the extension entirely without uninstalling.
 - `debug` — when `true`, writes per-session logs to `{sessionDir}/dcp/logs/YYYY-MM-DD.log`.
-- `nudgeNotification` — how verbosely the model is warned about context pressure: `"off"`, `"minimal"`, or `"detailed"`.
-- `nudgeNotificationType` — where notifications appear: `"toast"` (transient popups) or `"status"` (persistent status line, default).
-- `protectedFilePatterns` — array of glob patterns. Tool outputs that reference matching file paths are never pruned.
+- `nudgeNotification` — notification verbosity: `"off"`, `"minimal"`, or `"detailed"`.
+- `nudgeNotificationType` — notification delivery: `"toast"` or `"status"`.
+- `protectedFilePatterns` — file-path globs whose related tool outputs should never be pruned.
 
 ### `compress`
 
-- `mode` — compression style: `"range"` (compress a span) or `"message"` (compress individual messages).
-- `permission` — whether the model is allowed to compress: `"allow"` or `"deny"`.
-- `maxContextPercent` / `minContextPercent` — percentage-based thresholds. Used as a fallback when `maxContextLimit` / `minContextLimit` are not set.
-- `maxContextLimit` / `minContextLimit` — absolute token thresholds (default `200000` / `100000`). Use these for predictable behavior across large and small context windows.
-- `modelMaxLimits` / `modelMinLimits` — per-model overrides keyed by `provider/modelId`, accepting either a token count or a percentage string.
-- `nudgeFrequency` — minimum messages between successive compression nudges.
-- `iterationNudgeThreshold` — iterations (tool-use turns) without a user message before an iteration-specific nudge fires.
-- `nudgeForce` — strength of the nudge message: `"soft"` (suggestive) or `"strong"` (insistent).
-- `protectedTools` — tool names whose outputs are never compressed.
-- `protectUserMessages` — when `true`, user messages in a compressed range are appended verbatim to the summary.
-- `protectTags` — when `true`, content inside `<protect>...</protect>` tags is extracted from user messages and appended to the summary.
-- `summaryBuffer` — when `true` (default), active compression summaries are excluded from the max-threshold comparison, preventing feedback loops.
+- `mode` — compression mode: `"range"` or `"message"`.
+- `permission` — runtime allow/deny gate for the `compress` tool; `dcp:permission` toggles it in-session.
+- `showCompression` — when `true`, detailed notifications include the compression summary text.
+- `maxContextPercent` / `minContextPercent` — legacy percentage thresholds.
+- `maxContextLimit` / `minContextLimit` — accept either absolute token counts or percentage strings such as `"80%"`.
+- `modelMaxLimits` / `modelMinLimits` — per-model overrides keyed by `provider/modelId`.
+- `nudgeFrequency` — minimum messages between non-urgent nudges.
+- `iterationNudgeThreshold` — assistant iterations without user input before an iteration nudge fires.
+- `nudgeForce` — nudge strength: `"soft"` or `"strong"`.
+- `protectedTools` — tool outputs preserved during compression.
+- `protectUserMessages` — append user message text to compression summaries.
+- `protectTags` — preserve `<protect>...</protect>` tag content in summaries.
+- `summaryBuffer` — exclude active summary tokens from threshold comparison to prevent cascading compressions.
 
 ### `manualMode`
 
-- `default` — start the session in manual compression mode: `false` (automatic) or `"active"`.
-- `automaticStrategies` — when manual mode is active, keep running deduplication and error pruning automatically.
+- `default` — start in automatic mode (`false`) or manual mode (`"active"`).
+- `automaticStrategies` — continue running automatic pruning strategies while manual compression mode is active.
 
 ### `strategies`
 
-- `deduplication.enabled` / `deduplication.protectedTools` — turn off dedup or exclude specific tools.
-- `purgeErrors.enabled` / `purgeErrors.turns` / `purgeErrors.protectedTools` — error-result purging, age threshold, and exclusions.
+- `deduplication.enabled` — enable or disable deduplication.
+- `deduplication.protectedTools` — tool names excluded from deduplication.
+- `deduplication.turnProtection` — keeps recent duplicate tool output for N turns before it becomes prune-eligible.
+- `purgeErrors.enabled` — enable or disable stale error pruning.
+- `purgeErrors.turns` — age threshold for failed tool-result pruning.
+- `purgeErrors.protectedTools` — tool names excluded from error purging.
 
 ### `experimental`
 
-- `allowSubAgents` — when `true`, DCP runs inside sub-agent child sessions. Default `false` (DCP skips child sessions to avoid interfering with their context).
-- `customPrompts` — when `true`, prompts are loaded from the filesystem override paths described in [Typical workflows](#typical-workflows). Default `false` (bundled prompts used directly, zero filesystem access).
+- `allowSubAgents` — run DCP inside sub-agent child sessions.
+- `customPrompts` — load prompt overrides from the filesystem.
 
-## What's new in 0.3.0
+## What's new in 0.4.0
 
-- **Absolute token limits** — `compress.maxContextLimit` / `minContextLimit` with per-model overrides via `modelMaxLimits` / `modelMinLimits`.
-- **Anchored, persistent nudges** — context-limit, turn, and iteration nudges are anchored to message keys with `nudgeFrequency` spacing, so they persist across turns and don't drift.
-- **Protected content survives compression** — protected tool outputs, user messages, and `<protect>` tag content are appended to summaries verbatim.
-- **UI notifications** — toast or status-bar mode via `nudgeNotificationType`, on top of the existing verbosity setting.
-- **Experimental opt-ins** — sub-agent support (`experimental.allowSubAgents`) and custom prompts via `PromptStore` (`experimental.customPrompts`).
-- **Stable message IDs and compression timing** — refs persist across sessions and compactions; each compression block records its duration.
+- Compression notifications can now surface summary text with `compress.showCompression`.
+- `dcp:permission` adds runtime control over compress-tool usage.
+- Deduplication can preserve recent duplicates via `turnProtection`.
+- Token counting now uses the Anthropic tokenizer for better sizing estimates.
+- Config validation and the shipped `dcp.schema.json` now come from the same TypeBox source of truth.
 
-## Development And Verification
+## Development and verification
 
 ```bash
 pnpm install
