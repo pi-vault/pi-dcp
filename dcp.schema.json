@@ -3,17 +3,6 @@
   "title": "DCP Configuration",
   "description": "Configuration schema for the pi-dcp extension",
   "type": "object",
-  "required": [
-    "enabled",
-    "debug",
-    "nudgeNotification",
-    "nudgeNotificationType",
-    "protectedFilePatterns",
-    "compress",
-    "manualMode",
-    "strategies",
-    "experimental"
-  ],
   "properties": {
     "enabled": {
       "type": "boolean",
@@ -67,20 +56,6 @@
     },
     "compress": {
       "type": "object",
-      "required": [
-        "mode",
-        "permission",
-        "showCompression",
-        "maxContextPercent",
-        "minContextPercent",
-        "nudgeFrequency",
-        "iterationNudgeThreshold",
-        "nudgeForce",
-        "protectedTools",
-        "protectUserMessages",
-        "protectTags",
-        "summaryBuffer"
-      ],
       "properties": {
         "mode": {
           "anyOf": [
@@ -232,10 +207,6 @@
     },
     "manualMode": {
       "type": "object",
-      "required": [
-        "default",
-        "automaticStrategies"
-      ],
       "properties": {
         "default": {
           "anyOf": [
@@ -260,18 +231,9 @@
     },
     "strategies": {
       "type": "object",
-      "required": [
-        "deduplication",
-        "purgeErrors"
-      ],
       "properties": {
         "deduplication": {
           "type": "object",
-          "required": [
-            "enabled",
-            "protectedTools",
-            "turnProtection"
-          ],
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -296,11 +258,6 @@
         },
         "purgeErrors": {
           "type": "object",
-          "required": [
-            "enabled",
-            "turns",
-            "protectedTools"
-          ],
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -327,10 +284,6 @@
     },
     "experimental": {
       "type": "object",
-      "required": [
-        "allowSubAgents",
-        "customPrompts"
-      ],
       "properties": {
         "allowSubAgents": {
           "type": "boolean",

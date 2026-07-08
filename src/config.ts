@@ -82,26 +82,22 @@ export function loadConfig(configFilePath: string): LoadConfigResult {
   Value.Clean(DcpConfigSchema, merged);
 
   // Validate and reset invalid values to defaults.
-  // TypeBox 1.x emits errors with `instancePath` (AJV-compatible format).
   // Union types produce multiple errors for the same path (one per branch);
   // deduplicate so each property emits at most one warning.
   if (!Value.Check(DcpConfigSchema, merged)) {
     const seenPaths = new Set<string>();
     for (const error of Value.Errors(DcpConfigSchema, merged)) {
-      // Runtime property is `instancePath`, not `path`
-      const instancePath = (error as unknown as Record<string, unknown>)
-        .instancePath as string | undefined;
-      if (!instancePath) continue; // skip empty-path container errors
-      if (seenPaths.has(instancePath)) continue; // deduplicate Union branches
-      seenPaths.add(instancePath);
-      warnings.push(`Config error at ${instancePath}: ${error.message}`);
+      if (!error.instancePath) continue; // skip empty-path container errors
+      if (seenPaths.has(error.instancePath)) continue; // deduplicate Union branches
+      seenPaths.add(error.instancePath);
+      warnings.push(`Config error at ${error.instancePath}: ${error.message}`);
       // Reset the invalid value to its default
       const defaultValue = getByPath(
         defaults as unknown as Record<string, unknown>,
-        instancePath,
+        error.instancePath,
       );
       if (defaultValue !== undefined) {
-        setByPath(merged, instancePath, structuredClone(defaultValue));
+        setByPath(merged, error.instancePath, structuredClone(defaultValue));
       }
     }
   }
