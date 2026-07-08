@@ -71,12 +71,12 @@ export default function createExtension(pi: ExtensionAPI): void {
         ),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-        const resultText = handleCompress(state, config, latestMessages, {
+        const result = handleCompress(state, config, latestMessages, {
           ...(params as Record<string, unknown>),
           mode: "message",
         } as CompressArgs);
         return {
-          content: [{ type: "text" as const, text: resultText }],
+          content: [{ type: "text" as const, text: result.text }],
           details: {},
         };
       },
@@ -105,12 +105,12 @@ export default function createExtension(pi: ExtensionAPI): void {
         ),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-        const resultText = handleCompress(state, config, latestMessages, {
+        const result = handleCompress(state, config, latestMessages, {
           ...(params as Record<string, unknown>),
           mode: "range",
         } as CompressArgs);
         return {
-          content: [{ type: "text" as const, text: resultText }],
+          content: [{ type: "text" as const, text: result.text }],
           details: {},
         };
       },
