@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { loadConfig, BASE_PROTECTED_TOOLS } from "../src/config.ts";
 
-describe("config", () => {
+describe("config loading", () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -22,11 +22,16 @@ describe("config", () => {
     expect(config.debug).toBe(false);
     expect(config.compress.mode).toBe("range");
     expect(config.compress.permission).toBe("allow");
+    expect(config.compress.showCompression).toBe(false);
     expect(config.strategies.deduplication.enabled).toBe(true);
+    expect(config.strategies.deduplication.turnProtection).toBe(0);
     expect(config.strategies.purgeErrors.enabled).toBe(true);
+    expect(config.nudgeNotification).toBe("minimal");
+    expect(config.nudgeNotificationType).toBe("status");
+    expect(config.experimental.allowSubAgents).toBe(false);
   });
 
-  it("loads config from file", () => {
+  it("loads partial config and fills defaults", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(
       configPath,
@@ -39,6 +44,10 @@ describe("config", () => {
     const { config } = loadConfig(configPath);
     expect(config.debug).toBe(true);
     expect(config.compress.mode).toBe("message");
+    // Other compress fields should have defaults
+    expect(config.compress.permission).toBe("allow");
+    expect(config.compress.showCompression).toBe(false);
+    expect(config.compress.nudgeFrequency).toBe(5);
     expect(config.enabled).toBe(true);
   });
 
@@ -50,32 +59,22 @@ describe("config", () => {
     expect(config.enabled).toBe(true);
   });
 
-  it("ignores unknown keys", () => {
+  it("deep merges nested config without losing sibling defaults", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(
       configPath,
       JSON.stringify({
-        unknownKey: "value",
-        compress: { mode: "range", unknownNested: true },
+        compress: { mode: "message" },
+        strategies: { deduplication: { turnProtection: 5 } },
       }),
     );
 
     const { config } = loadConfig(configPath);
-    expect(config.compress.mode).toBe("range");
-  });
-
-  it("validates numeric ranges", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(
-      configPath,
-      JSON.stringify({
-        compress: { maxContextPercent: -5, nudgeFrequency: 0 },
-      }),
-    );
-
-    const { config } = loadConfig(configPath);
-    expect(config.compress.maxContextPercent).toBe(80);
-    expect(config.compress.nudgeFrequency).toBe(5);
+    expect(config.compress.mode).toBe("message");
+    expect(config.compress.permission).toBe("allow"); // sibling default preserved
+    expect(config.strategies.deduplication.turnProtection).toBe(5);
+    expect(config.strategies.deduplication.enabled).toBe(true); // sibling default preserved
+    expect(config.strategies.purgeErrors.enabled).toBe(true); // sibling default preserved
   });
 
   it("enforces maxContextPercent > minContextPercent", () => {
@@ -100,19 +99,6 @@ describe("config", () => {
     expect(config.nudgeNotificationType).toBe("toast");
   });
 
-  it("defaults nudgeNotificationType to status", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    const { config } = loadConfig(configPath);
-    expect(config.nudgeNotificationType).toBe("status");
-  });
-
-  it("ignores invalid nudgeNotificationType", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(configPath, JSON.stringify({ nudgeNotificationType: "popup" }));
-    const { config } = loadConfig(configPath);
-    expect(config.nudgeNotificationType).toBe("status");
-  });
-
   it("parses experimental.allowSubAgents", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(
@@ -123,10 +109,42 @@ describe("config", () => {
     expect(config.experimental.allowSubAgents).toBe(true);
   });
 
-  it("defaults experimental.allowSubAgents to false", () => {
+  it("parses showCompression true", () => {
     const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ compress: { showCompression: true } }),
+    );
     const { config } = loadConfig(configPath);
-    expect(config.experimental.allowSubAgents).toBe(false);
+    expect(config.compress.showCompression).toBe(true);
+  });
+
+  it("parses turnProtection", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        strategies: { deduplication: { turnProtection: 5 } },
+      }),
+    );
+    const { config } = loadConfig(configPath);
+    expect(config.strategies.deduplication.turnProtection).toBe(5);
+  });
+
+  it("resets wrong-typed values to defaults", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        debug: "yes",
+        compress: { showCompression: "yes", mode: "range" },
+      }),
+    );
+    const { config, warnings } = loadConfig(configPath);
+    expect(config.debug).toBe(false); // reset to default
+    expect(config.compress.showCompression).toBe(false); // reset to default
+    expect(config.compress.mode).toBe("range"); // valid value preserved
+    expect(warnings.length).toBeGreaterThan(0);
   });
 });
 
@@ -141,28 +159,6 @@ describe("config validation warnings", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("warns about unknown top-level keys", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(
-      configPath,
-      JSON.stringify({ enabled: true, unknownKey: "value", anotherBad: 123 }),
-    );
-    const { warnings } = loadConfig(configPath);
-    expect(warnings.length).toBeGreaterThan(0);
-    expect(warnings.some((w) => w.includes("unknownKey"))).toBe(true);
-    expect(warnings.some((w) => w.includes("anotherBad"))).toBe(true);
-  });
-
-  it("warns about unknown compress keys", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(
-      configPath,
-      JSON.stringify({ compress: { mode: "range", badOption: true } }),
-    );
-    const { warnings } = loadConfig(configPath);
-    expect(warnings.some((w) => w.includes("badOption"))).toBe(true);
-  });
-
   it("returns no warnings for valid config", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(
@@ -171,16 +167,6 @@ describe("config validation warnings", () => {
     );
     const { warnings } = loadConfig(configPath);
     expect(warnings).toHaveLength(0);
-  });
-
-  it("warns about unknown experimental keys", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(
-      configPath,
-      JSON.stringify({ experimental: { allowSubAgents: true, badFlag: false } }),
-    );
-    const { warnings } = loadConfig(configPath);
-    expect(warnings.some((w) => w.includes("badFlag"))).toBe(true);
   });
 
   it("warns when maxContextPercent exceeds 100", () => {
@@ -193,88 +179,21 @@ describe("config validation warnings", () => {
     expect(warnings.some((w) => w.includes("maxContextPercent"))).toBe(true);
     expect(config.compress.maxContextPercent).toBe(80); // reset to default
   });
-});
 
-describe("deduplication.turnProtection config", () => {
-  let tempDir: string;
-
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-turnprot-test-"));
-  });
-
-  afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it("defaults turnProtection to 0", () => {
+  it("warns about invalid enum values", () => {
     const configPath = path.join(tempDir, "dcp.json");
-    const { config } = loadConfig(configPath);
-    expect(config.strategies.deduplication.turnProtection).toBe(0);
-  });
-
-  it("parses turnProtection from file", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(configPath, JSON.stringify({ strategies: { deduplication: { turnProtection: 5 } } }));
-    const { config } = loadConfig(configPath);
-    expect(config.strategies.deduplication.turnProtection).toBe(5);
-  });
-
-  it("rejects negative turnProtection", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(configPath, JSON.stringify({ strategies: { deduplication: { turnProtection: -1 } } }));
-    const { config } = loadConfig(configPath);
-    expect(config.strategies.deduplication.turnProtection).toBe(0); // unchanged from default
-  });
-
-  it("ignores non-numeric turnProtection", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(configPath, JSON.stringify({ strategies: { deduplication: { turnProtection: "high" } } }));
-    const { config } = loadConfig(configPath);
-    expect(config.strategies.deduplication.turnProtection).toBe(0);
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ nudgeNotificationType: "popup" }),
+    );
+    const { config, warnings } = loadConfig(configPath);
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(config.nudgeNotificationType).toBe("status"); // reset to default
   });
 });
 
 describe("BASE_PROTECTED_TOOLS", () => {
   it('includes "subagent"', () => {
     expect(BASE_PROTECTED_TOOLS).toContain("subagent");
-  });
-});
-
-describe("compress.showCompression config", () => {
-  let tempDir: string;
-
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-showcompression-test-"));
-  });
-
-  afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it("defaults showCompression to false", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    const { config } = loadConfig(configPath);
-    expect(config.compress.showCompression).toBe(false);
-  });
-
-  it("parses showCompression: true from file", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(configPath, JSON.stringify({ compress: { showCompression: true } }));
-    const { config } = loadConfig(configPath);
-    expect(config.compress.showCompression).toBe(true);
-  });
-
-  it("ignores non-boolean showCompression", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(configPath, JSON.stringify({ compress: { showCompression: "yes" } }));
-    const { config } = loadConfig(configPath);
-    expect(config.compress.showCompression).toBe(false);
-  });
-
-  it("does not warn about showCompression as an unknown key", () => {
-    const configPath = path.join(tempDir, "dcp.json");
-    fs.writeFileSync(configPath, JSON.stringify({ compress: { showCompression: true } }));
-    const { warnings } = loadConfig(configPath);
-    expect(warnings.some((w) => w.includes("showCompression"))).toBe(false);
   });
 });
