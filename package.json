@@ -42,6 +42,7 @@
   },
   "files": [
     "src",
+    "dcp.schema.json",
     "CHANGELOG.md",
     "LICENSE",
     "README.md"

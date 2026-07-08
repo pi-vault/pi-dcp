@@ -23,6 +23,7 @@ describe("config loading", () => {
     expect(config.compress.mode).toBe("range");
     expect(config.compress.permission).toBe("allow");
     expect(config.compress.showCompression).toBe(false);
+    expect(config.compress.protectedTools).toEqual(["compress"]);
     expect(config.strategies.deduplication.enabled).toBe(true);
     expect(config.strategies.deduplication.turnProtection).toBe(0);
     expect(config.strategies.purgeErrors.enabled).toBe(true);
