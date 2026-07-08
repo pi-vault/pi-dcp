@@ -27,7 +27,8 @@
     "lint": "biome lint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "biome lint . && tsc --noEmit && vitest run",
+    "generate:schema": "tsx scripts/generate-schema.ts > dcp.schema.json",
+    "check": "biome lint . && tsc --noEmit && vitest run && pnpm run generate:schema",
     "pack:dry-run": "pnpm pack --dry-run",
     "release:check": "pnpm check && pnpm run pack:dry-run"
   },
@@ -54,6 +55,7 @@
     "@earendil-works/pi-agent-core": "^0.79.10",
     "@earendil-works/pi-coding-agent": "^0.79.10",
     "@types/node": "^25.9.3",
+    "tsx": "^4.23.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },
