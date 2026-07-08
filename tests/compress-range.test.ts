@@ -133,6 +133,31 @@ describe("handleCompress tool chain protection", () => {
   });
 });
 
+describe("CompressResult struct", () => {
+  it("returns structured fields (blockIds, topic, messagesCompressed)", () => {
+    const state = createSessionState();
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(1, "m0002");
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 0 } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 0 } as unknown as AgentMessage,
+    ];
+
+    const result = handleCompress(state, makeDefaultConfig(), messages, {
+      topic: "Setup",
+      mode: "range",
+      content: [{ startId: "m0001", endId: "m0002", summary: "greeting" }],
+    });
+
+    expect(result.messagesCompressed).toBe(2);
+    expect(result.blockIds).toHaveLength(1);
+    expect(result.topic).toBe("Setup");
+    expect(result.text).toContain("Compressed 2 messages");
+    expect(state.stats.messagesCompressed).toBe(2);
+  });
+});
+
 describe("handleCompress token reporting", () => {
   it("includes token savings in response when tokens are known", () => {
     const state = createSessionState();
