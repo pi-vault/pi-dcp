@@ -1,122 +1,400 @@
-# Phase 1: showCompression Config
+# Phase 1: Compression Notifications + showCompression
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a `showCompression` boolean config that controls whether compression summaries are injected into context or silently omitted.
+**Goal:** Add user-facing notifications for compression events and a `showCompression` config to control whether summary text is included in those notifications.
 
-**Architecture:** Thread a `showCompression` boolean from config through the pruning pipeline. When false, `filterCompressedRanges` still removes compressed messages but skips injecting the synthetic summary user message.
+**Background:** pi-dcp currently only notifies users about strategy pruning (deduplication, error purge). When the model calls the `compress` tool, users see no notification. The opencode reference uses `showCompression` to control whether the actual compression summary text appears in the user notification — it does NOT affect what the model sees. The model always receives summaries at anchor points regardless of this setting.
+
+**Architecture:**
+
+1. Return structured result data from `handleCompress` instead of a plain string.
+2. Build a compression notification formatter in `src/ui/notification.ts`.
+3. Send notifications from the compress tool's `execute` callback using `ctx.ui`.
+4. Add `showCompression: boolean` config (default: `false`) that controls whether the summary text appears in the notification.
+5. Fix `messagesCompressed` stat counter (defined but never incremented).
 
 **Tech Stack:** TypeScript, Vitest
 
+**Reference:** `opencode-dynamic-context-pruning/lib/ui/notification.ts` — `sendCompressNotification` (lines 172-306)
+
 ---
 
-### Task 1: Update test helpers
+### Task 1: Return structured result from handleCompress
 
 **Files:**
-- Modify: `tests/helpers.ts`
 
-- [ ] **Step 1: Add showCompression to makeDefaultConfig**
+- Modify: `src/compress/handler.ts`
 
-Add `showCompression: true` to the compress defaults in `makeDefaultConfig`:
+- [ ] **Step 1: Define CompressResult interface**
+
+Add above the `handleCompress` function:
 
 ```ts
-// In tests/helpers.ts, inside makeDefaultConfig's compress object, after protectTags:
-showCompression: true,
+export interface CompressResult {
+  /** Text returned to the model as tool output. */
+  text: string;
+  /** Total messages compressed in this call. */
+  messagesCompressed: number;
+  /** Tokens removed by compression. */
+  compressedTokens: number;
+  /** Tokens in the replacement summaries. */
+  summaryTokens: number;
+  /** Block IDs created by this call. */
+  blockIds: number[];
+  /** Topic label provided by the model. */
+  topic: string;
+}
 ```
 
-The full compress block in `makeDefaultConfig` should now include:
+- [ ] **Step 2: Update handleCompress return type**
+
+Change `handleCompress` to return `CompressResult` instead of `string`. Collect `blockIds` during the loop and return the struct:
 
 ```ts
-compress: {
-  mode: "range",
-  permission: "allow",
-  maxContextPercent: 80,
-  minContextPercent: 50,
-  nudgeFrequency: 5,
-  iterationNudgeThreshold: 15,
-  nudgeForce: "soft",
-  protectedTools: [],
-  protectUserMessages: false,
-  protectTags: false,
-  showCompression: true,
-  summaryBuffer: true,
-  maxContextLimit: undefined,
-  minContextLimit: undefined,
-  modelMaxLimits: undefined,
-  modelMinLimits: undefined,
-  ...overrides,
+export function handleCompress(
+  state: SessionState,
+  config: DcpConfig,
+  messages: AgentMessage[],
+  args: CompressArgs,
+): CompressResult {
+  const entries = normalizeEntries(state, messages, args);
+  const runId = allocateRunId(state);
+  let totalCompressed = 0;
+  let totalCompressedTokens = 0;
+  let totalSummaryTokens = 0;
+  const blockIds: number[] = [];
+
+  for (const entry of entries) {
+    const blockId = allocateBlockId(state);
+    blockIds.push(blockId);
+    // ... existing enrichment, wrapping, applyCompressionState logic ...
+
+    totalCompressed += entry.messageCount;
+    const block = state.prune.messages.blocksById.get(blockId);
+    if (block) {
+      totalCompressedTokens += block.compressedTokens;
+      totalSummaryTokens += block.summaryTokens;
+    }
+  }
+
+  // Update stats (fix: messagesCompressed was never incremented)
+  state.stats.messagesCompressed += totalCompressed;
+
+  const savings =
+    totalCompressedTokens > 0
+      ? ` (~${totalCompressedTokens} tokens replaced by ~${totalSummaryTokens} token summary)`
+      : "";
+
+  return {
+    text: `Compressed ${totalCompressed} messages into ${COMPRESSED_BLOCK_HEADER}${savings}.`,
+    messagesCompressed: totalCompressed,
+    compressedTokens: totalCompressedTokens,
+    summaryTokens: totalSummaryTokens,
+    blockIds,
+    topic: args.topic,
+  };
+}
+```
+
+- [ ] **Step 3: Run typecheck**
+
+Run: `pnpm typecheck`
+Expected: FAIL — callers of `handleCompress` expect a string return. This is fixed in Task 3.
+
+- [ ] **Step 4: Commit (defer until Task 3 makes it compile)**
+
+---
+
+### Task 2: Build compression notification formatter
+
+**Files:**
+
+- Modify: `src/ui/notification.ts`
+
+- [ ] **Step 1: Write failing test**
+
+Create `tests/compress-notification.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import {
+  buildCompressNotificationMinimal,
+  buildCompressNotificationDetailed,
+} from "../src/ui/notification.ts";
+
+describe("compression notification", () => {
+  it("minimal: shows tokens and message count", () => {
+    const msg = buildCompressNotificationMinimal({
+      compressedTokens: 12400,
+      summaryTokens: 2100,
+      messagesCompressed: 5,
+      topic: "Auth System",
+    });
+    expect(msg).toContain("~12.4K");
+    expect(msg).toContain("~2.1K");
+    expect(msg).toContain("5 messages");
+  });
+
+  it("minimal: singular message", () => {
+    const msg = buildCompressNotificationMinimal({
+      compressedTokens: 500,
+      summaryTokens: 100,
+      messagesCompressed: 1,
+      topic: "Setup",
+    });
+    expect(msg).toContain("1 message");
+    expect(msg).not.toContain("1 messages");
+  });
+
+  it("detailed: includes topic", () => {
+    const msg = buildCompressNotificationDetailed({
+      compressedTokens: 12400,
+      summaryTokens: 2100,
+      messagesCompressed: 5,
+      topic: "Auth System",
+    });
+    expect(msg).toContain("Auth System");
+    expect(msg).toContain("~12.4K");
+  });
+
+  it("detailed: includes summary when showCompression is true", () => {
+    const msg = buildCompressNotificationDetailed({
+      compressedTokens: 12400,
+      summaryTokens: 2100,
+      messagesCompressed: 5,
+      topic: "Auth System",
+      summary: "User explored authentication flows and decided on JWT.",
+      showCompression: true,
+    });
+    expect(msg).toContain("Auth System");
+    expect(msg).toContain("JWT");
+  });
+
+  it("detailed: omits summary when showCompression is false", () => {
+    const msg = buildCompressNotificationDetailed({
+      compressedTokens: 12400,
+      summaryTokens: 2100,
+      messagesCompressed: 5,
+      topic: "Auth System",
+      summary: "User explored authentication flows and decided on JWT.",
+      showCompression: false,
+    });
+    expect(msg).toContain("Auth System");
+    expect(msg).not.toContain("JWT");
+  });
+
+  it("detailed: omits summary when showCompression not provided", () => {
+    const msg = buildCompressNotificationDetailed({
+      compressedTokens: 12400,
+      summaryTokens: 2100,
+      messagesCompressed: 5,
+      topic: "Auth System",
+      summary: "User explored authentication flows.",
+    });
+    expect(msg).not.toContain("authentication flows");
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm vitest run tests/compress-notification.test.ts`
+Expected: FAIL — functions don't exist yet.
+
+- [ ] **Step 3: Add CompressNotificationParams interface**
+
+In `src/ui/notification.ts`, add:
+
+```ts
+export interface CompressNotificationParams {
+  compressedTokens: number;
+  summaryTokens: number;
+  messagesCompressed: number;
+  topic: string;
+  summary?: string;
+  showCompression?: boolean;
+}
+```
+
+- [ ] **Step 4: Add buildCompressNotificationMinimal**
+
+```ts
+/**
+ * Build minimal compression notification.
+ * Format: "DCP: ~12.4K tokens compressed (~2.1K summary, 5 messages)"
+ */
+export function buildCompressNotificationMinimal(
+  params: CompressNotificationParams,
+): string {
+  const plural = params.messagesCompressed === 1 ? "message" : "messages";
+  return `DCP: ${formatTokens(params.compressedTokens)} tokens compressed (${formatTokens(params.summaryTokens)} summary, ${params.messagesCompressed} ${plural})`;
+}
+```
+
+- [ ] **Step 5: Add buildCompressNotificationDetailed**
+
+```ts
+/**
+ * Build detailed compression notification with topic and optional summary.
+ * Summary text is only included when showCompression is true.
+ */
+export function buildCompressNotificationDetailed(
+  params: CompressNotificationParams,
+): string {
+  let msg = buildCompressNotificationMinimal(params);
+  msg += `\nTopic: ${params.topic}`;
+  if (params.showCompression && params.summary) {
+    msg += `\nSummary (${formatTokens(params.summaryTokens)}): ${params.summary}`;
+  }
+  return msg;
+}
+```
+
+- [ ] **Step 6: Run tests**
+
+Run: `pnpm vitest run tests/compress-notification.test.ts`
+Expected: All tests pass.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/ui/notification.ts tests/compress-notification.test.ts
+git commit -m "feat(ui): add compression notification formatters"
+```
+
+---
+
+### Task 3: Wire notifications from compress tool execute
+
+**Files:**
+
+- Modify: `src/index.ts`
+
+- [ ] **Step 1: Update tool execute callbacks to use CompressResult**
+
+Both tool registrations (range and message mode) call `handleCompress` and use the return value. Update them to use the `CompressResult` struct and send notifications.
+
+For the range-mode tool (around line 107):
+
+```ts
+async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+  const result = handleCompress(state, config, latestMessages, {
+    ...(params as Record<string, unknown>),
+    mode: "range",
+  } as CompressArgs);
+
+  // Send compression notification
+  if (ctx.hasUI && config.nudgeNotification !== "off") {
+    const notifParams = {
+      compressedTokens: result.compressedTokens,
+      summaryTokens: result.summaryTokens,
+      messagesCompressed: result.messagesCompressed,
+      topic: result.topic,
+      summary: buildCombinedSummary(state, result.blockIds),
+      showCompression: config.compress.showCompression,
+    };
+    const message =
+      config.nudgeNotification === "detailed"
+        ? buildCompressNotificationDetailed(notifParams)
+        : buildCompressNotificationMinimal(notifParams);
+    if (config.nudgeNotificationType === "toast") {
+      ctx.ui.notify(message, "info");
+    } else {
+      ctx.ui.setStatus("dcp", message);
+    }
+  }
+
+  return {
+    content: [{ type: "text" as const, text: result.text }],
+    details: {},
+  };
 },
 ```
 
-- [ ] **Step 2: Run existing tests to verify no regression**
+Apply the same pattern to the message-mode tool (around line 73).
 
-Run: `pnpm test`
-Expected: All tests pass. The new field with default `true` preserves existing behavior.
+- [ ] **Step 2: Add buildCombinedSummary helper**
 
-- [ ] **Step 3: Commit**
+Add near the top of `src/index.ts` (or in a shared utility) a helper to extract raw summary text from blocks, stripping the block delimiters:
+
+```ts
+function buildCombinedSummary(state: SessionState, blockIds: number[]): string {
+  return blockIds
+    .map((id) => {
+      const block = state.prune.messages.blocksById.get(id);
+      if (!block?.summary) return "";
+      // Strip [Compressed Block bN] and [End Block bN] delimiters
+      return block.summary
+        .replace(/^\[Compressed Block b\d+\]\n/, "")
+        .replace(/\n\[End Block b\d+\]$/, "");
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+```
+
+- [ ] **Step 3: Update imports**
+
+Add `CompressResult` to the `handleCompress` import and add the new notification imports:
+
+```ts
+import {
+  handleCompress,
+  type CompressArgs,
+  type CompressResult,
+} from "./compress/handler.ts";
+import {
+  buildMinimalMessage,
+  buildDetailedMessage,
+  buildCompressNotificationMinimal,
+  buildCompressNotificationDetailed,
+} from "./ui/notification.ts";
+```
+
+- [ ] **Step 4: Run typecheck**
+
+Run: `pnpm typecheck`
+Expected: PASS — all callers now use `CompressResult` correctly.
+
+- [ ] **Step 5: Run full check**
+
+Run: `pnpm check`
+Expected: All tests pass including new compress notification tests.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add tests/helpers.ts
-git commit -m "test: add showCompression to makeDefaultConfig"
+git add src/compress/handler.ts src/index.ts
+git commit -m "feat: wire compression notifications from tool execute"
 ```
 
 ---
 
-### Task 2: Add showCompression to config
+### Task 4: Add showCompression config
 
 **Files:**
+
 - Modify: `src/config.ts`
+- Modify: `tests/helpers.ts`
 
 - [ ] **Step 1: Add showCompression to CompressConfig interface**
 
-In `src/config.ts`, add `showCompression` to the `CompressConfig` interface after line 30 (`protectTags: boolean;`):
+In `src/config.ts`, add `showCompression` to the `CompressConfig` interface after `protectTags: boolean;`:
 
 ```ts
-export interface CompressConfig {
-  mode: "range" | "message";
-  permission: "allow" | "deny";
-  maxContextPercent: number;
-  minContextPercent: number;
-  nudgeFrequency: number;
-  iterationNudgeThreshold: number;
-  nudgeForce: "strong" | "soft";
-  protectedTools: string[];
-  protectUserMessages: boolean;
-  protectTags: boolean;
-  /** When false, compressed ranges are silently removed without injecting summary blocks. */
-  showCompression: boolean;
-  /** When true, active summary tokens are excluded from the max-threshold comparison to prevent cascading compressions. */
-  summaryBuffer: boolean;
-  maxContextLimit: number | string | undefined;
-  minContextLimit: number | string | undefined;
-  modelMaxLimits: Record<string, number | string> | undefined;
-  modelMinLimits: Record<string, number | string> | undefined;
-}
+/** When true, include the compression summary text in user notifications. Does not affect model context. */
+showCompression: boolean;
 ```
 
 - [ ] **Step 2: Add default value**
 
-In `DEFAULT_CONFIG.compress`, add `showCompression: true` after `protectTags: false`:
+In `DEFAULT_CONFIG.compress`, add `showCompression: false` after `protectTags: false`:
 
 ```ts
-compress: {
-  mode: "range",
-  permission: "allow",
-  maxContextPercent: 80,
-  minContextPercent: 50,
-  nudgeFrequency: 5,
-  iterationNudgeThreshold: 15,
-  nudgeForce: "soft",
-  protectedTools: ["compress"],
-  protectUserMessages: false,
   protectTags: false,
-  showCompression: true,
+  showCompression: false,
   summaryBuffer: true,
-  maxContextLimit: 200000,
-  minContextLimit: 100000,
-  modelMaxLimits: undefined,
-  modelMinLimits: undefined,
-},
 ```
 
 - [ ] **Step 3: Add to KNOWN_COMPRESS_KEYS**
@@ -125,221 +403,192 @@ Add `"showCompression"` to the `KNOWN_COMPRESS_KEYS` set:
 
 ```ts
 const KNOWN_COMPRESS_KEYS = new Set([
-  "mode", "permission", "maxContextPercent", "minContextPercent",
-  "nudgeFrequency", "iterationNudgeThreshold", "nudgeForce",
-  "protectedTools", "protectUserMessages", "protectTags", "showCompression", "summaryBuffer",
-  "maxContextLimit", "minContextLimit", "modelMaxLimits", "modelMinLimits",
+  "mode",
+  "permission",
+  "maxContextPercent",
+  "minContextPercent",
+  "nudgeFrequency",
+  "iterationNudgeThreshold",
+  "nudgeForce",
+  "protectedTools",
+  "protectUserMessages",
+  "protectTags",
+  "showCompression",
+  "summaryBuffer",
+  "maxContextLimit",
+  "minContextLimit",
+  "modelMaxLimits",
+  "modelMinLimits",
 ]);
 ```
 
 - [ ] **Step 4: Add merge logic**
 
-In the `mergeConfig` function, inside the `if (source.compress && typeof source.compress === "object")` block, add after the `protectTags` check:
+In the `mergeConfig` function, inside the compress block, add after the `protectTags` check:
 
 ```ts
-    if (typeof c.showCompression === "boolean")
-      target.compress.showCompression = c.showCompression;
+if (typeof c.showCompression === "boolean")
+  target.compress.showCompression = c.showCompression;
 ```
 
-- [ ] **Step 5: Run typecheck**
+- [ ] **Step 5: Update test helpers**
 
-Run: `pnpm typecheck`
-Expected: PASS (no type errors)
+In `tests/helpers.ts`, add `showCompression: false` to the `makeDefaultConfig` compress object after `protectTags: false`:
 
-- [ ] **Step 6: Commit**
+```ts
+  protectTags: false,
+  showCompression: false,
+  summaryBuffer: true,
+```
+
+- [ ] **Step 6: Run full check**
+
+Run: `pnpm check`
+Expected: All tests pass. The config field is now threaded through the notification system (wired in Task 3).
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/config.ts
-git commit -m "feat(config): add showCompression to CompressConfig"
+git add src/config.ts tests/helpers.ts
+git commit -m "feat(config): add showCompression toggle for notification summary text"
 ```
 
 ---
 
-### Task 3: Thread showCompression through pruning
+### Task 5: Integration test
 
 **Files:**
-- Modify: `src/messages/prune.ts`
-- Modify: `src/pipeline.ts`
 
-- [ ] **Step 1: Write failing test**
+- Create: `tests/show-compression.test.ts`
+
+- [ ] **Step 1: Write integration tests**
 
 Create `tests/show-compression.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach } from "vitest";
-import { filterCompressedRanges, applyPruning } from "../src/messages/prune.ts";
+import { describe, it, expect } from "vitest";
+import { handleCompress } from "../src/compress/handler.ts";
 import { createSessionState } from "../src/state/state.ts";
-import { makeUserMessage, makeAssistantMessage, resetTestTimestamp } from "./helpers.ts";
+import {
+  buildCompressNotificationMinimal,
+  buildCompressNotificationDetailed,
+} from "../src/ui/notification.ts";
+import {
+  makeUserMessage,
+  makeAssistantMessage,
+  makeDefaultConfig,
+  resetTestTimestamp,
+} from "./helpers.ts";
 
-describe("showCompression", () => {
+describe("showCompression integration", () => {
   beforeEach(() => {
     resetTestTimestamp();
   });
 
-  function setupCompressedState() {
+  function compressAndNotify(showCompression: boolean) {
     const state = createSessionState();
+    const config = makeDefaultConfig({ showCompression });
     const messages = [
       makeUserMessage("hello"),
       makeAssistantMessage("world"),
       makeUserMessage("more"),
     ];
 
-    // Simulate block covering messages 0-1, anchored at 0
-    state.prune.messages.blocksById.set(1, {
-      blockId: 1,
-      runId: 1,
-      active: true,
-      deactivatedByUser: false,
-      compressedTokens: 100,
-      summaryTokens: 20,
-      durationMs: 0,
-      mode: "range",
-      topic: "test",
-      batchTopic: undefined,
-      startIndex: 0,
-      endIndex: 1,
-      anchorIndex: 0,
-      compressMessageIndex: 2,
-      includedBlockIds: [],
-      consumedBlockIds: [],
-      parentBlockIds: [],
-      directMessageIndices: [0, 1],
-      directToolIds: [],
-      effectiveMessageIndices: [0, 1],
-      effectiveToolIds: [],
-      createdAt: Date.now(),
-      deactivatedAt: undefined,
-      deactivatedByBlockId: undefined,
-      summary: "[Compressed Block b1]\nSummary text\n[End Block b1]",
-    });
-    state.prune.messages.activeBlockIds.add(1);
-    state.prune.messages.activeByAnchorIndex.set(0, 1);
+    // Populate tool cache message indices for token counting
     state.prune.messages.byMessageIndex.set(0, {
       tokenCount: 50,
-      blockIds: [1],
-      activeBlockIds: [1],
+      blockIds: [],
+      activeBlockIds: [],
     });
     state.prune.messages.byMessageIndex.set(1, {
       tokenCount: 50,
-      blockIds: [1],
-      activeBlockIds: [1],
+      blockIds: [],
+      activeBlockIds: [],
     });
 
-    return { state, messages };
+    const result = handleCompress(state, config, messages, {
+      topic: "Setup",
+      mode: "range",
+      content: [
+        {
+          startId: "m0001",
+          endId: "m0002",
+          summary: "Initial setup discussion",
+        },
+      ],
+    });
+
+    // Build summary from blocks
+    const summary = result.blockIds
+      .map((id) => {
+        const block = state.prune.messages.blocksById.get(id);
+        return (
+          block?.summary
+            ?.replace(/^\[Compressed Block b\d+\]\n/, "")
+            .replace(/\n\[End Block b\d+\]$/, "") ?? ""
+        );
+      })
+      .filter(Boolean)
+      .join("\n\n");
+
+    const notifParams = {
+      compressedTokens: result.compressedTokens,
+      summaryTokens: result.summaryTokens,
+      messagesCompressed: result.messagesCompressed,
+      topic: result.topic,
+      summary,
+      showCompression,
+    };
+
+    return {
+      result,
+      state,
+      minimal: buildCompressNotificationMinimal(notifParams),
+      detailed: buildCompressNotificationDetailed(notifParams),
+    };
   }
 
-  it("injects summary when showCompression is true (default)", () => {
-    const { state, messages } = setupCompressedState();
-    const result = filterCompressedRanges(state, messages, true);
-    // Should have: summary message + message[2] ("more")
-    expect(result.length).toBe(2);
-    expect(result[0].role).toBe("user");
-    expect((result[0].content as Array<{ type: string; text: string }>)[0].text).toContain(
-      "Summary text",
-    );
-    expect(result[1].role).toBe("user"); // message[2]
+  it("returns structured CompressResult", () => {
+    const { result } = compressAndNotify(false);
+    expect(result.messagesCompressed).toBe(2);
+    expect(result.blockIds).toHaveLength(1);
+    expect(result.topic).toBe("Setup");
+    expect(result.text).toContain("Compressed 2 messages");
   });
 
-  it("omits summary when showCompression is false", () => {
-    const { state, messages } = setupCompressedState();
-    const result = filterCompressedRanges(state, messages, false);
-    // Should have only message[2] ("more") — no summary injected
-    expect(result.length).toBe(1);
-    expect(result[0].role).toBe("user");
-    expect((result[0].content as Array<{ type: string; text: string }>)[0].text).toBe("more");
+  it("increments messagesCompressed stat", () => {
+    const { state } = compressAndNotify(false);
+    expect(state.stats.messagesCompressed).toBe(2);
   });
 
-  it("applyPruning threads showCompression correctly", () => {
-    const { state, messages } = setupCompressedState();
-    const result = applyPruning(state, messages, false);
-    // No summary injected, compressed messages removed
-    expect(result.length).toBe(1);
-    expect((result[0].content as Array<{ type: string; text: string }>)[0].text).toBe("more");
+  it("minimal notification excludes summary regardless", () => {
+    const { minimal } = compressAndNotify(true);
+    expect(minimal).toContain("DCP:");
+    expect(minimal).not.toContain("Initial setup");
+  });
+
+  it("detailed notification includes summary when showCompression=true", () => {
+    const { detailed } = compressAndNotify(true);
+    expect(detailed).toContain("Setup");
+    expect(detailed).toContain("Initial setup");
+  });
+
+  it("detailed notification excludes summary when showCompression=false", () => {
+    const { detailed } = compressAndNotify(false);
+    expect(detailed).toContain("Setup");
+    expect(detailed).not.toContain("Initial setup");
   });
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pnpm vitest run tests/show-compression.test.ts`
-Expected: FAIL — `filterCompressedRanges` does not accept a third parameter.
-
-- [ ] **Step 3: Update filterCompressedRanges signature**
-
-In `src/messages/prune.ts`, update `filterCompressedRanges` to accept `showCompression`:
-
-```ts
-export function filterCompressedRanges(
-  state: SessionState,
-  messages: AgentMessage[],
-  showCompression = true,
-): AgentMessage[] {
-  if (state.prune.messages.activeBlockIds.size === 0) return messages;
-
-  const result: AgentMessage[] = [];
-
-  for (let i = 0; i < messages.length; i++) {
-    // Check if there's a summary to inject at this anchor point
-    const blockId = state.prune.messages.activeByAnchorIndex.get(i);
-    if (blockId !== undefined && showCompression) {
-      const block = state.prune.messages.blocksById.get(blockId);
-      if (block?.active && block.summary) {
-        result.push({
-          role: "user",
-          content: [{ type: "text", text: block.summary }],
-          timestamp: Date.now(),
-        } as AgentMessage);
-      }
-    }
-
-    // Skip messages that are covered by active blocks
-    const entry = state.prune.messages.byMessageIndex.get(i);
-    if (entry && entry.activeBlockIds.length > 0) {
-      continue;
-    }
-
-    result.push(messages[i]);
-  }
-
-  // Safety net: remove orphaned toolResult messages
-  return removeOrphanedToolResults(result);
-}
-```
-
-- [ ] **Step 4: Update applyPruning signature**
-
-In `src/messages/prune.ts`, update `applyPruning` to accept and pass `showCompression`:
-
-```ts
-export function applyPruning(
-  state: SessionState,
-  messages: AgentMessage[],
-  showCompression = true,
-): AgentMessage[] {
-  let result = filterCompressedRanges(state, messages, showCompression);
-  result = pruneToolOutputs(state, result);
-  result = pruneToolErrors(state, result);
-  return result;
-}
-```
-
-- [ ] **Step 5: Update pipeline to pass showCompression**
-
-In `src/pipeline.ts`, update the `applyPruning` call at line 64 to pass the config value:
-
-```ts
-  // Step 6: Apply pruning (compressed ranges removed, tool outputs pruned)
-  result = applyPruning(state, result, config.compress.showCompression);
-```
-
-- [ ] **Step 6: Run tests**
+- [ ] **Step 2: Run tests**
 
 Run: `pnpm check`
-Expected: All tests pass including new `show-compression.test.ts`.
+Expected: All tests pass.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add src/messages/prune.ts src/pipeline.ts tests/show-compression.test.ts
-git commit -m "feat: add showCompression config to toggle summary injection"
+git add tests/show-compression.test.ts
+git commit -m "test: add showCompression integration tests"
 ```

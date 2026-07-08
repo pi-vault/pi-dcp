@@ -10,7 +10,7 @@ Close remaining feature gaps identified by comparing `pi-dcp` with `opencode-dyn
 
 | Decision                               | Resolution                                                                                                                                                                       |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Phase 1: what showCompression controls | When `false`, compressed ranges are silently removed from context — no summary injected. Model gets cleaner context but loses awareness of compressed content.                   |
+| Phase 1: what showCompression controls | Controls whether summary text appears in user notifications (toast/status). Does NOT affect model context — summaries are always injected at anchor points. Default: `false`.    |
 | Phase 2: permission scope              | Enforce existing `allow/deny` at the framework level via `tool_call` event. Add runtime toggling via `dcp:permission` command. No "ask" mode — manual mode covers that use case. |
 | Phase 3: turn protection scope         | Dedup strategy only. Error purge already has its own turn threshold. A global turn window would conflict with it.                                                                |
 | Phase 4: tokenizer choice              | `@anthropic-ai/tokenizer` (same as opencode). Adds a runtime dependency but provides accurate counts for compression sizing.                                                     |
@@ -19,43 +19,35 @@ Close remaining feature gaps identified by comparing `pi-dcp` with `opencode-dyn
 
 ---
 
-## Phase 1: showCompression Config
+## Phase 1: Compression Notifications + showCompression
 
-**Problem:** Compression summaries (`[Compressed Block bN]...`) are always injected into context. Some users prefer compressed ranges to vanish silently, keeping context cleaner for the model.
+**Problem:** pi-dcp notifies users about strategy pruning (deduplication, error purge) but has no notifications for compression events. When the model calls the `compress` tool, users see no feedback about what was compressed. In the opencode reference, `showCompression` controls whether the actual summary text appears in user notifications — it does NOT affect the model's context (summaries are always injected at anchor points).
+
+Additionally, `state.stats.messagesCompressed` is defined but never incremented.
 
 **Changes:**
 
-1. **Add `showCompression: boolean` to `CompressConfig`** (default: `true`).
+1. **Return structured result from `handleCompress`** — Change the return type from `string` to a `CompressResult` struct containing `text`, `messagesCompressed`, `compressedTokens`, `summaryTokens`, `blockIds`, and `topic`. Increment `state.stats.messagesCompressed` inside the handler (bug fix).
 
-2. **Modify `filterCompressedRanges` in `src/messages/prune.ts`** — Accept the config value (or pass it through the pipeline). When `showCompression === false`, skip the summary injection at anchor points. The compressed range is still removed (the `continue` path for covered messages stays the same), but no synthetic user message replaces it:
+2. **Build compression notification formatters** in `src/ui/notification.ts`:
+   - `buildCompressNotificationMinimal(params)` — format: `DCP: ~12.4K tokens compressed (~2.1K summary, 5 messages)`
+   - `buildCompressNotificationDetailed(params)` — adds topic line and optionally the summary text when `showCompression` is true.
 
-   ```ts
-   // Current behavior (showCompression: true):
-   if (blockId !== undefined) {
-     const block = state.prune.messages.blocksById.get(blockId);
-     if (block?.active && block.summary) {
-       result.push({
-         role: "user",
-         content: [{ type: "text", text: block.summary }],
-         timestamp: Date.now(),
-       } as AgentMessage);
-     }
-   }
+3. **Wire notifications from compress tool execute** — Both tool registrations (range and message mode) send a notification via `ctx.ui.notify()` or `ctx.ui.setStatus()` after `handleCompress` returns. Respects existing `nudgeNotification` (off/minimal/detailed) and `nudgeNotificationType` (toast/status) config.
 
-   // New behavior (showCompression: false):
-   // Skip the push — compressed messages are removed, nothing replaces them.
-   ```
+4. **Add `showCompression: boolean` to `CompressConfig`** (default: `false`, matching opencode). When `true`, the detailed notification includes the actual summary text. When `false`, only metrics and topic are shown. This config has no effect on `filterCompressedRanges` or `applyPruning` — model context is unchanged.
 
-3. **Thread config to `filterCompressedRanges`** — Currently `filterCompressedRanges(state, messages)` only takes state and messages. Add `showCompression: boolean` as a third parameter. Update the call site in `applyPruning` to pass it through.
-
-4. **Update `applyPruning` signature** — Add `showCompression: boolean` parameter, pass from `runPipeline` where config is available.
-
-**Files touched:** `src/config.ts`, `src/messages/prune.ts`, `src/pipeline.ts`
+**Files touched:** `src/compress/handler.ts`, `src/ui/notification.ts`, `src/index.ts`, `src/config.ts`
 
 **Tests:**
 
-- With `showCompression: true` (default): compressed ranges replaced with summary messages (existing behavior, no regression).
-- With `showCompression: false`: compressed ranges removed, no summary messages in output, orphan cleanup still runs.
+- `handleCompress` returns a `CompressResult` with correct metrics.
+- `messagesCompressed` stat is incremented after compression.
+- Minimal notification shows token counts and message count.
+- Detailed notification includes topic.
+- Detailed notification includes summary text when `showCompression: true`.
+- Detailed notification omits summary text when `showCompression: false`.
+- Notification respects `nudgeNotification: "off"` (no notification sent).
 
 ---
 
@@ -283,9 +275,9 @@ const CompressConfigSchema = Type.Object({
     description: "Whether the compress tool is allowed to run",
   }),
   showCompression: Type.Boolean({
-    default: true,
+    default: false,
     description:
-      "When false, compressed ranges are silently removed without injecting summary blocks",
+      "Include compression summary text in user notifications (does not affect model context)",
   }),
   maxContextPercent: Type.Number({
     default: 80,
