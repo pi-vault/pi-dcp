@@ -192,6 +192,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     resetSessionState(state);
     state.sessionId = `pi-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
     state.manualMode = config.manualMode.default;
+    state.compressPermission = config.compress.permission;
     state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
 
     if (config.experimental.customPrompts) {
@@ -301,6 +302,17 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (stripped !== event.message) {
       return { message: stripped };
     }
+  });
+
+  pi.on("tool_call", async (event, _ctx) => {
+    if (!config.enabled) return undefined;
+    if (event.toolName !== "compress") return undefined;
+
+    const permission = state.compressPermission ?? config.compress.permission;
+    if (permission === "deny") {
+      return { block: true, reason: "Compression denied by configuration" };
+    }
+    return undefined;
   });
 
   pi.on("tool_execution_start", async (event, _ctx) => {
