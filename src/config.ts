@@ -51,11 +51,6 @@ export const DEFAULT_CONFIG: DcpConfig = (() => {
   return config;
 })();
 
-export interface LoadConfigResult {
-  config: DcpConfig;
-  warnings: string[];
-}
-
 /**
  * Load DCP configuration from a single JSON file.
  * Falls back to defaults on missing file, parse error, or invalid content.
@@ -64,17 +59,18 @@ export interface LoadConfigResult {
  *
  * @param configFilePath - Absolute path to dcp.json (typically resolved via getAgentDir())
  */
-export function loadConfig(configFilePath: string): LoadConfigResult {
+export function loadConfig(
+  configFilePath: string,
+): { config: DcpConfig; warnings: string[] } {
   const warnings: string[] = [];
-  const defaults = structuredClone(DEFAULT_CONFIG);
 
   const parsed = parseConfigFile(configFilePath);
-  if (!parsed) return { config: defaults, warnings };
+  if (!parsed) return { config: structuredClone(DEFAULT_CONFIG), warnings };
 
   // Deep merge raw user config over defaults so partial nested objects
   // (e.g. { compress: { mode: "message" } }) don't wipe sibling defaults.
   const merged = deepMerge(
-    structuredClone(defaults) as Record<string, unknown>,
+    structuredClone(DEFAULT_CONFIG) as Record<string, unknown>,
     parsed,
   );
 
@@ -91,9 +87,8 @@ export function loadConfig(configFilePath: string): LoadConfigResult {
       if (seenPaths.has(error.instancePath)) continue; // deduplicate Union branches
       seenPaths.add(error.instancePath);
       warnings.push(`Config error at ${error.instancePath}: ${error.message}`);
-      // Reset the invalid value to its default
       const defaultValue = getByPath(
-        defaults as unknown as Record<string, unknown>,
+        DEFAULT_CONFIG as unknown as Record<string, unknown>,
         error.instancePath,
       );
       if (defaultValue !== undefined) {
