@@ -87,10 +87,15 @@ describe("config loading", () => {
       }),
     );
 
-    const { config } = loadConfig(configPath);
+    const { config, warnings } = loadConfig(configPath);
     expect(config.compress.maxContextPercent).toBeGreaterThan(
       config.compress.minContextPercent,
     );
+    expect(
+      warnings.some(
+        (w) => w.includes("maxContextPercent") || w.includes("minContextPercent"),
+      ),
+    ).toBe(true);
   });
 
   it("parses nudgeNotificationType toast", () => {

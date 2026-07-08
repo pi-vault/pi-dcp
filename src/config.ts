@@ -122,6 +122,9 @@ export function loadConfig(configFilePath: string): LoadConfigResult {
     config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
   }
   if (config.compress.maxContextPercent <= config.compress.minContextPercent) {
+    warnings.push(
+      `maxContextPercent (${config.compress.maxContextPercent}) must be greater than minContextPercent (${config.compress.minContextPercent}), reset to defaults`,
+    );
     config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
     config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
   }
