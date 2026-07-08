@@ -1,33 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { runStrategies, sweepAll } from "../src/strategies/runner.ts";
 import { createSessionState } from "../src/state/state.ts";
-import { makeDefaultConfig } from "./helpers.ts";
-
-function seedToolCache(
-  state: ReturnType<typeof createSessionState>,
-  entries: Array<{
-    id: string;
-    tool: string;
-    parameters: Record<string, unknown>;
-    status: "completed" | "error";
-    turn: number;
-    tokenCount: number;
-  }>,
-): void {
-  for (const e of entries) {
-    state.toolParameters.set(e.id, {
-      tool: e.tool,
-      parameters: e.parameters,
-      status: e.status,
-      error: undefined,
-      turn: e.turn,
-      tokenCount: e.tokenCount,
-      assistantIndex: undefined,
-      resultIndex: undefined,
-    });
-    state.toolIdList.push(e.id);
-  }
-}
+import { makeDefaultConfig, seedToolCache } from "./helpers.ts";
 
 describe("runStrategies", () => {
   it("deduplicates and purges errors in one call", () => {

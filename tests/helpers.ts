@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { DcpConfig } from "../src/config.ts";
+import type { SessionState } from "../src/state/types.ts";
 
 let nextTestTimestamp = 1000;
 
@@ -55,6 +56,32 @@ export function makeToolResultMessage(
   } as AgentMessage;
 }
 
+export function seedToolCache(
+  state: SessionState,
+  entries: Array<{
+    id: string;
+    tool: string;
+    parameters: Record<string, unknown>;
+    status: "completed" | "error";
+    turn: number;
+    tokenCount: number;
+  }>,
+): void {
+  for (const e of entries) {
+    state.toolParameters.set(e.id, {
+      tool: e.tool,
+      parameters: e.parameters,
+      status: e.status,
+      error: undefined,
+      turn: e.turn,
+      tokenCount: e.tokenCount,
+      assistantIndex: undefined,
+      resultIndex: undefined,
+    });
+    state.toolIdList.push(e.id);
+  }
+}
+
 export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): DcpConfig {
   return {
     enabled: true,
@@ -80,7 +107,7 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
     },
     manualMode: { default: false, automaticStrategies: true },
     strategies: {
-      deduplication: { enabled: true, protectedTools: [] },
+      deduplication: { enabled: true, protectedTools: [], turnProtection: 0 },
       purgeErrors: { enabled: true, turns: 4, protectedTools: [] },
     },
     protectedFilePatterns: [],
