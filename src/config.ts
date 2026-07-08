@@ -1,110 +1,25 @@
 import * as fs from "node:fs";
+import { Value } from "typebox/value";
+import {
+  DcpConfigSchema,
+  type DcpConfig,
+  type CompressConfig,
+  type DeduplicationConfig,
+  type PurgeErrorsConfig,
+  type ManualModeConfig,
+  type ExperimentalConfig,
+  type StrategiesConfig,
+} from "./config-schema.ts";
 
-export interface ExperimentalConfig {
-  allowSubAgents: boolean;
-  customPrompts: boolean;
-}
-
-export interface DcpConfig {
-  enabled: boolean;
-  debug: boolean;
-  compress: CompressConfig;
-  manualMode: ManualModeConfig;
-  strategies: StrategiesConfig;
-  protectedFilePatterns: string[];
-  nudgeNotification: "off" | "minimal" | "detailed";
-  nudgeNotificationType: "toast" | "status";
-  experimental: ExperimentalConfig;
-}
-
-export interface CompressConfig {
-  mode: "range" | "message";
-  permission: "allow" | "deny";
-  maxContextPercent: number;
-  minContextPercent: number;
-  nudgeFrequency: number;
-  iterationNudgeThreshold: number;
-  nudgeForce: "strong" | "soft";
-  protectedTools: string[];
-  protectUserMessages: boolean;
-  protectTags: boolean;
-  /** When true, include the compression summary text in user notifications. Does not affect model context. */
-  showCompression: boolean;
-  /** When true, active summary tokens are excluded from the max-threshold comparison to prevent cascading compressions. */
-  summaryBuffer: boolean;
-  maxContextLimit: number | string | undefined;
-  minContextLimit: number | string | undefined;
-  modelMaxLimits: Record<string, number | string> | undefined;
-  modelMinLimits: Record<string, number | string> | undefined;
-}
-
-export interface ManualModeConfig {
-  default: false | "active";
-  automaticStrategies: boolean;
-}
-
-export interface StrategiesConfig {
-  deduplication: DeduplicationConfig;
-  purgeErrors: PurgeErrorsConfig;
-}
-
-export interface DeduplicationConfig {
-  enabled: boolean;
-  protectedTools: string[];
-  /** Protect duplicate tool outputs from pruning for N turns after invocation. 0 disables. */
-  turnProtection: number;
-}
-
-export interface PurgeErrorsConfig {
-  enabled: boolean;
-  turns: number;
-  protectedTools: string[];
-}
-
-const DEFAULT_CONFIG: DcpConfig = {
-  enabled: true,
-  debug: false,
-  compress: {
-    mode: "range",
-    permission: "allow",
-    maxContextPercent: 80,
-    minContextPercent: 50,
-    nudgeFrequency: 5,
-    iterationNudgeThreshold: 15,
-    nudgeForce: "soft",
-    protectedTools: ["compress"],
-    protectUserMessages: false,
-    protectTags: false,
-    showCompression: false,
-    summaryBuffer: true,
-    maxContextLimit: 200000,
-    minContextLimit: 100000,
-    modelMaxLimits: undefined,
-    modelMinLimits: undefined,
-  },
-  manualMode: {
-    default: false,
-    automaticStrategies: true,
-  },
-  strategies: {
-    deduplication: {
-      enabled: true,
-      protectedTools: [],
-      turnProtection: 0,
-    },
-    purgeErrors: {
-      enabled: true,
-      turns: 4,
-      protectedTools: [],
-    },
-  },
-  protectedFilePatterns: [],
-  nudgeNotification: "minimal",
-  nudgeNotificationType: "status",
-  experimental: {
-    allowSubAgents: false,
-    customPrompts: false,
-  },
+// Re-export types so existing imports from config.ts continue to work
+export type {
+  DcpConfig,
+  CompressConfig,
+  DeduplicationConfig,
+  PurgeErrorsConfig,
+  ManualModeConfig,
+  ExperimentalConfig,
+  StrategiesConfig,
 };
 
 /**
@@ -123,81 +38,84 @@ export const BASE_PROTECTED_TOOLS = [
   "subagent",
 ];
 
-const KNOWN_TOP_LEVEL_KEYS = new Set([
-  "enabled", "debug", "compress", "manualMode", "strategies",
-  "protectedFilePatterns", "nudgeNotification", "nudgeNotificationType",
-  "experimental",
-]);
-
-const KNOWN_EXPERIMENTAL_KEYS = new Set([
-  "allowSubAgents",
-  "customPrompts",
-]);
-
-const KNOWN_COMPRESS_KEYS = new Set([
-  "mode", "permission", "maxContextPercent", "minContextPercent",
-  "nudgeFrequency", "iterationNudgeThreshold", "nudgeForce",
-  "protectedTools", "protectUserMessages", "protectTags", "showCompression", "summaryBuffer",
-  "maxContextLimit", "minContextLimit", "modelMaxLimits", "modelMinLimits",
-]);
-
-export interface LoadConfigResult {
-  config: DcpConfig;
-  warnings: string[];
-}
+// Value.Create fills all schema defaults, but Optional fields without
+// defaults resolve to undefined. Override the context limits that need
+// concrete defaults for threshold calculations.
+export const DEFAULT_CONFIG: DcpConfig = (() => {
+  const config = Value.Create(DcpConfigSchema) as DcpConfig;
+  // Protect compress tool outputs from being pruned to prevent recursive compression
+  config.compress.protectedTools = ["compress"];
+  // Optional fields without schema defaults — set concrete values for threshold calculations
+  config.compress.maxContextLimit = 200000;
+  config.compress.minContextLimit = 100000;
+  return config;
+})();
 
 /**
  * Load DCP configuration from a single JSON file.
  * Falls back to defaults on missing file, parse error, or invalid content.
- * Returns warnings for unknown keys and out-of-range values.
+ * Returns warnings for validation errors and out-of-range values.
+ * Invalid-typed values are reset to their defaults.
  *
  * @param configFilePath - Absolute path to dcp.json (typically resolved via getAgentDir())
  */
-export function loadConfig(configFilePath: string): LoadConfigResult {
-  const config = structuredClone(DEFAULT_CONFIG);
+export function loadConfig(
+  configFilePath: string,
+): { config: DcpConfig; warnings: string[] } {
   const warnings: string[] = [];
 
   const parsed = parseConfigFile(configFilePath);
-  if (parsed) {
-    // Check for unknown top-level keys
-    for (const key of Object.keys(parsed)) {
-      if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
-        warnings.push(`Unknown config key "${key}" — ignored`);
+  if (!parsed) return { config: structuredClone(DEFAULT_CONFIG), warnings };
+
+  // Deep merge raw user config over defaults so partial nested objects
+  // (e.g. { compress: { mode: "message" } }) don't wipe sibling defaults.
+  const merged = deepMerge(
+    structuredClone(DEFAULT_CONFIG) as Record<string, unknown>,
+    parsed,
+  );
+
+  // Clean unknown properties first
+  Value.Clean(DcpConfigSchema, merged);
+
+  // Validate and reset invalid values to defaults.
+  // Union types produce multiple errors for the same path (one per branch);
+  // deduplicate so each property emits at most one warning.
+  if (!Value.Check(DcpConfigSchema, merged)) {
+    const seenPaths = new Set<string>();
+    for (const error of Value.Errors(DcpConfigSchema, merged)) {
+      if (!error.instancePath) continue; // skip empty-path container errors
+      if (seenPaths.has(error.instancePath)) continue; // deduplicate Union branches
+      seenPaths.add(error.instancePath);
+      warnings.push(`Config error at ${error.instancePath}: ${error.message}`);
+      const defaultValue = getByPath(
+        DEFAULT_CONFIG as unknown as Record<string, unknown>,
+        error.instancePath,
+      );
+      if (defaultValue !== undefined) {
+        setByPath(merged, error.instancePath, structuredClone(defaultValue));
       }
     }
-
-    // Check for unknown compress keys
-    if (parsed.compress && typeof parsed.compress === "object") {
-      for (const key of Object.keys(parsed.compress as object)) {
-        if (!KNOWN_COMPRESS_KEYS.has(key)) {
-          warnings.push(`Unknown compress key "${key}" — ignored`);
-        }
-      }
-    }
-
-    // Check for unknown experimental keys
-    if (parsed.experimental && typeof parsed.experimental === "object") {
-      for (const key of Object.keys(parsed.experimental as object)) {
-        if (!KNOWN_EXPERIMENTAL_KEYS.has(key)) {
-          warnings.push(`Unknown experimental key "${key}" — ignored`);
-        }
-      }
-    }
-
-    mergeConfig(config, parsed);
   }
 
-  // Validate ranges
+  const config = merged as unknown as DcpConfig;
+
+  // Post-validation range fixes (semantic constraints TypeBox can't express)
   if (config.compress.maxContextPercent > 100) {
-    warnings.push(`maxContextPercent (${config.compress.maxContextPercent}) exceeds 100, reset to default`);
+    warnings.push(
+      `maxContextPercent (${config.compress.maxContextPercent}) exceeds 100, reset to default`,
+    );
     config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
   }
   if (config.compress.minContextPercent > 100) {
-    warnings.push(`minContextPercent (${config.compress.minContextPercent}) exceeds 100, reset to default`);
+    warnings.push(
+      `minContextPercent (${config.compress.minContextPercent}) exceeds 100, reset to default`,
+    );
     config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
   }
-
   if (config.compress.maxContextPercent <= config.compress.minContextPercent) {
+    warnings.push(
+      `maxContextPercent (${config.compress.maxContextPercent}) must be greater than minContextPercent (${config.compress.minContextPercent}), reset to defaults`,
+    );
     config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
     config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
   }
@@ -220,139 +138,64 @@ function parseConfigFile(
   }
 }
 
-function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
-  if (typeof source.enabled === "boolean") target.enabled = source.enabled;
-  if (typeof source.debug === "boolean") target.debug = source.debug;
-  if (typeof source.nudgeNotification === "string") {
-    if (["off", "minimal", "detailed"].includes(source.nudgeNotification)) {
-      target.nudgeNotification = source.nudgeNotification as
-        | "off"
-        | "minimal"
-        | "detailed";
-    }
-  }
-  if (typeof source.nudgeNotificationType === "string") {
-    if (["toast", "status"].includes(source.nudgeNotificationType)) {
-      target.nudgeNotificationType = source.nudgeNotificationType as
-        | "toast"
-        | "status";
-    }
-  }
-  if (Array.isArray(source.protectedFilePatterns)) {
-    target.protectedFilePatterns = source.protectedFilePatterns.filter(
-      (p): p is string => typeof p === "string",
-    );
-  }
-
-  if (source.compress && typeof source.compress === "object") {
-    const c = source.compress as Record<string, unknown>;
-    if (c.mode === "range" || c.mode === "message")
-      target.compress.mode = c.mode;
-    if (c.permission === "allow" || c.permission === "deny")
-      target.compress.permission = c.permission;
-    if (typeof c.maxContextPercent === "number" && c.maxContextPercent > 0)
-      target.compress.maxContextPercent = c.maxContextPercent;
-    if (typeof c.minContextPercent === "number" && c.minContextPercent > 0)
-      target.compress.minContextPercent = c.minContextPercent;
-    if (typeof c.nudgeFrequency === "number" && c.nudgeFrequency >= 1)
-      target.compress.nudgeFrequency = c.nudgeFrequency;
+/**
+ * Recursively merge source into target.
+ * Objects merge recursively. Primitives and arrays in source overwrite target.
+ */
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  for (const key of Object.keys(source)) {
+    const srcVal = source[key];
+    const tgtVal = target[key];
     if (
-      typeof c.iterationNudgeThreshold === "number" &&
-      c.iterationNudgeThreshold >= 1
-    )
-      target.compress.iterationNudgeThreshold = c.iterationNudgeThreshold;
-    if (c.nudgeForce === "strong" || c.nudgeForce === "soft")
-      target.compress.nudgeForce = c.nudgeForce;
-    if (Array.isArray(c.protectedTools))
-      target.compress.protectedTools = c.protectedTools.filter(
-        (t): t is string => typeof t === "string",
+      srcVal !== null &&
+      typeof srcVal === "object" &&
+      !Array.isArray(srcVal) &&
+      tgtVal !== null &&
+      typeof tgtVal === "object" &&
+      !Array.isArray(tgtVal)
+    ) {
+      target[key] = deepMerge(
+        tgtVal as Record<string, unknown>,
+        srcVal as Record<string, unknown>,
       );
-    if (typeof c.protectUserMessages === "boolean")
-      target.compress.protectUserMessages = c.protectUserMessages;
-    if (typeof c.protectTags === "boolean")
-      target.compress.protectTags = c.protectTags;
-    if (typeof c.showCompression === "boolean")
-      target.compress.showCompression = c.showCompression;
-    if (typeof c.summaryBuffer === "boolean")
-      target.compress.summaryBuffer = c.summaryBuffer;
-    if (typeof c.maxContextLimit === "number" && c.maxContextLimit > 0)
-      target.compress.maxContextLimit = c.maxContextLimit;
-    else if (typeof c.maxContextLimit === "string")
-      target.compress.maxContextLimit = c.maxContextLimit;
-    if (typeof c.minContextLimit === "number" && c.minContextLimit > 0)
-      target.compress.minContextLimit = c.minContextLimit;
-    else if (typeof c.minContextLimit === "string")
-      target.compress.minContextLimit = c.minContextLimit;
-    if (
-      c.modelMaxLimits &&
-      typeof c.modelMaxLimits === "object" &&
-      !Array.isArray(c.modelMaxLimits)
-    ) {
-      const validated: Record<string, number | string> = {};
-      for (const [key, val] of Object.entries(
-        c.modelMaxLimits as Record<string, unknown>,
-      )) {
-        if (typeof val === "number" && val > 0) validated[key] = val;
-        else if (typeof val === "string") validated[key] = val;
-      }
-      if (Object.keys(validated).length > 0)
-        target.compress.modelMaxLimits = validated;
-    }
-    if (
-      c.modelMinLimits &&
-      typeof c.modelMinLimits === "object" &&
-      !Array.isArray(c.modelMinLimits)
-    ) {
-      const validated: Record<string, number | string> = {};
-      for (const [key, val] of Object.entries(
-        c.modelMinLimits as Record<string, unknown>,
-      )) {
-        if (typeof val === "number" && val > 0) validated[key] = val;
-        else if (typeof val === "string") validated[key] = val;
-      }
-      if (Object.keys(validated).length > 0)
-        target.compress.modelMinLimits = validated;
+    } else {
+      target[key] = srcVal;
     }
   }
+  return target;
+}
 
-  if (source.manualMode && typeof source.manualMode === "object") {
-    const m = source.manualMode as Record<string, unknown>;
-    if (m.default === false || m.default === "active")
-      target.manualMode.default = m.default;
-    if (typeof m.automaticStrategies === "boolean")
-      target.manualMode.automaticStrategies = m.automaticStrategies;
+/**
+ * Get a value from a nested object using a JSON Pointer path (e.g. "/compress/mode").
+ */
+function getByPath(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split("/").filter(Boolean);
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
   }
+  return current;
+}
 
-  if (source.strategies && typeof source.strategies === "object") {
-    const s = source.strategies as Record<string, unknown>;
-    if (s.deduplication && typeof s.deduplication === "object") {
-      const d = s.deduplication as Record<string, unknown>;
-      if (typeof d.enabled === "boolean")
-        target.strategies.deduplication.enabled = d.enabled;
-      if (Array.isArray(d.protectedTools))
-        target.strategies.deduplication.protectedTools =
-          d.protectedTools.filter((t): t is string => typeof t === "string");
-      if (typeof d.turnProtection === "number" && d.turnProtection >= 0)
-        target.strategies.deduplication.turnProtection = d.turnProtection;
-    }
-    if (s.purgeErrors && typeof s.purgeErrors === "object") {
-      const p = s.purgeErrors as Record<string, unknown>;
-      if (typeof p.enabled === "boolean")
-        target.strategies.purgeErrors.enabled = p.enabled;
-      if (typeof p.turns === "number" && p.turns >= 1)
-        target.strategies.purgeErrors.turns = p.turns;
-      if (Array.isArray(p.protectedTools))
-        target.strategies.purgeErrors.protectedTools = p.protectedTools.filter(
-          (t): t is string => typeof t === "string",
-        );
-    }
+/**
+ * Set a value in a nested object using a JSON Pointer path (e.g. "/compress/mode").
+ */
+function setByPath(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length === 0) return;
+  let current: Record<string, unknown> = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const next = current[parts[i]];
+    if (next === null || typeof next !== "object") return;
+    current = next as Record<string, unknown>;
   }
-
-  if (source.experimental && typeof source.experimental === "object") {
-    const e = source.experimental as Record<string, unknown>;
-    if (typeof e.allowSubAgents === "boolean")
-      target.experimental.allowSubAgents = e.allowSubAgents;
-    if (typeof e.customPrompts === "boolean")
-      target.experimental.customPrompts = e.customPrompts;
-  }
+  current[parts[parts.length - 1]] = value;
 }

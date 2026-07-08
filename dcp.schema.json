@@ -1,0 +1,301 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DCP Configuration",
+  "description": "Configuration schema for the pi-dcp extension",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable the DCP extension"
+    },
+    "debug": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable debug logging to session directory"
+    },
+    "nudgeNotification": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "off"
+        },
+        {
+          "type": "string",
+          "const": "minimal"
+        },
+        {
+          "type": "string",
+          "const": "detailed"
+        }
+      ],
+      "default": "minimal",
+      "description": "Notification verbosity for pruning events"
+    },
+    "nudgeNotificationType": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "toast"
+        },
+        {
+          "type": "string",
+          "const": "status"
+        }
+      ],
+      "default": "status",
+      "description": "Notification delivery: toast (ephemeral) or status (persistent)"
+    },
+    "protectedFilePatterns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Glob patterns for file paths to protect from pruning"
+    },
+    "compress": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "range"
+            },
+            {
+              "type": "string",
+              "const": "message"
+            }
+          ],
+          "default": "range",
+          "description": "Compression mode: range (compress spans) or message (compress individual messages)"
+        },
+        "permission": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "allow"
+            },
+            {
+              "type": "string",
+              "const": "deny"
+            }
+          ],
+          "default": "allow",
+          "description": "Whether the compress tool is allowed to run"
+        },
+        "showCompression": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include compression summary text in user notifications (does not affect model context)"
+        },
+        "maxContextPercent": {
+          "type": "number",
+          "default": 80,
+          "description": "Legacy: max context percentage threshold"
+        },
+        "minContextPercent": {
+          "type": "number",
+          "default": 50,
+          "description": "Legacy: min context percentage threshold"
+        },
+        "maxContextLimit": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Max context limit (absolute token count or percentage string like '80%'). Default: 200000"
+        },
+        "minContextLimit": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Min context limit (absolute token count or percentage string like '50%'). Default: 100000"
+        },
+        "modelMaxLimits": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "description": "Per-model max context limits keyed by 'provider/modelId'"
+        },
+        "modelMinLimits": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "description": "Per-model min context limits keyed by 'provider/modelId'"
+        },
+        "nudgeFrequency": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Minimum turns between non-urgent nudges"
+        },
+        "iterationNudgeThreshold": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "description": "Number of assistant iterations without user input before nudging"
+        },
+        "nudgeForce": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "strong"
+            },
+            {
+              "type": "string",
+              "const": "soft"
+            }
+          ],
+          "default": "soft",
+          "description": "Nudge urgency: strong (imperative) or soft (suggestion)"
+        },
+        "protectedTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Tool outputs to preserve during compression (glob patterns)"
+        },
+        "protectUserMessages": {
+          "type": "boolean",
+          "default": false,
+          "description": "Append user message text to compression summaries"
+        },
+        "protectTags": {
+          "type": "boolean",
+          "default": false,
+          "description": "Preserve <protect>...</protect> tag content in summaries"
+        },
+        "summaryBuffer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Exclude active summary tokens from threshold comparison to prevent cascading"
+        }
+      }
+    },
+    "manualMode": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "const": false
+            },
+            {
+              "type": "string",
+              "const": "active"
+            }
+          ],
+          "default": false,
+          "description": "Initial manual mode state"
+        },
+        "automaticStrategies": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run automatic strategies even in manual mode"
+        }
+      }
+    },
+    "strategies": {
+      "type": "object",
+      "properties": {
+        "deduplication": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable deduplication strategy"
+            },
+            "protectedTools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "Tool names excluded from deduplication (glob patterns)"
+            },
+            "turnProtection": {
+              "type": "number",
+              "default": 0,
+              "minimum": 0,
+              "description": "Protect duplicate tool outputs from pruning for N turns after invocation. 0 disables."
+            }
+          }
+        },
+        "purgeErrors": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable error purging strategy"
+            },
+            "turns": {
+              "type": "number",
+              "default": 4,
+              "minimum": 1,
+              "description": "Prune failed tool results after this many turns"
+            },
+            "protectedTools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "Tool names excluded from error purging (glob patterns)"
+            }
+          }
+        }
+      }
+    },
+    "experimental": {
+      "type": "object",
+      "properties": {
+        "allowSubAgents": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable DCP in sub-agent child sessions"
+        },
+        "customPrompts": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable filesystem-based prompt overrides"
+        }
+      }
+    }
+  }
+}
