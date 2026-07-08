@@ -28,7 +28,7 @@ describe("handleCompress (message mode)", () => {
       mode: "message",
     });
 
-    expect(result).toContain("Compressed 2 messages");
+    expect(result.text).toContain("Compressed 2 messages");
     expect(state.prune.messages.blocksById.size).toBe(2);
 
     // Verify blocks have mode "message" and startIndex === endIndex
@@ -98,7 +98,7 @@ describe("handleCompress (message mode)", () => {
       mode: "message",
     });
 
-    expect(result).toContain("~120 tokens");
-    expect(result).toContain("Compressed 1 messages");
+    expect(result.text).toContain("~120 tokens");
+    expect(result.text).toContain("Compressed 1 messages");
   });
 });

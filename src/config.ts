@@ -28,6 +28,8 @@ export interface CompressConfig {
   protectedTools: string[];
   protectUserMessages: boolean;
   protectTags: boolean;
+  /** When true, include the compression summary text in user notifications. Does not affect model context. */
+  showCompression: boolean;
   /** When true, active summary tokens are excluded from the max-threshold comparison to prevent cascading compressions. */
   summaryBuffer: boolean;
   maxContextLimit: number | string | undefined;
@@ -71,6 +73,7 @@ const DEFAULT_CONFIG: DcpConfig = {
     protectedTools: ["compress"],
     protectUserMessages: false,
     protectTags: false,
+    showCompression: false,
     summaryBuffer: true,
     maxContextLimit: 200000,
     minContextLimit: 100000,
@@ -131,7 +134,7 @@ const KNOWN_EXPERIMENTAL_KEYS = new Set([
 const KNOWN_COMPRESS_KEYS = new Set([
   "mode", "permission", "maxContextPercent", "minContextPercent",
   "nudgeFrequency", "iterationNudgeThreshold", "nudgeForce",
-  "protectedTools", "protectUserMessages", "protectTags", "summaryBuffer",
+  "protectedTools", "protectUserMessages", "protectTags", "showCompression", "summaryBuffer",
   "maxContextLimit", "minContextLimit", "modelMaxLimits", "modelMinLimits",
 ]);
 
@@ -265,6 +268,8 @@ function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
       target.compress.protectUserMessages = c.protectUserMessages;
     if (typeof c.protectTags === "boolean")
       target.compress.protectTags = c.protectTags;
+    if (typeof c.showCompression === "boolean")
+      target.compress.showCompression = c.showCompression;
     if (typeof c.summaryBuffer === "boolean")
       target.compress.summaryBuffer = c.summaryBuffer;
     if (typeof c.maxContextLimit === "number" && c.maxContextLimit > 0)

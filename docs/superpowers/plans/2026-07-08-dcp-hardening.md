@@ -16,7 +16,7 @@
 
 Each phase is a standalone plan with full task breakdowns. Execute them in order:
 
-1. **Phase 1: showCompression Config** — `docs/superpowers/plans/2026-07-08-phase-1-show-compression.md`
+1. **Phase 1: Compression Notifications + showCompression** — `docs/superpowers/plans/2026-07-08-phase-1-show-compression.md`
 2. **Phase 2: Permission Gating** — `docs/superpowers/plans/2026-07-08-phase-2-permission-gating.md`
 3. **Phase 3: Turn Protection** — `docs/superpowers/plans/2026-07-08-phase-3-turn-protection.md`
 4. **Phase 4: Accurate Token Counting** — `docs/superpowers/plans/2026-07-08-phase-4-token-counting.md`
@@ -26,14 +26,18 @@ Each phase is a standalone plan with full task breakdowns. Execute them in order
 
 ## File Map (all phases)
 
-### Phase 1: showCompression
+### Phase 1: Compression Notifications + showCompression
+
+- Modify: `src/compress/handler.ts` — return `CompressResult` struct, fix `messagesCompressed` stat
+- Modify: `src/ui/notification.ts` — add compression notification formatters
+- Modify: `src/index.ts` — wire notifications from compress tool execute callback
 - Modify: `src/config.ts` — add `showCompression` to `CompressConfig` and defaults
-- Modify: `src/messages/prune.ts` — thread `showCompression` through pruning functions
-- Modify: `src/pipeline.ts` — pass config to `applyPruning`
 - Modify: `tests/helpers.ts` — add `showCompression` to `makeDefaultConfig`
+- Test: `tests/compress-notification.test.ts` (new)
 - Test: `tests/show-compression.test.ts` (new)
 
 ### Phase 2: Permission Gating
+
 - Modify: `src/index.ts` — add `tool_call` handler, init `state.compressPermission`
 - Modify: `src/state/state.ts` — no change needed (field already exists)
 - Create: `src/commands/permission.ts` — toggle command handler
@@ -41,17 +45,20 @@ Each phase is a standalone plan with full task breakdowns. Execute them in order
 - Test: `tests/permission-gating.test.ts` (new)
 
 ### Phase 3: Turn Protection
+
 - Modify: `src/config.ts` — add `turnProtection` to `DeduplicationConfig` and defaults
 - Modify: `src/strategies/runner.ts` — add turn check in dedup loop
 - Modify: `tests/helpers.ts` — add `turnProtection` to `makeDefaultConfig`
 - Test: `tests/turn-protection.test.ts` (new)
 
 ### Phase 4: Accurate Token Counting
+
 - Modify: `package.json` — add `@anthropic-ai/tokenizer` dependency
 - Modify: `src/utils/tokens.ts` — use Anthropic tokenizer with fallback
 - Test: `tests/tokens.test.ts` (update existing)
 
 ### Phase 5: TypeBox Config + JSON Schema
+
 - Create: `src/config-schema.ts` — TypeBox schema definitions
 - Modify: `src/config.ts` — replace hand-written validation with TypeBox
 - Create: `scripts/generate-schema.ts` — JSON Schema generator script

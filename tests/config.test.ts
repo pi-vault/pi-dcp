@@ -200,3 +200,42 @@ describe("BASE_PROTECTED_TOOLS", () => {
     expect(BASE_PROTECTED_TOOLS).toContain("subagent");
   });
 });
+
+describe("compress.showCompression config", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-showcompression-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("defaults showCompression to false", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    const { config } = loadConfig(configPath);
+    expect(config.compress.showCompression).toBe(false);
+  });
+
+  it("parses showCompression: true from file", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, JSON.stringify({ compress: { showCompression: true } }));
+    const { config } = loadConfig(configPath);
+    expect(config.compress.showCompression).toBe(true);
+  });
+
+  it("ignores non-boolean showCompression", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, JSON.stringify({ compress: { showCompression: "yes" } }));
+    const { config } = loadConfig(configPath);
+    expect(config.compress.showCompression).toBe(false);
+  });
+
+  it("does not warn about showCompression as an unknown key", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, JSON.stringify({ compress: { showCompression: true } }));
+    const { warnings } = loadConfig(configPath);
+    expect(warnings.some((w) => w.includes("showCompression"))).toBe(false);
+  });
+});

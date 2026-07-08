@@ -31,7 +31,7 @@ describe("handleCompress (range mode)", () => {
       mode: "range",
     });
 
-    expect(result).toContain("Compressed");
+    expect(result.text).toContain("Compressed");
     expect(state.prune.messages.blocksById.size).toBe(1);
     expect(state.prune.messages.activeBlockIds.size).toBe(1);
   });
@@ -129,7 +129,32 @@ describe("handleCompress tool chain protection", () => {
     });
 
     // Should auto-expand to include index 2 (toolResult), so 3 messages compressed
-    expect(result).toContain("Compressed 3 messages");
+    expect(result.text).toContain("Compressed 3 messages");
+  });
+});
+
+describe("CompressResult struct", () => {
+  it("returns structured fields (blockIds, topic, messagesCompressed)", () => {
+    const state = createSessionState();
+    state.messageIds.byIndex.set(0, "m0001");
+    state.messageIds.byIndex.set(1, "m0002");
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 0 } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 0 } as unknown as AgentMessage,
+    ];
+
+    const result = handleCompress(state, makeDefaultConfig(), messages, {
+      topic: "Setup",
+      mode: "range",
+      content: [{ startId: "m0001", endId: "m0002", summary: "greeting" }],
+    });
+
+    expect(result.messagesCompressed).toBe(2);
+    expect(result.blockIds).toHaveLength(1);
+    expect(result.topic).toBe("Setup");
+    expect(result.text).toContain("Compressed 2 messages");
+    expect(state.stats.messagesCompressed).toBe(2);
   });
 });
 
@@ -159,8 +184,8 @@ describe("handleCompress token reporting", () => {
 
     // Total original = 150 + 200 + 100 = 450
     // Wrapped summary "[Compressed Block b1]\nshort summary\n[End Block b1]" = 50 chars → 13 tokens
-    expect(result).toMatch(/~450 tokens replaced by ~13 token summary/);
-    expect(result).toContain("Compressed 3 messages");
+    expect(result.text).toMatch(/~450 tokens replaced by ~13 token summary/);
+    expect(result.text).toContain("Compressed 3 messages");
   });
 
   it("omits token savings when token counts are zero", () => {
@@ -181,8 +206,8 @@ describe("handleCompress token reporting", () => {
     });
 
     // No token info when byMessageIndex has no entries (all tokenCount default to 0)
-    expect(result).not.toContain("tokens");
-    expect(result).toContain("Compressed 2 messages");
+    expect(result.text).not.toContain("tokens");
+    expect(result.text).toContain("Compressed 2 messages");
   });
 
   it("accumulates token savings across multiple ranges", () => {
@@ -214,7 +239,7 @@ describe("handleCompress token reporting", () => {
     });
 
     // Total = 100 + 200 + 150 + 50 = 500
-    expect(result).toContain("~500 tokens");
-    expect(result).toContain("Compressed 4 messages");
+    expect(result.text).toContain("~500 tokens");
+    expect(result.text).toContain("Compressed 4 messages");
   });
 });

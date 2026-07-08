@@ -1,17 +1,23 @@
 import * as crypto from "node:crypto";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { loadConfig } from "./config.ts";
+import { loadConfig, type DcpConfig } from "./config.ts";
 import { PromptStore, writeDefaultPrompts } from "./prompts/store.ts";
 import type { RuntimePrompts } from "./prompts/store.ts";
 import {
   buildMinimalMessage,
   buildDetailedMessage,
+  buildCompressNotificationMinimal,
+  buildCompressNotificationDetailed,
 } from "./ui/notification.ts";
-import { handleCompress, type CompressArgs } from "./compress/handler.ts";
+import {
+  handleCompress,
+  type CompressArgs,
+  type CompressResult,
+} from "./compress/handler.ts";
 import { stripHallucinationsFromString } from "./messages/strip.ts";
 import { mapText } from "./utils/message-content.ts";
 import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
@@ -23,6 +29,53 @@ import { registerDcpCommands } from "./commands/register.ts";
 import { saveSessionState, loadSessionState } from "./state/persistence.ts";
 import { runPipeline } from "./pipeline.ts";
 import { parseChildSessionResults } from "./subagents/subagent-results.ts";
+
+/**
+ * Extract plain summary text from compression blocks, stripping delimiters.
+ */
+function buildCombinedSummary(state: SessionState, blockIds: number[]): string {
+  return blockIds
+    .map((id) => {
+      const block = state.prune.messages.blocksById.get(id);
+      if (!block?.summary) return "";
+      return block.summary
+        .replace(/^\[Compressed Block b\d+\]\n/, "")
+        .replace(/\n\[End Block b\d+\]$/, "");
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * Send a compression notification via ctx.ui.
+ * Skips when UI is unavailable or nudgeNotification is "off".
+ */
+function sendCompressNotification(
+  result: CompressResult,
+  state: SessionState,
+  config: DcpConfig,
+  ctx: ExtensionContext,
+): void {
+  if (!ctx.hasUI || config.nudgeNotification === "off") return;
+  if (result.messagesCompressed === 0) return;
+  const notifParams = {
+    compressedTokens: result.compressedTokens,
+    summaryTokens: result.summaryTokens,
+    messagesCompressed: result.messagesCompressed,
+    topic: result.topic,
+    summary: buildCombinedSummary(state, result.blockIds),
+    showCompression: config.compress.showCompression,
+  };
+  const message =
+    config.nudgeNotification === "detailed"
+      ? buildCompressNotificationDetailed(notifParams)
+      : buildCompressNotificationMinimal(notifParams);
+  if (config.nudgeNotificationType === "toast") {
+    ctx.ui.notify(message, "info");
+  } else {
+    ctx.ui.setStatus("dcp", message);
+  }
+}
 
 export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
@@ -70,13 +123,14 @@ export default function createExtension(pi: ExtensionAPI): void {
           { description: "Messages to compress" },
         ),
       }),
-      async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-        const resultText = handleCompress(state, config, latestMessages, {
+      async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+        const result = handleCompress(state, config, latestMessages, {
           ...(params as Record<string, unknown>),
           mode: "message",
         } as CompressArgs);
+        sendCompressNotification(result, state, config, ctx);
         return {
-          content: [{ type: "text" as const, text: resultText }],
+          content: [{ type: "text" as const, text: result.text }],
           details: {},
         };
       },
@@ -104,13 +158,14 @@ export default function createExtension(pi: ExtensionAPI): void {
           { description: "Ranges to compress, each with start/end boundaries and summary" },
         ),
       }),
-      async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-        const resultText = handleCompress(state, config, latestMessages, {
+      async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+        const result = handleCompress(state, config, latestMessages, {
           ...(params as Record<string, unknown>),
           mode: "range",
         } as CompressArgs);
+        sendCompressNotification(result, state, config, ctx);
         return {
-          content: [{ type: "text" as const, text: resultText }],
+          content: [{ type: "text" as const, text: result.text }],
           details: {},
         };
       },

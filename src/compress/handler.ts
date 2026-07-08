@@ -12,6 +12,21 @@ import {
 import { countTokens } from "../utils/tokens.ts";
 import { enrichSummaryWithProtectedContent } from "./protected-content.ts";
 
+export interface CompressResult {
+  /** Text returned to the model as tool output. */
+  text: string;
+  /** Total messages compressed in this call. */
+  messagesCompressed: number;
+  /** Tokens removed by compression. */
+  compressedTokens: number;
+  /** Tokens in the replacement summaries. */
+  summaryTokens: number;
+  /** Block IDs created by this call. */
+  blockIds: number[];
+  /** Topic label provided by the model. */
+  topic: string;
+}
+
 export interface CompressArgs {
   topic: string;
   mode: "range" | "message";
@@ -42,15 +57,17 @@ export function handleCompress(
   config: DcpConfig,
   messages: AgentMessage[],
   args: CompressArgs,
-): string {
+): CompressResult {
   const entries = normalizeEntries(state, messages, args);
   const runId = allocateRunId(state);
   let totalCompressed = 0;
   let totalCompressedTokens = 0;
   let totalSummaryTokens = 0;
+  const blockIds: number[] = [];
 
   for (const entry of entries) {
     const blockId = allocateBlockId(state);
+    blockIds.push(blockId);
     const rangeMessages = messages.slice(entry.startIndex, entry.endIndex + 1);
     const enrichedSummary = enrichSummaryWithProtectedContent(
       entry.summary,
@@ -87,11 +104,22 @@ export function handleCompress(
     }
   }
 
+  // Fix: messagesCompressed stat was defined but never incremented
+  state.stats.messagesCompressed += totalCompressed;
+
   const savings =
     totalCompressedTokens > 0
       ? ` (~${totalCompressedTokens} tokens replaced by ~${totalSummaryTokens} token summary)`
       : "";
-  return `Compressed ${totalCompressed} messages into ${COMPRESSED_BLOCK_HEADER}${savings}.`;
+
+  return {
+    text: `Compressed ${totalCompressed} messages into ${COMPRESSED_BLOCK_HEADER}${savings}.`,
+    messagesCompressed: totalCompressed,
+    compressedTokens: totalCompressedTokens,
+    summaryTokens: totalSummaryTokens,
+    blockIds,
+    topic: args.topic,
+  };
 }
 
 /**

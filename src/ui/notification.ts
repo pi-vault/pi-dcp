@@ -3,6 +3,15 @@ export interface NotificationStats {
   pruned: number;
 }
 
+export interface CompressNotificationParams {
+  compressedTokens: number;
+  summaryTokens: number;
+  messagesCompressed: number;
+  topic: string;
+  summary?: string;
+  showCompression?: boolean;
+}
+
 /**
  * Format token count for display (e.g. 12400 -> "~12.4K").
  */
@@ -37,4 +46,30 @@ export function buildDetailedMessage(
   const unique = [...new Set(prunedTools)];
   if (unique.length === 0) return base;
   return `${base}\nPruned: ${unique.join(", ")}`;
+}
+
+/**
+ * Build minimal compression notification.
+ * Format: "DCP: ~12.4K tokens compressed (~2.1K summary, 5 messages)"
+ */
+export function buildCompressNotificationMinimal(
+  params: CompressNotificationParams,
+): string {
+  const plural = params.messagesCompressed === 1 ? "message" : "messages";
+  return `DCP: ${formatTokens(params.compressedTokens)} tokens compressed (${formatTokens(params.summaryTokens)} summary, ${params.messagesCompressed} ${plural})`;
+}
+
+/**
+ * Build detailed compression notification with topic and optional summary.
+ * Summary text is only included when showCompression is true.
+ */
+export function buildCompressNotificationDetailed(
+  params: CompressNotificationParams,
+): string {
+  let msg = buildCompressNotificationMinimal(params);
+  msg += `\nTopic: ${params.topic}`;
+  if (params.showCompression && params.summary) {
+    msg += `\nSummary (${formatTokens(params.summaryTokens)}): ${params.summary}`;
+  }
+  return msg;
 }
