@@ -51,6 +51,8 @@ export interface StrategiesConfig {
 export interface DeduplicationConfig {
   enabled: boolean;
   protectedTools: string[];
+  /** Protect duplicate tool outputs from pruning for N turns after invocation. 0 disables. */
+  turnProtection: number;
 }
 
 export interface PurgeErrorsConfig {
@@ -88,6 +90,7 @@ const DEFAULT_CONFIG: DcpConfig = {
     deduplication: {
       enabled: true,
       protectedTools: [],
+      turnProtection: 0,
     },
     purgeErrors: {
       enabled: true,
@@ -329,6 +332,8 @@ function mergeConfig(target: DcpConfig, source: Record<string, unknown>): void {
       if (Array.isArray(d.protectedTools))
         target.strategies.deduplication.protectedTools =
           d.protectedTools.filter((t): t is string => typeof t === "string");
+      if (typeof d.turnProtection === "number" && d.turnProtection >= 0)
+        target.strategies.deduplication.turnProtection = d.turnProtection;
     }
     if (s.purgeErrors && typeof s.purgeErrors === "object") {
       const p = s.purgeErrors as Record<string, unknown>;

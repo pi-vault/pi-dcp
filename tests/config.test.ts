@@ -195,6 +195,45 @@ describe("config validation warnings", () => {
   });
 });
 
+describe("deduplication.turnProtection config", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-turnprot-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("defaults turnProtection to 0", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    const { config } = loadConfig(configPath);
+    expect(config.strategies.deduplication.turnProtection).toBe(0);
+  });
+
+  it("parses turnProtection from file", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, JSON.stringify({ strategies: { deduplication: { turnProtection: 5 } } }));
+    const { config } = loadConfig(configPath);
+    expect(config.strategies.deduplication.turnProtection).toBe(5);
+  });
+
+  it("rejects negative turnProtection", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, JSON.stringify({ strategies: { deduplication: { turnProtection: -1 } } }));
+    const { config } = loadConfig(configPath);
+    expect(config.strategies.deduplication.turnProtection).toBe(0); // unchanged from default
+  });
+
+  it("ignores non-numeric turnProtection", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, JSON.stringify({ strategies: { deduplication: { turnProtection: "high" } } }));
+    const { config } = loadConfig(configPath);
+    expect(config.strategies.deduplication.turnProtection).toBe(0);
+  });
+});
+
 describe("BASE_PROTECTED_TOOLS", () => {
   it('includes "subagent"', () => {
     expect(BASE_PROTECTED_TOOLS).toContain("subagent");

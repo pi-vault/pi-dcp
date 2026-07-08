@@ -39,6 +39,7 @@ export function runStrategies(
       ...BASE_PROTECTED_TOOLS,
       ...config.strategies.deduplication.protectedTools,
     ];
+    const turnProtection = config.strategies.deduplication.turnProtection;
 
     const unpruned = state.toolIdList.filter(
       (id) => !state.prune.tools.has(id),
@@ -70,11 +71,21 @@ export function runStrategies(
       for (let i = 0; i < callIds.length - 1; i++) {
         const callId = callIds[i];
         const entry = state.toolParameters.get(callId);
-        const tokens = entry?.tokenCount ?? 0;
+        if (!entry) continue;
+
+        // Turn protection: skip if this entry is too recent
+        if (
+          turnProtection > 0 &&
+          state.currentTurn - entry.turn < turnProtection
+        ) {
+          continue;
+        }
+
+        const tokens = entry.tokenCount ?? 0;
         state.prune.tools.set(callId, tokens);
         pruned++;
         tokensSaved += tokens;
-        if (entry) prunedToolNames.push(entry.tool);
+        prunedToolNames.push(entry.tool);
       }
     }
   }
