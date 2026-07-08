@@ -45,6 +45,9 @@
     "LICENSE",
     "README.md"
   ],
+  "dependencies": {
+    "@anthropic-ai/tokenizer": "^0.0.4"
+  },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-coding-agent": "*"

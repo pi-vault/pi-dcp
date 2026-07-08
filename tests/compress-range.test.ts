@@ -17,16 +17,36 @@ describe("handleCompress (range mode)", () => {
     state.messageIds.nextRefIndex = 5;
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 0 } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 0 } as unknown as AgentMessage,
-      { role: "user", content: [{ type: "text", text: "do stuff" }], timestamp: 0 } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 0 } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: 0,
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "hi" }],
+        timestamp: 0,
+      } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "do stuff" }],
+        timestamp: 0,
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        timestamp: 0,
+      } as unknown as AgentMessage,
     ];
 
     const result = handleCompress(state, config, messages, {
       topic: "Initial greeting",
       content: [
-        { startId: "m0001", endId: "m0002", summary: "User greeted, assistant responded" },
+        {
+          startId: "m0001",
+          endId: "m0002",
+          summary: "User greeted, assistant responded",
+        },
       ],
       mode: "range",
     });
@@ -46,7 +66,7 @@ describe("handleCompress (range mode)", () => {
         topic: "test",
         content: [{ startId: "invalid", endId: "m0001", summary: "text" }],
         mode: "range",
-      })
+      }),
     ).toThrow();
   });
 
@@ -60,7 +80,7 @@ describe("handleCompress (range mode)", () => {
         topic: "test",
         content: [],
         mode: "range",
-      })
+      }),
     ).toThrow();
   });
 
@@ -74,8 +94,16 @@ describe("handleCompress (range mode)", () => {
     state.messageIds.nextRefIndex = 3;
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 0 } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 0 } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: 0,
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "hi" }],
+        timestamp: 0,
+      } as unknown as AgentMessage,
     ];
 
     expect(() =>
@@ -101,12 +129,22 @@ describe("handleCompress tool chain protection", () => {
     state.messageIds.byIndex.set(1, "m0002");
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "read it" }], timestamp: Date.now() } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "read it" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
       {
         role: "assistant",
         content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       } as unknown as AgentMessage,
       {
@@ -117,7 +155,11 @@ describe("handleCompress tool chain protection", () => {
         isError: false,
         timestamp: Date.now(),
       } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "here it is" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "here it is" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     const config = makeDefaultConfig();
@@ -140,8 +182,16 @@ describe("CompressResult struct", () => {
     state.messageIds.byIndex.set(1, "m0002");
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 0 } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 0 } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: 0,
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "hi" }],
+        timestamp: 0,
+      } as unknown as AgentMessage,
     ];
 
     const result = handleCompress(state, makeDefaultConfig(), messages, {
@@ -165,14 +215,38 @@ describe("handleCompress token reporting", () => {
     state.messageIds.byIndex.set(2, "m0003");
 
     // Pre-populate byMessageIndex with token counts (simulating Phase 1 sync having run)
-    state.prune.messages.byMessageIndex.set(0, { tokenCount: 150, blockIds: [], activeBlockIds: [] });
-    state.prune.messages.byMessageIndex.set(1, { tokenCount: 200, blockIds: [], activeBlockIds: [] });
-    state.prune.messages.byMessageIndex.set(2, { tokenCount: 100, blockIds: [], activeBlockIds: [] });
+    state.prune.messages.byMessageIndex.set(0, {
+      tokenCount: 150,
+      blockIds: [],
+      activeBlockIds: [],
+    });
+    state.prune.messages.byMessageIndex.set(1, {
+      tokenCount: 200,
+      blockIds: [],
+      activeBlockIds: [],
+    });
+    state.prune.messages.byMessageIndex.set(2, {
+      tokenCount: 100,
+      blockIds: [],
+      activeBlockIds: [],
+    });
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "msg 0" }], timestamp: Date.now() } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "msg 1" }], timestamp: Date.now() } as unknown as AgentMessage,
-      { role: "user", content: [{ type: "text", text: "msg 2" }], timestamp: Date.now() } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "msg 0" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "msg 1" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "msg 2" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
     ];
 
     const config = makeDefaultConfig();
@@ -183,8 +257,8 @@ describe("handleCompress token reporting", () => {
     });
 
     // Total original = 150 + 200 + 100 = 450
-    // Wrapped summary "[Compressed Block b1]\nshort summary\n[End Block b1]" = 50 chars → 13 tokens
-    expect(result.text).toMatch(/~450 tokens replaced by ~13 token summary/);
+    // Wrapped summary "[Compressed Block b1]\nshort summary\n[End Block b1]" → 16 tokens (Anthropic tokenizer; heuristic was ~13)
+    expect(result.text).toMatch(/~450 tokens replaced by ~16 token summary/);
     expect(result.text).toContain("Compressed 3 messages");
   });
 
@@ -194,8 +268,16 @@ describe("handleCompress token reporting", () => {
     state.messageIds.byIndex.set(1, "m0002");
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "msg" }], timestamp: Date.now() } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "response" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "msg" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "response" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     const config = makeDefaultConfig();
@@ -217,16 +299,48 @@ describe("handleCompress token reporting", () => {
     state.messageIds.byIndex.set(2, "m0003");
     state.messageIds.byIndex.set(3, "m0004");
 
-    state.prune.messages.byMessageIndex.set(0, { tokenCount: 100, blockIds: [], activeBlockIds: [] });
-    state.prune.messages.byMessageIndex.set(1, { tokenCount: 200, blockIds: [], activeBlockIds: [] });
-    state.prune.messages.byMessageIndex.set(2, { tokenCount: 150, blockIds: [], activeBlockIds: [] });
-    state.prune.messages.byMessageIndex.set(3, { tokenCount: 50, blockIds: [], activeBlockIds: [] });
+    state.prune.messages.byMessageIndex.set(0, {
+      tokenCount: 100,
+      blockIds: [],
+      activeBlockIds: [],
+    });
+    state.prune.messages.byMessageIndex.set(1, {
+      tokenCount: 200,
+      blockIds: [],
+      activeBlockIds: [],
+    });
+    state.prune.messages.byMessageIndex.set(2, {
+      tokenCount: 150,
+      blockIds: [],
+      activeBlockIds: [],
+    });
+    state.prune.messages.byMessageIndex.set(3, {
+      tokenCount: 50,
+      blockIds: [],
+      activeBlockIds: [],
+    });
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "msg 0" }], timestamp: Date.now() } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "msg 1" }], timestamp: Date.now() } as unknown as AgentMessage,
-      { role: "user", content: [{ type: "text", text: "msg 2" }], timestamp: Date.now() } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "msg 3" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "msg 0" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "msg 1" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "msg 2" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "msg 3" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     const result = handleCompress(state, makeDefaultConfig(), messages, {
