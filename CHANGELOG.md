@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-07-08
+
+### Added
+
+- Compression notifications can now include summary text when `compress.showCompression` is enabled.
+- New `dcp:permission` command toggles compress tool permission at runtime.
+- Deduplication now supports `strategies.deduplication.turnProtection` to keep recent duplicate tool output from being pruned too aggressively.
+- Generated `dcp.schema.json` is now shipped with the package for config tooling and validation.
+
+### Changed
+
+- Token counting now uses the Anthropic tokenizer with fallback behavior, improving context and pruning estimates.
+- Configuration loading and validation now derive from TypeBox schemas, keeping runtime validation, defaults, and published schema aligned.
+
+### Fixed
+
+- Config validation now resets invalid values more consistently and warns when `maxContextPercent` is not greater than `minContextPercent`.
+- Generated JSON Schema no longer emits misleading `required` arrays for optional user config.
+
 ## [0.3.0] - 2026-06-23
 
 ### Added
