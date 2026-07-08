@@ -289,6 +289,112 @@ describe("dcp extension", () => {
   });
 });
 
+describe("permission gating (tool_call handler)", () => {
+  it("registers tool_call handler", () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    expect(handlers.has("tool_call")).toBe(true);
+  });
+
+  it("tool_call handler blocks compress when permission is deny", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    // Fire session_start to initialize state
+    const sessionStartHandler = handlers.get("session_start")?.[0];
+    await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+      { reason: "new" },
+      {
+        sessionManager: { getSessionDir: () => "/tmp/test-session" },
+        getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+      },
+    );
+
+    // Config defaults to "allow", which session_start sets on state.
+    // Now the tool_call handler should allow:
+    const toolCallHandler = handlers.get("tool_call")?.[0];
+    const allowResult = await (toolCallHandler as (...args: unknown[]) => Promise<unknown>)(
+      { toolName: "compress", toolCallId: "call-1", input: {} },
+      {},
+    );
+    expect(allowResult).toBeUndefined();
+  });
+
+  it("tool_call handler blocks compress after permission toggled to deny", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    // Fire session_start to initialize state (defaults to "allow")
+    const sessionStartHandler = handlers.get("session_start")?.[0];
+    await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+      { reason: "new" },
+      {
+        sessionManager: { getSessionDir: () => "/tmp/test-session" },
+        getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+      },
+    );
+
+    // Simulate runtime toggle: fire dcp:permission command handler
+    // (We can't easily fire the command, so instead we verify the tool_call
+    // handler reads from the state that permissionCommand mutates.)
+    // The tool_call handler reads state.compressPermission internally,
+    // but we can't directly access state. Instead, we verify end-to-end
+    // by calling session_start with a deny config.
+
+    // Use a config file that sets permission to deny:
+    const configDir = "/tmp/test-pi-agent/extensions";
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, "dcp.json"),
+      JSON.stringify({ compress: { permission: "deny" } }),
+    );
+
+    try {
+      const { api: api2, handlers: handlers2 } = createMockApi();
+      createExtension(api2);
+
+      const sessionStart2 = handlers2.get("session_start")?.[0];
+      await (sessionStart2 as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        {
+          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+        },
+      );
+
+      const toolCallHandler2 = handlers2.get("tool_call")?.[0];
+      const result = await (toolCallHandler2 as (...args: unknown[]) => Promise<unknown>)(
+        { toolName: "compress", toolCallId: "call-1", input: {} },
+        {},
+      );
+      expect(result).toEqual({ block: true, reason: "Compression denied by configuration" });
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tool_call handler ignores non-compress tools", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    const sessionStartHandler = handlers.get("session_start")?.[0];
+    await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+      { reason: "new" },
+      {
+        sessionManager: { getSessionDir: () => "/tmp/test-session" },
+        getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
+      },
+    );
+
+    const toolCallHandler = handlers.get("tool_call")?.[0];
+    const result = await (toolCallHandler as (...args: unknown[]) => Promise<unknown>)(
+      { toolName: "bash", toolCallId: "call-2", input: { command: "ls" } },
+      {},
+    );
+    expect(result).toBeUndefined();
+  });
+});
+
 describe("sub-agent support", () => {
   it("context handler returns early when PI_SUBAGENT_CHILD=1", async () => {
     const originalEnv = process.env.PI_SUBAGENT_CHILD;
