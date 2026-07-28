@@ -186,7 +186,9 @@ describe("handleCompress protected range safety", () => {
       { role: "user", content: [{ type: "text", text: "protected" }], timestamp: 0 } as AgentMessage,
       { role: "assistant", content: [{ type: "text", text: "protected reply" }], timestamp: 0 } as unknown as AgentMessage,
     ];
-    messages.forEach((_, index) => state.messageIds.byIndex.set(index, `m000${index + 1}`));
+    messages.forEach((_, index) => {
+      state.messageIds.byIndex.set(index, `m000${index + 1}`);
+    });
 
     expect(() =>
       handleCompress(state, config, messages, {
@@ -206,7 +208,9 @@ describe("handleCompress protected range safety", () => {
       { role: "assistant", content: [{ type: "text", text: "older reply" }], timestamp: 0 } as unknown as AgentMessage,
       { role: "user", content: [{ type: "text", text: "protected" }], timestamp: 0 } as AgentMessage,
     ];
-    messages.forEach((_, index) => state.messageIds.byIndex.set(index, `m000${index + 1}`));
+    messages.forEach((_, index) => {
+      state.messageIds.byIndex.set(index, `m000${index + 1}`);
+    });
 
     expect(() =>
       handleCompress(state, config, messages, {

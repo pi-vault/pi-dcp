@@ -81,7 +81,7 @@ describe("handleCompress (message mode)", () => {
 
     const entry = state.prune.messages.byMessageIndex.get(0);
     expect(entry).toBeDefined();
-    expect(entry!.activeBlockIds.length).toBeGreaterThan(0);
+    expect(entry?.activeBlockIds.length).toBeGreaterThan(0);
   });
 
   it("includes token savings in message mode", () => {
