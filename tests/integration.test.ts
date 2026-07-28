@@ -8,6 +8,12 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 }));
 
 type Handler = (...args: any[]) => unknown;
+type OutputMessage = {
+  role: string;
+  toolCallId?: string;
+  content: Array<{ id?: string; text?: string }>;
+};
+type ContextResult = { messages: OutputMessage[] };
 
 const agentDir = "/tmp/test-pi-agent";
 
@@ -163,7 +169,9 @@ describe("integration", () => {
       hasUI: false,
       ui: { setStatus: () => {}, notify: () => {} },
     };
-    for (const handler of handlers.get("session_start")!) {
+    const sessionStartHandlers = handlers.get("session_start");
+    if (!sessionStartHandlers) throw new Error("session_start handler not registered");
+    for (const handler of sessionStartHandlers) {
       await handler({ reason: "new" }, mockCtx);
     }
 
@@ -204,33 +212,36 @@ describe("integration", () => {
       result("new-c", "newest third duplicate output"),
     ];
 
-    let output: any;
-    for (const handler of handlers.get("context")!) {
-      output = await handler({ messages: structuredClone(messages) }, mockCtx);
+    const contextHandlers = handlers.get("context");
+    if (!contextHandlers) throw new Error("context handler not registered");
+    let output: ContextResult | undefined;
+    for (const handler of contextHandlers) {
+      output = (await handler({ messages: structuredClone(messages) }, mockCtx)) as ContextResult;
     }
+    if (!output) throw new Error("context handler returned no result");
 
     expect(
-      output.messages.find((message: any) => message.toolCallId === "old").content[0].text,
+      output.messages.find((message) => message.toolCallId === "old")?.content[0]?.text,
     ).toContain("[Output removed");
     expect(
       output.messages.find(
-        (message: any) =>
-          message.role === "user" && message.content[0].text.includes("Newest request"),
+        (message) =>
+          message.role === "user" && message.content[0]?.text?.includes("Newest request"),
       ),
     ).toBeDefined();
     expect(
-      output.messages.find((message: any) => message.toolCallId === "new-a").content[0].text,
+      output.messages.find((message) => message.toolCallId === "new-a")?.content[0]?.text,
     ).toContain("newest matching duplicate output");
     expect(
-      output.messages.find((message: any) => message.toolCallId === "new-b").content[0].text,
+      output.messages.find((message) => message.toolCallId === "new-b")?.content[0]?.text,
     ).toContain("newest second duplicate output");
     expect(
-      output.messages.find((message: any) => message.toolCallId === "new-c").content[0].text,
+      output.messages.find((message) => message.toolCallId === "new-c")?.content[0]?.text,
     ).toContain("newest third duplicate output");
     expect(
       output.messages.find(
-        (message: any) =>
-          message.role === "assistant" && message.content.some((part: any) => part.id === "new-a"),
+        (message) =>
+          message.role === "assistant" && message.content.some((part) => part.id === "new-a"),
       ),
     ).toBeDefined();
   });

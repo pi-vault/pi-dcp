@@ -274,7 +274,7 @@
 
   Configure `turnProtection: 1` in a fixture containing an older turn and a newest user/tool turn. Assert that older eligible content transforms while the newest user turn and its tool-call/result group remain intact.
 
-- [ ] **Step 3: Run final verification**
+- [x] **Step 3: Run final verification**
 
   ```bash
   pnpm run generate:schema
@@ -289,7 +289,7 @@
 
   Expected: 377 or more passing tests, no type errors, no lint diagnostics above the baseline, stable schema, successful package dry-run, and unchanged source roadmap.
 
-- [ ] **Step 4: Record completion**
+- [x] **Step 4: Record completion**
 
   Mark Phase 2 `complete` in the phased roadmap, record the implementation commit and verification date in this plan, then commit:
 
@@ -315,6 +315,7 @@ Phase 3 may rely on `ToolParameterEntry.userTurn`, runtime `SessionState.current
 
 ## Release Record
 
-- Status: not started
-- Release commit or tag: not recorded
-- Verification date: not recorded
+- Status: complete
+- Release commit or tag: implementation range `605db9a^..60ff383` (the final release-record commit does not self-reference)
+- Verification date: 2026-07-28
+- Verification: schema unchanged; 396 tests, typecheck, lint (84 warnings and 1 info), package, and diff checks passed under Node 23.11.0 (the package requires Node 24.15.0 or newer).
