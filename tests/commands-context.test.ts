@@ -12,6 +12,7 @@ describe("context command", () => {
     expect(result).toContain("5000");
     expect(result).toContain("200000");
     expect(result).toContain("2.5");
+    expect(result).toContain("Current user turn: 0");
   });
 
   it("handles null token values in context usage (E5)", () => {

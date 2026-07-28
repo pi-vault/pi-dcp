@@ -9,7 +9,7 @@ describe("runStrategies", () => {
   it("deduplicates and purges errors in one call", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
     const failedParameters = { command: "x".repeat(400) };
 
     seedToolCache(state, [
@@ -18,7 +18,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
       {
@@ -26,7 +26,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 100,
       },
       {
@@ -34,7 +34,7 @@ describe("runStrategies", () => {
         tool: "another_tool",
         parameters: failedParameters,
         status: "error",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 200,
       },
     ]);
@@ -57,7 +57,7 @@ describe("runStrategies", () => {
     const config = makeDefaultConfig();
     const parameters = { command: "x".repeat(400) };
     config.strategies.purgeErrors.enabled = false;
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -65,7 +65,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters,
         status: "error",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 500,
       },
       {
@@ -73,7 +73,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters,
         status: "error",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 500,
       },
     ]);
@@ -88,7 +88,7 @@ describe("runStrategies", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     config.strategies.deduplication.enabled = false;
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -96,7 +96,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
       {
@@ -104,7 +104,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 100,
       },
     ]);
@@ -117,7 +117,7 @@ describe("runStrategies", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     config.strategies.purgeErrors.enabled = false;
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -125,7 +125,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: {},
         status: "error",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 200,
       },
     ]);
@@ -139,7 +139,7 @@ describe("runStrategies", () => {
     const config = makeDefaultConfig();
     config.manualMode.automaticStrategies = false;
     state.manualMode = "active";
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -147,7 +147,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
       {
@@ -155,7 +155,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 100,
       },
     ]);
@@ -189,14 +189,14 @@ describe("runStrategies", () => {
     ["bash", { command: "same" }],
   ] as const)("allows repeated %s output to deduplicate", (tool, parameters) => {
     const state = createSessionState();
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
     seedToolCache(state, [
       {
         id: `${tool}-1`,
         tool,
         parameters,
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 20,
       },
       {
@@ -204,7 +204,7 @@ describe("runStrategies", () => {
         tool,
         parameters,
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 20,
       },
     ]);
@@ -217,14 +217,14 @@ describe("runStrategies", () => {
 
   it("keeps write output protected", () => {
     const state = createSessionState();
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
     seedToolCache(state, [
       {
         id: "write-1",
         tool: "write",
         parameters: { path: "same" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 20,
       },
       {
@@ -232,7 +232,7 @@ describe("runStrategies", () => {
         tool: "write",
         parameters: { path: "same" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 20,
       },
     ]);
@@ -246,7 +246,7 @@ describe("runStrategies", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     config.protectedFilePatterns = ["src/**/*.ts"];
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -254,7 +254,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { filePath: "src/index.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
       {
@@ -262,7 +262,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { filePath: "src/index.ts" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 100,
       },
     ]);
@@ -274,7 +274,7 @@ describe("runStrategies", () => {
   it("does not prune recent errors", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
-    state.currentTurn = 5;
+    state.currentUserTurn = 5;
 
     seedToolCache(state, [
       {
@@ -282,7 +282,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: {},
         status: "error",
-        turn: 3,
+        userTurn: 3,
         tokenCount: 200,
       },
     ]);
@@ -291,10 +291,58 @@ describe("runStrategies", () => {
     expect(result.pruned).toBe(0);
   });
 
+  it("keeps errors protected by the larger global turn window", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 5;
+    config.strategies.purgeErrors.turns = 2;
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "err1",
+        tool: "custom_tool",
+        parameters: {},
+        status: "error",
+        userTurn: 6,
+        tokenCount: 200,
+      },
+    ]);
+
+    const result = runStrategies(state, config);
+
+    expect(state.prune.tools.has("err1")).toBe(false);
+    expect(result.pruned).toBe(0);
+  });
+
+  it("keeps errors until the existing purge threshold", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 2;
+    config.strategies.purgeErrors.turns = 4;
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "err1",
+        tool: "custom_tool",
+        parameters: {},
+        status: "error",
+        userTurn: 7,
+        tokenCount: 200,
+      },
+    ]);
+
+    const result = runStrategies(state, config);
+
+    expect(state.prune.tools.has("err1")).toBe(false);
+    expect(result.pruned).toBe(0);
+  });
+
   it("updates stats correctly", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -302,7 +350,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 50,
       },
       {
@@ -310,7 +358,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 50,
       },
     ]);
@@ -325,7 +373,7 @@ describe("runStrategies", () => {
     const config = makeDefaultConfig();
     config.strategies.deduplication.protectedTools = ["custom_tool"];
     // purgeErrors does NOT protect custom_tool
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -333,7 +381,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
       {
@@ -341,7 +389,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 100,
       },
       {
@@ -349,7 +397,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/c.ts" },
         status: "error",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 150,
       },
     ]);
@@ -376,7 +424,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
       {
@@ -384,7 +432,7 @@ describe("runStrategies", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 100,
       },
     ]);
@@ -406,7 +454,7 @@ describe("sweepAll", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
       {
@@ -414,7 +462,7 @@ describe("sweepAll", () => {
         tool: "another_tool",
         parameters: { path: "/b.ts" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 200,
       },
       {
@@ -422,7 +470,7 @@ describe("sweepAll", () => {
         tool: "list_dir",
         parameters: { path: "/" },
         status: "error",
-        turn: 3,
+        userTurn: 3,
         tokenCount: 50,
       },
     ]);
@@ -445,7 +493,7 @@ describe("sweepAll", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
       {
@@ -453,7 +501,7 @@ describe("sweepAll", () => {
         tool: "another_tool",
         parameters: { path: "/b.ts" },
         status: "completed",
-        turn: 2,
+        userTurn: 2,
         tokenCount: 200,
       },
     ]);
@@ -474,7 +522,7 @@ describe("sweepAll", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
     ]);
@@ -494,7 +542,7 @@ describe("sweepAll", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 1,
+        userTurn: 1,
         tokenCount: 100,
       },
     ]);

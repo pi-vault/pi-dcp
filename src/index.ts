@@ -81,7 +81,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
   const configFilePath = path.join(agentDir, "extensions", "dcp.json");
 
-  let { config } = loadConfig(configFilePath);
+  const { config } = loadConfig(configFilePath);
   let logger: Logger = new Logger(config.debug);
   const state: SessionState = createSessionState();
   let latestMessages: AgentMessage[] = [];
@@ -91,7 +91,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   function reloadConfig(logDir?: string): void {
     const result = loadConfig(configFilePath);
-    config = result.config;
+    Object.assign(config, result.config);
     logger = new Logger(config.debug, logDir);
     for (const w of result.warnings) {
       logger.info("config", w);
@@ -229,7 +229,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (event.reason === "resume") {
       const persisted = loadSessionState(sessionDir);
       if (persisted) {
-        state.currentTurn = persisted.currentTurn;
         state.stats = persisted.stats;
         state.lastCompaction = persisted.lastCompaction;
         if (persisted.messageIds) {
@@ -243,7 +242,7 @@ export default function createExtension(pi: ExtensionAPI): void {
           state.nudges.turnAnchors = persisted.nudges.turnAnchors;
           state.nudges.iterationAnchors = persisted.nudges.iterationAnchors;
         }
-        logger.info("dcp", "resumed persisted state", { turn: state.currentTurn });
+        logger.info("dcp", "resumed persisted state");
       }
     }
 
@@ -288,10 +287,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     } else {
       logger.info("dcp", "session shutdown");
     }
-  });
-
-  pi.on("turn_end", async (_event, _ctx) => {
-    state.currentTurn++;
   });
 
   pi.on("message_end", async (event, _ctx) => {

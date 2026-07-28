@@ -93,6 +93,7 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
   "nudgeNotification": "minimal",
   "nudgeNotificationType": "status",
   "protectedFilePatterns": [],
+  "turnProtection": 0,
   "compress": {
     "mode": "range",
     "permission": "allow",
@@ -141,6 +142,7 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 - `nudgeNotification` — notification verbosity: `"off"`, `"minimal"`, or `"detailed"`.
 - `nudgeNotificationType` — notification delivery: `"toast"` or `"status"`.
 - `protectedFilePatterns` — file-path globs whose related tool outputs should never be pruned.
+- `turnProtection` — hard-protect the newest N raw user-message turns from every DCP transformation; defaults to `0`.
 
 ### `compress`
 
@@ -167,10 +169,12 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 
 - `deduplication.enabled` — enable or disable deduplication.
 - `deduplication.protectedTools` — tool names excluded from deduplication.
-- `deduplication.turnProtection` — keeps recent duplicate tool output for N turns before it becomes prune-eligible.
+- `deduplication.turnProtection` — legacy deduplication window; deduplication uses the larger of this and top-level `turnProtection`.
 - `purgeErrors.enabled` — enable or disable stale failed-input purging.
 - `purgeErrors.turns` — age threshold for failed tool-input purging.
 - `purgeErrors.protectedTools` — tool names excluded from failed-input purging.
+
+DCP counts turns from raw user messages, not assistant iterations. When the history contains fewer user turns than `turnProtection`, all existing user turns are protected. Deduplication, stale-error pruning, `dcp:sweep`, and both compression modes enforce this boundary. Normal compression expands a tool target to its complete assistant call/result group; DCP removes orphan results it creates, while Pi synthesizes error results for assistant calls that have no result.
 
 DCP preserves failed tool diagnostics and purges only the historical arguments of eligible stale failures. Repeated `read`, `grep`, `find`, `ls`, and `bash` calls may be deduplicated or swept. `compress`, `write`, `edit`, and `subagent` remain protected by default; configured protected-tool patterns are additive.
 

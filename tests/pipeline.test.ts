@@ -150,12 +150,12 @@ describe("runPipeline", () => {
         isError: true,
         timestamp: Date.now(),
       } as AgentMessage,
+      makeUserMessage("Try another approach"),
+      makeUserMessage("Try a third approach"),
+      makeUserMessage("Try a fourth approach"),
+      makeUserMessage("Try a fifth approach"),
     ];
 
-    state.currentTurn = 0;
-    runPipeline(state, config, messages, undefined);
-
-    state.currentTurn = 4;
     const result = runPipeline(state, config, messages, undefined);
     const assistant = result.messages.find(
       (message): message is Extract<AgentMessage, { role: "assistant" }> =>

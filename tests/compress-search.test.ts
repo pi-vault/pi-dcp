@@ -1,11 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { resolveBoundaryIndex, resolveSelection, expandRangeForToolChains } from "../src/compress/search.ts";
+import {
+  expandRangeForToolChains,
+  getProtectedTurnStart,
+  resolveBoundaryIndex,
+  resolveSelection,
+} from "../src/compress/search.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { syncToolCache } from "../src/state/tool-cache.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { makeUserMessage, makeAssistantMessage } from "./helpers.ts";
 
 describe("compress/search", () => {
+  describe("getProtectedTurnStart", () => {
+    const messages = [
+      makeUserMessage("first"),
+      makeAssistantMessage("first reply"),
+      makeUserMessage("second"),
+      makeAssistantMessage("second reply"),
+      makeUserMessage("latest"),
+    ];
+
+    it("returns undefined when protection is disabled or history has no user turns", () => {
+      expect(getProtectedTurnStart(messages, 0)).toBeUndefined();
+      expect(getProtectedTurnStart([makeAssistantMessage("reply")], 1)).toBeUndefined();
+    });
+
+    it("returns the newest protected user-turn boundary", () => {
+      expect(getProtectedTurnStart(messages, 1)).toBe(4);
+    });
+
+    it("returns the first user turn when fewer turns exist than requested", () => {
+      expect(getProtectedTurnStart(messages, 99)).toBe(0);
+    });
+  });
+
   describe("resolveBoundaryIndex", () => {
     it("resolves message ref to index", () => {
       const state = createSessionState();
@@ -203,7 +231,7 @@ describe("expandRangeForToolChains with cached indices", () => {
 
   it("uses cached indices to expand endIndex when state is provided", () => {
     const state = createSessionState();
-    state.currentTurn = 1;
+    state.currentUserTurn = 1;
 
     const messages: AgentMessage[] = [
       { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
@@ -221,7 +249,7 @@ describe("expandRangeForToolChains with cached indices", () => {
 
   it("uses cached indices to expand startIndex when result is in range but assistant is not", () => {
     const state = createSessionState();
-    state.currentTurn = 1;
+    state.currentUserTurn = 1;
 
     const messages: AgentMessage[] = [
       { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
@@ -253,7 +281,7 @@ describe("expandRangeForToolChains with cached indices", () => {
 
   it("cascading expansion: pulling in assistant brings its other toolCall results", () => {
     const state = createSessionState();
-    state.currentTurn = 1;
+    state.currentUserTurn = 1;
 
     const multiCallAssistant: AgentMessage = {
       role: "assistant",
@@ -286,7 +314,7 @@ describe("expandRangeForToolChains with cached indices", () => {
 
   it("skips entries with stale indices beyond messages array", () => {
     const state = createSessionState();
-    state.currentTurn = 1;
+    state.currentUserTurn = 1;
 
     // Simulate stale entry with indices pointing beyond the current messages array
     state.toolParameters.set("stale1", {
@@ -294,7 +322,7 @@ describe("expandRangeForToolChains with cached indices", () => {
       parameters: {},
       status: "completed",
       error: undefined,
-      turn: 1,
+      userTurn: 1,
       tokenCount: 100,
       assistantIndex: 10,  // beyond messages length
       resultIndex: 11,

@@ -8,7 +8,7 @@ describe("turn protection for deduplication", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     config.strategies.deduplication.turnProtection = 3;
-    state.currentTurn = 5;
+    state.currentUserTurn = 5;
 
     seedToolCache(state, [
       {
@@ -16,7 +16,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 3, // gap = 5 - 3 = 2, within window of 3
+        userTurn: 3, // gap = 5 - 3 = 2, within window of 3
         tokenCount: 100,
       },
       {
@@ -24,7 +24,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 5,
+        userTurn: 5,
         tokenCount: 100,
       },
     ]);
@@ -39,7 +39,7 @@ describe("turn protection for deduplication", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     config.strategies.deduplication.turnProtection = 3;
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -47,7 +47,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 2, // gap = 10 - 2 = 8, outside window of 3
+        userTurn: 2, // gap = 10 - 2 = 8, outside window of 3
         tokenCount: 100,
       },
       {
@@ -55,7 +55,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 9,
+        userTurn: 9,
         tokenCount: 100,
       },
     ]);
@@ -69,8 +69,9 @@ describe("turn protection for deduplication", () => {
   it("prunes all duplicates when turnProtection is 0 (disabled)", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
+    config.turnProtection = 0;
     config.strategies.deduplication.turnProtection = 0;
-    state.currentTurn = 5;
+    state.currentUserTurn = 5;
 
     seedToolCache(state, [
       {
@@ -78,7 +79,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 4, // would be within window of 3, but protection is disabled
+        userTurn: 4, // would be within window of 3, but protection is disabled
         tokenCount: 100,
       },
       {
@@ -86,7 +87,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 5,
+        userTurn: 5,
         tokenCount: 100,
       },
     ]);
@@ -96,11 +97,72 @@ describe("turn protection for deduplication", () => {
     expect(result.pruned).toBe(1);
   });
 
+  it("uses the larger global turn protection for duplicates", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 5;
+    config.strategies.deduplication.turnProtection = 2;
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "a1",
+        tool: "custom_tool",
+        parameters: { path: "/a.ts" },
+        status: "completed",
+        userTurn: 6,
+        tokenCount: 100,
+      },
+      {
+        id: "a2",
+        tool: "custom_tool",
+        parameters: { path: "/a.ts" },
+        status: "completed",
+        userTurn: 10,
+        tokenCount: 100,
+      },
+    ]);
+
+    runStrategies(state, config);
+
+    expect(state.prune.tools.has("a1")).toBe(false);
+  });
+
+  it("protects duplicates when the global window exceeds user history", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 10;
+    state.currentUserTurn = 5;
+
+    seedToolCache(state, [
+      {
+        id: "a1",
+        tool: "custom_tool",
+        parameters: { path: "/a.ts" },
+        status: "completed",
+        userTurn: 1,
+        tokenCount: 100,
+      },
+      {
+        id: "a2",
+        tool: "custom_tool",
+        parameters: { path: "/a.ts" },
+        status: "completed",
+        userTurn: 5,
+        tokenCount: 100,
+      },
+    ]);
+
+    runStrategies(state, config);
+
+    expect(state.prune.tools.has("a1")).toBe(false);
+  });
+
   it("does not affect purge-errors strategy", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     config.strategies.deduplication.turnProtection = 3;
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -108,7 +170,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: {},
         status: "error",
-        turn: 1, // stale error
+        userTurn: 1, // stale error
         tokenCount: 200,
       },
     ]);
@@ -123,7 +185,7 @@ describe("turn protection for deduplication", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     config.strategies.deduplication.turnProtection = 3;
-    state.currentTurn = 10;
+    state.currentUserTurn = 10;
 
     seedToolCache(state, [
       {
@@ -131,7 +193,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 2, // gap 8, outside window
+        userTurn: 2, // gap 8, outside window
         tokenCount: 100,
       },
       {
@@ -139,7 +201,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 8, // gap 2, inside window
+        userTurn: 8, // gap 2, inside window
         tokenCount: 100,
       },
       {
@@ -147,7 +209,7 @@ describe("turn protection for deduplication", () => {
         tool: "custom_tool",
         parameters: { path: "/a.ts" },
         status: "completed",
-        turn: 10, // last in group
+        userTurn: 10, // last in group
         tokenCount: 100,
       },
     ]);

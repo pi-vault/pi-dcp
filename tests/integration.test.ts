@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -6,6 +8,16 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 }));
 
 type Handler = (...args: any[]) => unknown;
+type OutputMessage = {
+  role: string;
+  toolCallId?: string;
+  content: Array<{ id?: string; text?: string }>;
+};
+type ContextResult = { messages: OutputMessage[] };
+
+const agentDir = "/tmp/test-pi-agent";
+
+afterEach(() => fs.rmSync(agentDir, { recursive: true, force: true }));
 
 function createMockApi() {
   const handlers = new Map<string, Handler[]>();
@@ -70,7 +82,13 @@ describe("integration", () => {
         provider: "test",
         model: "test-model",
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       },
       {
@@ -88,7 +106,13 @@ describe("integration", () => {
         provider: "test",
         model: "test-model",
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       },
       {
@@ -128,6 +152,167 @@ describe("integration", () => {
     // Messages should have dcp-message-id tags
     const userMsg = result.messages.find((m: any) => m.role === "user");
     expect(userMsg.content[0].text).toContain("<dcp-message-id>");
+  });
+
+  it("protects the newest raw user turn while pruning older duplicate output", async () => {
+    fs.mkdirSync(path.join(agentDir, "extensions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(agentDir, "extensions", "dcp.json"),
+      JSON.stringify({ turnProtection: 1 }),
+    );
+
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const mockCtx = {
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
+      hasUI: false,
+      ui: { setStatus: () => {}, notify: () => {} },
+    };
+    const sessionStartHandlers = handlers.get("session_start");
+    if (!sessionStartHandlers) throw new Error("session_start handler not registered");
+    for (const handler of sessionStartHandlers) {
+      await handler({ reason: "new" }, mockCtx);
+    }
+
+    const call = (id: string, pattern: string) => ({
+      role: "assistant",
+      content: [{ type: "toolCall", id, name: "glob", arguments: { pattern } }],
+      api: "messages",
+      provider: "test",
+      model: "test-model",
+      stopReason: "toolUse",
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        totalTokens: 0,
+      },
+      timestamp: Date.now(),
+    });
+    const result = (toolCallId: string, text: string) => ({
+      role: "toolResult",
+      toolCallId,
+      toolName: "glob",
+      content: [{ type: "text", text }],
+      isError: false,
+      timestamp: Date.now(),
+    });
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "Older request" }], timestamp: Date.now() },
+      call("old", "**/*.ts"),
+      result("old", "older duplicate output"),
+      { role: "user", content: [{ type: "text", text: "Newest request" }], timestamp: Date.now() },
+      call("new-a", "**/*.ts"),
+      result("new-a", "newest matching duplicate output"),
+      call("new-b", "**/*.md"),
+      result("new-b", "newest second duplicate output"),
+      call("new-c", "**/*.md"),
+      result("new-c", "newest third duplicate output"),
+    ];
+
+    const contextHandlers = handlers.get("context");
+    if (!contextHandlers) throw new Error("context handler not registered");
+    let output: ContextResult | undefined;
+    for (const handler of contextHandlers) {
+      output = (await handler({ messages: structuredClone(messages) }, mockCtx)) as ContextResult;
+    }
+    if (!output) throw new Error("context handler returned no result");
+
+    expect(
+      output.messages.find((message) => message.toolCallId === "old")?.content[0]?.text,
+    ).toContain("[Output removed");
+    expect(
+      output.messages.find(
+        (message) =>
+          message.role === "user" && message.content[0]?.text?.includes("Newest request"),
+      ),
+    ).toBeDefined();
+    expect(
+      output.messages.find((message) => message.toolCallId === "new-a")?.content[0]?.text,
+    ).toContain("newest matching duplicate output");
+    expect(
+      output.messages.find((message) => message.toolCallId === "new-b")?.content[0]?.text,
+    ).toContain("newest second duplicate output");
+    expect(
+      output.messages.find((message) => message.toolCallId === "new-c")?.content[0]?.text,
+    ).toContain("newest third duplicate output");
+    expect(
+      output.messages.find(
+        (message) =>
+          message.role === "assistant" && message.content.some((part) => part.id === "new-a"),
+      ),
+    ).toBeDefined();
+  });
+
+  it("uses the session-reloaded turn protection for sweep", async () => {
+    const { api, handlers, commands } = createMockApi();
+    createExtension(api);
+
+    fs.mkdirSync(path.join(agentDir, "extensions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(agentDir, "extensions", "dcp.json"),
+      JSON.stringify({ turnProtection: 1 }),
+    );
+
+    const notify = vi.fn();
+    const mockCtx = {
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
+      hasUI: false,
+      ui: { setStatus: () => {}, notify },
+    };
+
+    const sessionStartHandlers = handlers.get("session_start");
+    if (!sessionStartHandlers) throw new Error("session_start handler not registered");
+    for (const handler of sessionStartHandlers) {
+      await handler({ reason: "new" }, mockCtx);
+    }
+
+    const contextHandlers = handlers.get("context");
+    if (!contextHandlers) throw new Error("context handler not registered");
+    const messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Newest request" }],
+        timestamp: Date.now(),
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "new-call",
+            name: "glob",
+            arguments: { pattern: "**/*.ts" },
+          },
+        ],
+        timestamp: Date.now(),
+      },
+      {
+        role: "toolResult",
+        toolCallId: "new-call",
+        toolName: "glob",
+        content: [{ type: "text", text: "src/index.ts" }],
+        isError: false,
+        timestamp: Date.now(),
+      },
+    ];
+    for (const handler of contextHandlers) {
+      await handler({ messages }, mockCtx);
+    }
+
+    const sweep = commands.get("dcp:sweep") as
+      | { handler: (args: string, ctx: typeof mockCtx) => Promise<void> }
+      | undefined;
+    if (!sweep) throw new Error("dcp:sweep command not registered");
+    await sweep.handler("", mockCtx);
+
+    expect(notify).toHaveBeenLastCalledWith(
+      "Sweep complete: 0 tool outputs pruned, ~0 tokens saved.",
+      "info",
+    );
   });
 
   it("injects CONTEXT_LIMIT_NUDGE when tokens >= maxContextLimit (absolute)", async () => {

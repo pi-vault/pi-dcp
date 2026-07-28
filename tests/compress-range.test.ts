@@ -175,6 +175,61 @@ describe("handleCompress tool chain protection", () => {
   });
 });
 
+describe("handleCompress protected range safety", () => {
+  it("rejects a range that starts older but ends in the protected window", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 1;
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "older" }], timestamp: 0 } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "older reply" }], timestamp: 0 } as unknown as AgentMessage,
+      { role: "user", content: [{ type: "text", text: "protected" }], timestamp: 0 } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "protected reply" }], timestamp: 0 } as unknown as AgentMessage,
+    ];
+    messages.forEach((_, index) => {
+      state.messageIds.byIndex.set(index, `m000${index + 1}`);
+    });
+
+    expect(() =>
+      handleCompress(state, config, messages, {
+        topic: "test",
+        mode: "range",
+        content: [{ startId: "m0001", endId: "m0003", summary: "mixed turns" }],
+      }),
+    ).toThrow(/turnProtection.*protected window/i);
+  });
+
+  it("rejects an entire protected batch before block or run allocation", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 1;
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "older" }], timestamp: 0 } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "older reply" }], timestamp: 0 } as unknown as AgentMessage,
+      { role: "user", content: [{ type: "text", text: "protected" }], timestamp: 0 } as AgentMessage,
+    ];
+    messages.forEach((_, index) => {
+      state.messageIds.byIndex.set(index, `m000${index + 1}`);
+    });
+
+    expect(() =>
+      handleCompress(state, config, messages, {
+        topic: "test",
+        mode: "range",
+        content: [
+          { startId: "m0001", endId: "m0002", summary: "older turn" },
+          { startId: "m0003", endId: "m0003", summary: "protected turn" },
+        ],
+      }),
+    ).toThrow(/turnProtection.*protected window/i);
+
+    expect(state.prune.messages.blocksById.size).toBe(0);
+    expect(state.prune.messages.nextBlockId).toBe(1);
+    expect(state.prune.messages.nextRunId).toBe(1);
+    expect(state.stats.messagesCompressed).toBe(0);
+  });
+});
+
 describe("CompressResult struct", () => {
   it("returns structured fields (blockIds, topic, messagesCompressed)", () => {
     const state = createSessionState();

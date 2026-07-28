@@ -28,8 +28,8 @@ export interface SessionState {
   messageIds: MessageIdState;
   /** Timestamp of last compaction detected. */
   lastCompaction: number;
-  /** Current conversation turn number. */
-  currentTurn: number;
+  /** User-turn ordinal rebuilt from the current raw messages. */
+  currentUserTurn: number;
   /** Model context window size (from Pi's ctx.getContextUsage). */
   modelContextWindow: number | undefined;
   /** Active model identifier (e.g. "claude-sonnet-4-20250514"). */
@@ -113,7 +113,7 @@ export interface ToolParameterEntry {
   parameters: unknown;
   status: "pending" | "running" | "completed" | "error" | undefined;
   error: string | undefined;
-  turn: number;
+  userTurn: number;
   tokenCount: number | undefined;
   /** Index of the assistant message containing this tool call. */
   assistantIndex: number | undefined;

@@ -39,7 +39,10 @@ export function runStrategies(
       ...BASE_PROTECTED_TOOLS,
       ...config.strategies.deduplication.protectedTools,
     ];
-    const turnProtection = config.strategies.deduplication.turnProtection;
+    const turnProtection = Math.max(
+      config.turnProtection,
+      config.strategies.deduplication.turnProtection,
+    );
 
     const unpruned = state.toolIdList.filter(
       (id) => !state.prune.tools.has(id),
@@ -76,7 +79,7 @@ export function runStrategies(
         // Turn protection: skip if this entry is too recent
         if (
           turnProtection > 0 &&
-          state.currentTurn - entry.turn < turnProtection
+          state.currentUserTurn - entry.userTurn < turnProtection
         ) {
           continue;
         }
@@ -99,7 +102,10 @@ export function runStrategies(
       ...BASE_PROTECTED_TOOLS,
       ...config.strategies.purgeErrors.protectedTools,
     ];
-    const turnThreshold = config.strategies.purgeErrors.turns;
+    const turnThreshold = Math.max(
+      config.turnProtection,
+      config.strategies.purgeErrors.turns,
+    );
     const unpruned = state.toolIdList.filter(
       (id) => !state.prune.tools.has(id),
     );
@@ -108,7 +114,7 @@ export function runStrategies(
       const entry = state.toolParameters.get(callId);
       if (!entry) continue;
       if (isToolNameProtected(entry.tool, protectedTools)) continue;
-      if (!isStaleError(entry, state.currentTurn, turnThreshold)) continue;
+      if (!isStaleError(entry, state.currentUserTurn, turnThreshold)) continue;
 
       const filePaths = getFilePathsFromParameters(
         entry.tool,
@@ -153,6 +159,12 @@ export function sweepAll(
     if (state.prune.tools.has(toolCallId)) continue;
     if (protectedTools.has(entry.tool)) continue;
     if (entry.status !== "completed") continue;
+    if (
+      config.turnProtection > 0 &&
+      state.currentUserTurn - entry.userTurn < config.turnProtection
+    ) {
+      continue;
+    }
 
     const tokens = entry.tokenCount ?? 0;
     state.prune.tools.set(toolCallId, tokens);
