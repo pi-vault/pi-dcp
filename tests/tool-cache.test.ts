@@ -65,9 +65,9 @@ describe("tool-cache", () => {
 
       syncToolCache(state, messages);
 
-      expect(state.toolParameters.get("call1")!.userTurn).toBe(1);
-      expect(state.toolParameters.get("call2")!.userTurn).toBe(1);
-      expect(state.toolParameters.get("call3")!.userTurn).toBe(2);
+      expect(state.toolParameters.get("call1")?.userTurn).toBe(1);
+      expect(state.toolParameters.get("call2")?.userTurn).toBe(1);
+      expect(state.toolParameters.get("call3")?.userTurn).toBe(2);
       expect(state.currentUserTurn).toBe(2);
     });
 
@@ -76,14 +76,13 @@ describe("tool-cache", () => {
       const pending = [makeAssistantWithToolCall("call1", "read", {})];
 
       syncToolCache(state, pending);
-      expect(state.toolParameters.get("call1")!.status).toBe("pending");
+      expect(state.toolParameters.get("call1")?.status).toBe("pending");
 
       syncToolCache(state, [...pending, makeToolResult("call1", "read")]);
-      const entry = state.toolParameters.get("call1")!;
-      expect(entry.status).toBe("completed");
-      expect(entry.tokenCount).toBeDefined();
-      expect(entry.assistantIndex).toBe(0);
-      expect(entry.resultIndex).toBe(1);
+      expect(state.toolParameters.get("call1")?.status).toBe("completed");
+      expect(state.toolParameters.get("call1")?.tokenCount).toBeDefined();
+      expect(state.toolParameters.get("call1")?.assistantIndex).toBe(0);
+      expect(state.toolParameters.get("call1")?.resultIndex).toBe(1);
     });
 
     it("populates toolParameters from messages", () => {
