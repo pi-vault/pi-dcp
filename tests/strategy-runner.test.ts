@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { runStrategies, sweepAll } from "../src/strategies/runner.ts";
 import { createSessionState } from "../src/state/state.ts";
+import { BASE_PROTECTED_TOOLS } from "../src/config.ts";
+import { estimatePurgedInputSavings } from "../src/strategies/purge-errors.ts";
 import { makeDefaultConfig, seedToolCache } from "./helpers.ts";
 
 describe("runStrategies", () => {
@@ -8,6 +10,7 @@ describe("runStrategies", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     state.currentTurn = 10;
+    const failedParameters = { command: "x".repeat(400) };
 
     seedToolCache(state, [
       {
@@ -29,7 +32,7 @@ describe("runStrategies", () => {
       {
         id: "b1",
         tool: "another_tool",
-        parameters: { path: "/b.ts" },
+        parameters: failedParameters,
         status: "error",
         turn: 1,
         tokenCount: 200,
@@ -44,7 +47,41 @@ describe("runStrategies", () => {
     // b1 is an old error (turn 1, current turn 10, threshold 4)
     expect(state.prune.tools.has("b1")).toBe(true);
     expect(result.pruned).toBe(2);
-    expect(result.tokensSaved).toBe(300);
+    expect(result.tokensSaved).toBe(
+      100 + estimatePurgedInputSavings(failedParameters),
+    );
+  });
+
+  it("counts removed inputs when deduplicating failed calls", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const parameters = { command: "x".repeat(400) };
+    config.strategies.purgeErrors.enabled = false;
+    state.currentTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "error-1",
+        tool: "custom_tool",
+        parameters,
+        status: "error",
+        turn: 1,
+        tokenCount: 500,
+      },
+      {
+        id: "error-2",
+        tool: "custom_tool",
+        parameters,
+        status: "error",
+        turn: 2,
+        tokenCount: 500,
+      },
+    ]);
+
+    const result = runStrategies(state, config);
+
+    expect(result.pruned).toBe(1);
+    expect(result.tokensSaved).toBe(estimatePurgedInputSavings(parameters));
   });
 
   it("respects disabled deduplication", () => {
@@ -135,32 +172,74 @@ describe("runStrategies", () => {
     expect(result.tokensSaved).toBe(0);
   });
 
-  it("skips protected tools (BASE_PROTECTED_TOOLS)", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    state.currentTurn = 10;
+  it("protects mutation and orchestration tools by default", () => {
+    expect(BASE_PROTECTED_TOOLS).toEqual([
+      "compress",
+      "write",
+      "edit",
+      "subagent",
+    ]);
+  });
 
+  it.each([
+    ["read", { path: "same" }],
+    ["grep", { pattern: "same" }],
+    ["find", { pattern: "same" }],
+    ["ls", { path: "same" }],
+    ["bash", { command: "same" }],
+  ] as const)("allows repeated %s output to deduplicate", (tool, parameters) => {
+    const state = createSessionState();
+    state.currentTurn = 10;
     seedToolCache(state, [
       {
-        id: "a1",
-        tool: "bash",
-        parameters: { command: "ls" },
+        id: `${tool}-1`,
+        tool,
+        parameters,
         status: "completed",
         turn: 1,
-        tokenCount: 50,
+        tokenCount: 20,
       },
       {
-        id: "a2",
-        tool: "bash",
-        parameters: { command: "ls" },
+        id: `${tool}-2`,
+        tool,
+        parameters,
         status: "completed",
         turn: 2,
-        tokenCount: 50,
+        tokenCount: 20,
       },
     ]);
 
-    const result = runStrategies(state, config);
-    expect(result.pruned).toBe(0);
+    runStrategies(state, makeDefaultConfig());
+
+    expect(state.prune.tools.has(`${tool}-1`)).toBe(true);
+    expect(state.prune.tools.has(`${tool}-2`)).toBe(false);
+  });
+
+  it("keeps write output protected", () => {
+    const state = createSessionState();
+    state.currentTurn = 10;
+    seedToolCache(state, [
+      {
+        id: "write-1",
+        tool: "write",
+        parameters: { path: "same" },
+        status: "completed",
+        turn: 1,
+        tokenCount: 20,
+      },
+      {
+        id: "write-2",
+        tool: "write",
+        parameters: { path: "same" },
+        status: "completed",
+        turn: 2,
+        tokenCount: 20,
+      },
+    ]);
+
+    runStrategies(state, makeDefaultConfig());
+
+    expect(state.prune.tools.size).toBe(0);
   });
 
   it("skips tools operating on protected file paths", () => {
@@ -282,7 +361,9 @@ describe("runStrategies", () => {
     // Purge SHOULD prune the error (custom_tool not protected for purge)
     expect(state.prune.tools.has("err1")).toBe(true);
     expect(result.pruned).toBe(1);
-    expect(result.tokensSaved).toBe(150);
+    expect(result.tokensSaved).toBe(
+      estimatePurgedInputSavings({ path: "/c.ts" }),
+    );
   });
 
   it("does not re-prune already-pruned tools", () => {

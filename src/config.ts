@@ -28,13 +28,8 @@ export type {
  */
 export const BASE_PROTECTED_TOOLS = [
   "compress",
-  "bash",
-  "read",
   "write",
   "edit",
-  "grep",
-  "find",
-  "ls",
   "subagent",
 ];
 

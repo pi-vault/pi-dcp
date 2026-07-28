@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Preserve failed tool diagnostics while removing stale failed inputs.
+- Allow lookup and shell outputs to participate in pruning.
+- Keep compression, file mutations, and sub-agent results protected by default.
+- Record source provenance and the verification baseline.
+
 ## 2026-07-27 - [0.4.1]
 
 ### Fixed

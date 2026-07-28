@@ -400,7 +400,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     );
 
     if (result.strategyResult.pruned > 0) {
-      logger.info("strategies", "pruned tool outputs", {
+      logger.info("strategies", "pruned tool calls", {
         count: result.strategyResult.pruned,
         tokens: result.strategyResult.tokensSaved,
       });

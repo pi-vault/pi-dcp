@@ -36,7 +36,7 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 
 ## What it does
 
-- **Prunes automatically** — deduplicates repeated tool outputs and clears stale failed tool results.
+- **Prunes automatically** — deduplicates repeated tool outputs and purges stale failed tool inputs while preserving diagnostics.
 - **Compresses with the model** — exposes a `compress` tool in `range` or `message` mode while keeping tool-call/tool-result pairs intact.
 - **Nudges before the window fills** — context-limit, turn, and iteration nudges are anchored and frequency-throttled.
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
@@ -61,7 +61,7 @@ All commands are also discoverable in-session via `dcp:help`.
 
 ## Typical workflows
 
-**Default:** install it and let DCP prune duplicates and stale errors automatically.
+**Default:** install it and let DCP prune duplicates and stale failed inputs automatically.
 
 **Need a cleanup pass first?** Run `dcp:sweep`, then `dcp:context`.
 
@@ -168,9 +168,11 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 - `deduplication.enabled` — enable or disable deduplication.
 - `deduplication.protectedTools` — tool names excluded from deduplication.
 - `deduplication.turnProtection` — keeps recent duplicate tool output for N turns before it becomes prune-eligible.
-- `purgeErrors.enabled` — enable or disable stale error pruning.
-- `purgeErrors.turns` — age threshold for failed tool-result pruning.
-- `purgeErrors.protectedTools` — tool names excluded from error purging.
+- `purgeErrors.enabled` — enable or disable stale failed-input purging.
+- `purgeErrors.turns` — age threshold for failed tool-input purging.
+- `purgeErrors.protectedTools` — tool names excluded from failed-input purging.
+
+DCP preserves failed tool diagnostics and purges only the historical arguments of eligible stale failures. Repeated `read`, `grep`, `find`, `ls`, and `bash` calls may be deduplicated or swept. `compress`, `write`, `edit`, and `subagent` remain protected by default; configured protected-tool patterns are additive.
 
 ### `experimental`
 

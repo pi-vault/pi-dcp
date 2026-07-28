@@ -6,7 +6,7 @@ import {
   isFilePathProtected,
 } from "./protected-patterns.ts";
 import { createToolSignature } from "./deduplication.ts";
-import { isStaleError } from "./purge-errors.ts";
+import { estimatePurgedInputSavings, isStaleError } from "./purge-errors.ts";
 
 export interface StrategyResult {
   pruned: number;
@@ -81,7 +81,10 @@ export function runStrategies(
           continue;
         }
 
-        const tokens = entry.tokenCount ?? 0;
+        const tokens =
+          entry.status === "error"
+            ? estimatePurgedInputSavings(entry.parameters)
+            : (entry.tokenCount ?? 0);
         state.prune.tools.set(callId, tokens);
         pruned++;
         tokensSaved += tokens;
@@ -114,7 +117,7 @@ export function runStrategies(
       if (isFilePathProtected(filePaths, config.protectedFilePatterns))
         continue;
 
-      const tokens = entry.tokenCount ?? 0;
+      const tokens = estimatePurgedInputSavings(entry.parameters);
       state.prune.tools.set(callId, tokens);
       pruned++;
       tokensSaved += tokens;

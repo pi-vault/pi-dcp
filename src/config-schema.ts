@@ -20,16 +20,16 @@ export const DeduplicationConfigSchema = Type.Object({
 export const PurgeErrorsConfigSchema = Type.Object({
   enabled: Type.Boolean({
     default: true,
-    description: "Enable error purging strategy",
+    description: "Enable failed tool-input purging strategy",
   }),
   turns: Type.Number({
     default: 4,
     minimum: 1,
-    description: "Prune failed tool results after this many turns",
+    description: "Prune failed tool inputs after this many turns",
   }),
   protectedTools: Type.Array(Type.String(), {
     default: [],
-    description: "Tool names excluded from error purging (glob patterns)",
+    description: "Tool names excluded from failed-input purging (glob patterns)",
   }),
 });
 
