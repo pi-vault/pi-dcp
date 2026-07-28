@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.4.1] - 2026-07-27
 
 ### Fixed
 
@@ -21,7 +21,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Token counting now uses the Anthropic tokenizer with fallback behavior, improving context and pruning estimates.
 - Configuration loading and validation now derive from TypeBox schemas, keeping runtime validation, defaults, and published schema aligned.
 
 ### Fixed
