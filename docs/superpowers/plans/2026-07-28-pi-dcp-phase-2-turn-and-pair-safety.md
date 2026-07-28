@@ -266,11 +266,11 @@
 - Modify: `docs/superpowers/plans/2026-07-28-pi-dcp-reliability-phased-roadmap.md`
 - Test: one raw-message integration fixture in `tests/integration.test.ts`
 
-- [ ] **Step 1: Document the released semantics**
+- [x] **Step 1: Document the released semantics**
 
   Describe top-level `turnProtection`, raw user-turn counting, the legacy deduplication maximum, fewer-turn behavior, all-path enforcement, pair-complete compression, and Pi’s unmatched-call normalization.
 
-- [ ] **Step 2: Run the independent integration check**
+- [x] **Step 2: Run the independent integration check**
 
   Configure `turnProtection: 1` in a fixture containing an older turn and a newest user/tool turn. Assert that older eligible content transforms while the newest user turn and its tool-call/result group remain intact.
 

@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -6,6 +8,10 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 }));
 
 type Handler = (...args: any[]) => unknown;
+
+const agentDir = "/tmp/test-pi-agent";
+
+afterEach(() => fs.rmSync(agentDir, { recursive: true, force: true }));
 
 function createMockApi() {
   const handlers = new Map<string, Handler[]>();
@@ -70,7 +76,13 @@ describe("integration", () => {
         provider: "test",
         model: "test-model",
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       },
       {
@@ -88,7 +100,13 @@ describe("integration", () => {
         provider: "test",
         model: "test-model",
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       },
       {
@@ -128,6 +146,93 @@ describe("integration", () => {
     // Messages should have dcp-message-id tags
     const userMsg = result.messages.find((m: any) => m.role === "user");
     expect(userMsg.content[0].text).toContain("<dcp-message-id>");
+  });
+
+  it("protects the newest raw user turn while pruning older duplicate output", async () => {
+    fs.mkdirSync(path.join(agentDir, "extensions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(agentDir, "extensions", "dcp.json"),
+      JSON.stringify({ turnProtection: 1 }),
+    );
+
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const mockCtx = {
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
+      hasUI: false,
+      ui: { setStatus: () => {}, notify: () => {} },
+    };
+    for (const handler of handlers.get("session_start")!) {
+      await handler({ reason: "new" }, mockCtx);
+    }
+
+    const call = (id: string, pattern: string) => ({
+      role: "assistant",
+      content: [{ type: "toolCall", id, name: "glob", arguments: { pattern } }],
+      api: "messages",
+      provider: "test",
+      model: "test-model",
+      stopReason: "toolUse",
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        totalTokens: 0,
+      },
+      timestamp: Date.now(),
+    });
+    const result = (toolCallId: string, text: string) => ({
+      role: "toolResult",
+      toolCallId,
+      toolName: "glob",
+      content: [{ type: "text", text }],
+      isError: false,
+      timestamp: Date.now(),
+    });
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "Older request" }], timestamp: Date.now() },
+      call("old", "**/*.ts"),
+      result("old", "older duplicate output"),
+      { role: "user", content: [{ type: "text", text: "Newest request" }], timestamp: Date.now() },
+      call("new-a", "**/*.ts"),
+      result("new-a", "newest matching duplicate output"),
+      call("new-b", "**/*.md"),
+      result("new-b", "newest second duplicate output"),
+      call("new-c", "**/*.md"),
+      result("new-c", "newest third duplicate output"),
+    ];
+
+    let output: any;
+    for (const handler of handlers.get("context")!) {
+      output = await handler({ messages: structuredClone(messages) }, mockCtx);
+    }
+
+    expect(
+      output.messages.find((message: any) => message.toolCallId === "old").content[0].text,
+    ).toContain("[Output removed");
+    expect(
+      output.messages.find(
+        (message: any) =>
+          message.role === "user" && message.content[0].text.includes("Newest request"),
+      ),
+    ).toBeDefined();
+    expect(
+      output.messages.find((message: any) => message.toolCallId === "new-a").content[0].text,
+    ).toContain("newest matching duplicate output");
+    expect(
+      output.messages.find((message: any) => message.toolCallId === "new-b").content[0].text,
+    ).toContain("newest second duplicate output");
+    expect(
+      output.messages.find((message: any) => message.toolCallId === "new-c").content[0].text,
+    ).toContain("newest third duplicate output");
+    expect(
+      output.messages.find(
+        (message: any) =>
+          message.role === "assistant" && message.content.some((part: any) => part.id === "new-a"),
+      ),
+    ).toBeDefined();
   });
 
   it("injects CONTEXT_LIMIT_NUDGE when tokens >= maxContextLimit (absolute)", async () => {

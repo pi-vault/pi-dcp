@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Top-level user-turn protection now consistently preserves recent raw user turns and complete tool pairs across pruning and compression.
 - Preserve failed tool diagnostics while removing stale failed inputs.
 - Allow lookup and shell outputs to participate in pruning.
 - Keep compression, file mutations, and sub-agent results protected by default.
