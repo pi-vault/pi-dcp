@@ -23,7 +23,7 @@ describe("persistence", () => {
   it("saves and loads session state", () => {
     const state = createSessionState();
     state.sessionId = "test-session";
-    state.currentTurn = 5;
+    state.currentUserTurn = 5;
     state.stats.toolsPruned = 3;
     state.stats.totalPruneTokens = 500;
     state.stats.messagesCompressed = 2;
@@ -35,7 +35,11 @@ describe("persistence", () => {
 
     const loaded = loadSessionState(stateDir);
     expect(loaded).toBeDefined();
-    expect(loaded!.currentTurn).toBe(5);
+    expect(loaded).not.toHaveProperty("currentUserTurn");
+    const saved = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "dcp", "state.json"), "utf-8"),
+    );
+    expect(saved).not.toHaveProperty("currentTurn");
     expect(loaded!.stats.toolsPruned).toBe(3);
     expect(loaded!.stats.totalPruneTokens).toBe(500);
     expect(loaded!.stats.messagesCompressed).toBe(2);
@@ -129,7 +133,6 @@ describe("persistence", () => {
     const loaded = loadSessionState(tempDir);
     expect(loaded).toBeDefined();
     expect(loaded!.nudges).toBeUndefined();
-    expect(loaded!.currentTurn).toBe(7);
   });
 
   it("handles legacy state files without messageIds", () => {
@@ -147,7 +150,6 @@ describe("persistence", () => {
     const loaded = loadSessionState(tempDir);
     expect(loaded).toBeDefined();
     expect(loaded!.messageIds).toBeUndefined(); // gracefully absent
-    expect(loaded!.currentTurn).toBe(3);
   });
 
   describe("loadAllSessionStats", () => {

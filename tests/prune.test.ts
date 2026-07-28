@@ -103,7 +103,7 @@ describe("prune", () => {
         parameters: { command: "very long invalid command" },
         status: "error",
         error: "command not found",
-        turn: 0,
+        userTurn: 0,
         tokenCount: 40,
         assistantIndex: 0,
         resultIndex: 1,

@@ -76,7 +76,7 @@ export function runStrategies(
         // Turn protection: skip if this entry is too recent
         if (
           turnProtection > 0 &&
-          state.currentTurn - entry.turn < turnProtection
+          state.currentUserTurn - entry.userTurn < turnProtection
         ) {
           continue;
         }
@@ -108,7 +108,7 @@ export function runStrategies(
       const entry = state.toolParameters.get(callId);
       if (!entry) continue;
       if (isToolNameProtected(entry.tool, protectedTools)) continue;
-      if (!isStaleError(entry, state.currentTurn, turnThreshold)) continue;
+      if (!isStaleError(entry, state.currentUserTurn, turnThreshold)) continue;
 
       const filePaths = getFilePathsFromParameters(
         entry.tool,

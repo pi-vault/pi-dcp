@@ -14,6 +14,9 @@ export function syncToolCache(
   state: SessionState,
   messages: AgentMessage[],
 ): void {
+  state.toolParameters.clear();
+  state.currentUserTurn = 0;
+
   // First pass: collect tool results with token counts and indices
   const resultsByCallId = new Map<
     string,
@@ -30,9 +33,13 @@ export function syncToolCache(
     });
   }
 
-  // Second pass: collect tool calls from assistant messages
+  // Second pass: collect tool calls from assistant messages by user turn.
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
+    if (msg.role === "user") {
+      state.currentUserTurn++;
+      continue;
+    }
     if (msg.role !== "assistant") continue;
     if (!Array.isArray(msg.content)) continue;
 
@@ -42,15 +49,13 @@ export function syncToolCache(
       if (p.type !== "toolCall" || typeof p.id !== "string") continue;
 
       const callId = p.id as string;
-      if (state.toolParameters.has(callId)) continue;
-
       const result = resultsByCallId.get(callId);
       const entry: ToolParameterEntry = {
         tool: (p.name as string) ?? "unknown",
         parameters: p.arguments ?? {},
         status: result ? (result.isError ? "error" : "completed") : "pending",
         error: result?.errorText,
-        turn: state.currentTurn,
+        userTurn: state.currentUserTurn,
         tokenCount: result?.tokenCount,
         assistantIndex: i,
         resultIndex: result?.index,

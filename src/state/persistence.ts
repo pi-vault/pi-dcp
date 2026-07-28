@@ -7,7 +7,6 @@ import type { SessionState, SessionStats } from "./types.ts";
  */
 interface SerializedState {
   sessionId: string | null;
-  currentTurn: number;
   stats: SessionStats;
   lastCompaction: number;
   messageIds?: {
@@ -34,7 +33,6 @@ export function saveSessionState(state: SessionState, sessionDir: string): void 
 
   const serialized: SerializedState = {
     sessionId: state.sessionId,
-    currentTurn: state.currentTurn,
     stats: { ...state.stats },
     lastCompaction: state.lastCompaction,
     messageIds: {
@@ -62,7 +60,7 @@ export function saveSessionState(state: SessionState, sessionDir: string): void 
  */
 export function loadSessionState(
   sessionDir: string,
-): (Pick<SessionState, "currentTurn" | "stats" | "lastCompaction"> & {
+): (Pick<SessionState, "stats" | "lastCompaction"> & {
   messageIds?: SessionState["messageIds"];
   nudges?: SessionState["nudges"];
 }) | undefined {
@@ -108,7 +106,6 @@ export function loadSessionState(
     }
 
     return {
-      currentTurn: parsed.currentTurn ?? 0,
       stats: {
         pruneTokenCounter: parsed.stats?.pruneTokenCounter ?? 0,
         totalPruneTokens: parsed.stats?.totalPruneTokens ?? 0,

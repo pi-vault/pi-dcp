@@ -19,11 +19,11 @@ export function estimatePurgedInputSavings(parameters: unknown): number {
 export function isStaleError(
   entry: {
     status: "pending" | "running" | "completed" | "error" | undefined;
-    turn: number;
+    userTurn: number;
   },
-  currentTurn: number,
+  currentUserTurn: number,
   turnThreshold: number,
 ): boolean {
   if (entry.status !== "error") return false;
-  return currentTurn - entry.turn >= turnThreshold;
+  return currentUserTurn - entry.userTurn >= turnThreshold;
 }

@@ -21,7 +21,7 @@ export function createSessionState(): SessionState {
     toolIdList: [],
     messageIds: createMessageIdState(),
     lastCompaction: 0,
-    currentTurn: 0,
+    currentUserTurn: 0,
     modelContextWindow: undefined,
     modelId: undefined,
     modelProvider: undefined,
@@ -52,7 +52,7 @@ export function resetSessionState(state: SessionState): void {
   state.messageIds.byIndex.clear();
   state.messageIds.nextRefIndex = 1;
   state.lastCompaction = 0;
-  state.currentTurn = 0;
+  state.currentUserTurn = 0;
   state.modelContextWindow = undefined;
   state.modelId = undefined;
   state.modelProvider = undefined;

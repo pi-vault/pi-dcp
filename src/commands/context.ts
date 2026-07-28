@@ -18,7 +18,7 @@ export function contextCommand(
   lines.push(`  Active compression blocks: ${state.prune.messages.activeBlockIds.size}`);
   lines.push(`  Total blocks: ${state.prune.messages.blocksById.size}`);
   lines.push(`  Tool cache entries: ${state.toolParameters.size}`);
-  lines.push(`  Current turn: ${state.currentTurn}`);
+  lines.push(`  Current user turn: ${state.currentUserTurn}`);
   lines.push(`  Manual mode: ${state.manualMode || "off"}`);
 
   return lines.join("\n");

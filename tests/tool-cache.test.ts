@@ -45,9 +45,49 @@ function makeToolResult(
 
 describe("tool-cache", () => {
   describe("syncToolCache", () => {
+    it("derives tool ages from user messages", () => {
+      const state = createSessionState();
+      const messages: AgentMessage[] = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "first" }],
+          timestamp: Date.now(),
+        } as AgentMessage,
+        makeAssistantWithToolCall("call1", "read", {}),
+        makeAssistantWithToolCall("call2", "write", {}),
+        {
+          role: "user",
+          content: [{ type: "text", text: "second" }],
+          timestamp: Date.now(),
+        } as AgentMessage,
+        makeAssistantWithToolCall("call3", "bash", {}),
+      ];
+
+      syncToolCache(state, messages);
+
+      expect(state.toolParameters.get("call1")!.userTurn).toBe(1);
+      expect(state.toolParameters.get("call2")!.userTurn).toBe(1);
+      expect(state.toolParameters.get("call3")!.userTurn).toBe(2);
+      expect(state.currentUserTurn).toBe(2);
+    });
+
+    it("rebuilds entries when a pending call receives a result", () => {
+      const state = createSessionState();
+      const pending = [makeAssistantWithToolCall("call1", "read", {})];
+
+      syncToolCache(state, pending);
+      expect(state.toolParameters.get("call1")!.status).toBe("pending");
+
+      syncToolCache(state, [...pending, makeToolResult("call1", "read")]);
+      const entry = state.toolParameters.get("call1")!;
+      expect(entry.status).toBe("completed");
+      expect(entry.tokenCount).toBeDefined();
+      expect(entry.assistantIndex).toBe(0);
+      expect(entry.resultIndex).toBe(1);
+    });
+
     it("populates toolParameters from messages", () => {
       const state = createSessionState();
-      state.currentTurn = 1;
 
       const messages: AgentMessage[] = [
         makeAssistantWithToolCall("call1", "read", { filePath: "/tmp/foo.ts" }),
@@ -64,7 +104,6 @@ describe("tool-cache", () => {
 
     it("detects error status from tool result", () => {
       const state = createSessionState();
-      state.currentTurn = 2;
 
       const messages: AgentMessage[] = [
         makeAssistantWithToolCall("call1", "bash", { command: "fail" }),
@@ -77,7 +116,6 @@ describe("tool-cache", () => {
 
     it("populates tokenCount from toolResult message content", () => {
       const state = createSessionState();
-      state.currentTurn = 1;
 
       const messages: AgentMessage[] = [
         makeAssistantWithToolCall("call1", "read", { filePath: "/tmp/foo.ts" }),
@@ -100,7 +138,6 @@ describe("tool-cache", () => {
 
     it("sets tokenCount undefined when toolResult not yet received", () => {
       const state = createSessionState();
-      state.currentTurn = 1;
 
       const messages: AgentMessage[] = [
         makeAssistantWithToolCall("call1", "read", { filePath: "/tmp/foo.ts" }),
@@ -113,15 +150,14 @@ describe("tool-cache", () => {
       expect(entry.tokenCount).toBeUndefined();
     });
 
-    it("does not overwrite existing entries", () => {
+    it("rebuilds existing entries", () => {
       const state = createSessionState();
-      state.currentTurn = 3;
       state.toolParameters.set("call1", {
         tool: "read",
         parameters: { filePath: "/old" },
         status: "completed",
         error: undefined,
-        turn: 1,
+        userTurn: 1,
         tokenCount: 50,
         assistantIndex: undefined,
         resultIndex: undefined,
@@ -133,20 +169,19 @@ describe("tool-cache", () => {
       ];
 
       syncToolCache(state, messages);
-      // Original entry preserved
+      // Current raw messages replace stale cache entries.
       expect(
         (
           state.toolParameters.get("call1")!.parameters as Record<
             string,
             unknown
           >
-        ).filePath,
-      ).toBe("/old");
+      ).filePath,
+      ).toBe("/new");
     });
 
     it("records assistantIndex and resultIndex", () => {
       const state = createSessionState();
-      state.currentTurn = 1;
 
       const messages: AgentMessage[] = [
         {
@@ -174,7 +209,6 @@ describe("tool-cache", () => {
 
     it("sets resultIndex undefined when no toolResult present", () => {
       const state = createSessionState();
-      state.currentTurn = 1;
 
       const messages: AgentMessage[] = [
         makeAssistantWithToolCall("call1", "read", { filePath: "/tmp/foo.ts" }),

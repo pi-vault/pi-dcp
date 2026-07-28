@@ -63,7 +63,7 @@ export function seedToolCache(
     tool: string;
     parameters: Record<string, unknown>;
     status: "completed" | "error";
-    turn: number;
+    userTurn: number;
     tokenCount: number;
   }>,
 ): void {
@@ -73,7 +73,7 @@ export function seedToolCache(
       parameters: e.parameters,
       status: e.status,
       error: undefined,
-      turn: e.turn,
+      userTurn: e.userTurn,
       tokenCount: e.tokenCount,
       assistantIndex: undefined,
       resultIndex: undefined,
