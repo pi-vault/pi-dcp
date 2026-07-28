@@ -301,7 +301,7 @@ After this phase:
   onStateChange: () => void
   ```
 
-  Call it after successful durable mutations in sweep, manual, permission, decompress, and recompress handlers. Phase 5 will replace captured config with a live getter; do not add that change here.
+  Call it after successful durable mutations in sweep, manual, permission, decompress, and recompress handlers. Keep passing the config object whose identity Phase 2 preserves across reloads; Phase 5 does not need a getter wrapper.
 
 - [ ] **Step 5: Remove sidecar runtime writes**
 

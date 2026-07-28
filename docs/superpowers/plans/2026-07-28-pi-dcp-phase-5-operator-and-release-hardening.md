@@ -112,7 +112,7 @@ After this phase:
 
 - [ ] **Step 1: Add failing live-config tests**
 
-  Start globally disabled and project enabled, then assert the configured compression mode is registered. Change effective config across `session_start` events and prove command behavior uses the new value instead of the first captured object.
+  Retain Phase 2's session-reloaded sweep regression. Start globally disabled and project enabled, then assert the configured compression mode is registered and other config-dependent command behavior reads the same updated config object.
 
 - [ ] **Step 2: Confirm stale registration behavior**
 
@@ -120,7 +120,7 @@ After this phase:
   pnpm vitest run tests/commands-register.test.ts tests/integration.test.ts -t "live config|register"
   ```
 
-  Expected: FAIL because the compression tool or command closures capture factory-time config.
+  Expected: FAIL because compression-tool registration and factory-time disablement occur before trusted project config is known.
 
 - [ ] **Step 3: Register the compression tool after config load**
 
@@ -128,7 +128,7 @@ After this phase:
 
   Keep the execute closure reading the current `config` variable. When effective config is disabled, keep lifecycle and commands active but skip DCP pipeline transformations and compression execution.
 
-- [ ] **Step 4: Change command registration to a getter**
+- [ ] **Step 4: Keep command registration on the stable config object**
 
   Extend the Phase 4 signature:
 
@@ -136,12 +136,12 @@ After this phase:
   registerDcpCommands(
     pi: ExtensionAPI,
     state: SessionState,
-    getConfig: () => DcpConfig,
+    config: DcpConfig,
     onStateChange: () => void,
   ): void;
   ```
 
-  Call `getConfig()` inside sweep, manual, permission, context, and compression handlers. Preserve the Phase 4 `onStateChange()` calls after successful durable mutations.
+  Keep Phase 2's `Object.assign(config, result.config)` reload so existing handlers observe the effective config without a getter abstraction. Preserve the Phase 4 `onStateChange()` calls after successful durable mutations.
 
 - [ ] **Step 5: Run registration tests**
 
@@ -155,7 +155,7 @@ After this phase:
 
   ```bash
   git add src/index.ts src/commands/register.ts tests/commands-register.test.ts tests/integration.test.ts
-  git commit -m "fix: read current config in tools and commands"
+  git commit -m "fix: register tools against effective config"
   ```
 
 ### Task 3: Add `/dcp:compress [focus]`

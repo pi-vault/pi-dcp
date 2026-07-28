@@ -112,9 +112,9 @@ After this phase:
 - Modify: `src/compress/search.ts`, `src/compress/handler.ts`
 - Test: `tests/compress-range.test.ts`
 
-- [ ] **Step 1: Add failing atomicity tests**
+- [ ] **Step 1: Add failing active-block atomicity tests**
 
-  Cover a batch whose first entry is valid and second entry is invalid, plus a batch whose entries overlap only after tool-pair or active-block expansion:
+  Retain the Phase 2 regressions for invalid later entries, protected turns, and tool-pair-expanded overlaps. Add a batch whose entries become overlapping only after active-block expansion:
 
   ```ts
   const before = snapshotCompressionState(state);
@@ -126,15 +126,15 @@ After this phase:
 
   The snapshot assertion must include block IDs, counters, active sets, and statistics.
 
-- [ ] **Step 2: Confirm partial mutation occurs**
+- [ ] **Step 2: Confirm active blocks are not expanded**
 
   ```bash
   pnpm vitest run tests/compress-range.test.ts -t "atomic"
   ```
 
-  Expected: FAIL because the current handler can allocate or mutate before every input is validated.
+  Expected: FAIL because Phase 2 expands tool pairs and validates the batch atomically, but `resolveSelection()` does not yet include touched active blocks.
 
-- [ ] **Step 3: Return complete selections**
+- [ ] **Step 3: Extend Phase 2 complete selections**
 
   Make `resolveSelection()` return:
 
@@ -148,16 +148,16 @@ After this phase:
   }
   ```
 
-  Expand to a fixed point:
+  Preserve Phase 2 tool-pair expansion and extend it to a fixed point:
 
   1. Include both sides of every touched assistant-call/result pair.
   2. Include the complete effective range of every touched active block.
   3. Repeat until neither rule changes the range.
   4. Apply the Phase 2 protected-turn rejection.
 
-- [ ] **Step 4: Validate the complete batch**
+- [ ] **Step 4: Reuse Phase 2 batch validation**
 
-  Resolve every input into a local array. Sort selections by `startIndex`, reject adjacent selections when `next.startIndex <= previous.endIndex`, and only then allocate `runId`, block IDs, or update state.
+  Resolve every input into a local array, then keep the existing Phase 2 `entriesByStart` adjacent-overlap check before `runId`, block-ID, or state mutation. Run it after active-block expansion so newly overlapping selections are rejected by the same path.
 
   Do not silently merge overlapping user inputs because each input carries its own summary.
 

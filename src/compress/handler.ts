@@ -72,14 +72,10 @@ export function handleCompress(
       "Compression overlaps the turnProtection protected window; choose only older messages.",
     );
   }
-  for (let i = 0; i < entries.length; i++) {
-    for (let j = 0; j < i; j++) {
-      if (
-        entries[i].startIndex <= entries[j].endIndex &&
-        entries[j].startIndex <= entries[i].endIndex
-      ) {
-        throw new Error("Overlapping compression selections are not allowed.");
-      }
+  const entriesByStart = [...entries].sort((a, b) => a.startIndex - b.startIndex);
+  for (let i = 1; i < entriesByStart.length; i++) {
+    if (entriesByStart[i].startIndex <= entriesByStart[i - 1].endIndex) {
+      throw new Error("Overlapping compression selections are not allowed.");
     }
   }
   const runId = allocateRunId(state);
