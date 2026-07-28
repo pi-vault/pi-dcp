@@ -54,6 +54,12 @@
       "default": [],
       "description": "Glob patterns for file paths to protect from pruning"
     },
+    "turnProtection": {
+      "type": "number",
+      "default": 0,
+      "minimum": 0,
+      "description": "Protect the newest N user turns from all DCP transformations"
+    },
     "compress": {
       "type": "object",
       "properties": {

@@ -32,6 +32,28 @@ describe("config loading", () => {
     expect(config.experimental.allowSubAgents).toBe(false);
   });
 
+  it("defaults top-level turn protection to zero", () => {
+    expect(
+      loadConfig(path.join(tempDir, "missing.json")).config.turnProtection,
+    ).toBe(0);
+  });
+
+  it("accepts a non-negative top-level turn protection", () => {
+    const file = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(file, JSON.stringify({ turnProtection: 2 }));
+    expect(loadConfig(file).config.turnProtection).toBe(2);
+  });
+
+  it("resets a negative top-level turn protection", () => {
+    const file = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(file, JSON.stringify({ turnProtection: -1 }));
+    const result = loadConfig(file);
+    expect(result.config.turnProtection).toBe(0);
+    expect(
+      result.warnings.some((warning) => warning.includes("turnProtection")),
+    ).toBe(true);
+  });
+
   it("loads partial config and fills defaults", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(

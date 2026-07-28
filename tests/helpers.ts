@@ -111,6 +111,7 @@ export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): D
       purgeErrors: { enabled: true, turns: 4, protectedTools: [] },
     },
     protectedFilePatterns: [],
+    turnProtection: 0,
     nudgeNotification: "minimal",
     nudgeNotificationType: "status",
     experimental: { allowSubAgents: false, customPrompts: false },
