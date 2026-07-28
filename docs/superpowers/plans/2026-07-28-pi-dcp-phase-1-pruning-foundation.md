@@ -42,7 +42,7 @@ After this phase:
 
 - Create: `docs/superpowers/audits/2026-07-28-pi-dcp-provenance.md`
 
-- [ ] **Step 1: Write the provenance record**
+- [x] **Step 1: Write the provenance record**
 
   Record this table and the rules below in the new audit:
 
@@ -76,7 +76,7 @@ After this phase:
   - Comparison suites: not executed because their local runtime dependencies were absent.
   ```
 
-- [ ] **Step 2: Verify the source facts**
+- [x] **Step 2: Verify the source facts**
 
   Run:
 
@@ -89,7 +89,7 @@ After this phase:
 
   Expected: MIT license, package version 0.4.1, current commit `e68c236`, and the local runtime recorded above.
 
-- [ ] **Step 3: Capture the baseline checks**
+- [x] **Step 3: Capture the baseline checks**
 
   Run:
 
@@ -103,7 +103,7 @@ After this phase:
 
   Expected: 368 tests pass, typecheck passes, lint exits with the recorded diagnostics, package dry-run succeeds, and no whitespace errors are reported. Update only observed baseline values if they differ.
 
-- [ ] **Step 4: Commit the provenance record**
+- [x] **Step 4: Commit the provenance record**
 
   ```bash
   git add docs/superpowers/audits/2026-07-28-pi-dcp-provenance.md
@@ -118,7 +118,7 @@ After this phase:
 - Modify wording: `src/index.ts`, `src/commands/context.ts`
 - Test: `tests/prune.test.ts`, `tests/pipeline.test.ts`, `tests/strategy-runner.test.ts`
 
-- [ ] **Step 1: Replace obsolete unit assertions with a failing argument-purge test**
+- [x] **Step 1: Replace obsolete unit assertions with a failing argument-purge test**
 
   Remove the `pruneToolErrors` tests and add a test that seeds an error entry and asserts the assistant argument marker while retaining the same result object/content:
 
@@ -189,7 +189,7 @@ After this phase:
   });
   ```
 
-- [ ] **Step 2: Run the unit regression and confirm the old behavior fails**
+- [x] **Step 2: Run the unit regression and confirm the old behavior fails**
 
   ```bash
   pnpm vitest run tests/prune.test.ts -t "purges failed arguments"
@@ -197,7 +197,7 @@ After this phase:
 
   Expected: FAIL because the current implementation changes failed result content and does not rewrite assistant arguments.
 
-- [ ] **Step 3: Add the argument-savings helper**
+- [x] **Step 3: Add the argument-savings helper**
 
   In `src/strategies/purge-errors.ts`, add:
 
@@ -214,7 +214,7 @@ After this phase:
   }
   ```
 
-- [ ] **Step 4: Implement failed-input pruning and apply it after output pruning**
+- [x] **Step 4: Implement failed-input pruning and apply it after output pruning**
 
   In `src/messages/prune.ts`, import `PURGED_ERROR_INPUT`, remove `PRUNED_ERROR_INPUT_TEXT` and `pruneToolErrors()`, and add:
 
@@ -251,7 +251,7 @@ After this phase:
 
   Make `applyPruning()` call `pruneToolOutputs()` followed by `pruneFailedInputs()`.
 
-- [ ] **Step 5: Make stale-error accounting match the transformation**
+- [x] **Step 5: Make stale-error accounting match the transformation**
 
   In the purge-errors loop in `src/strategies/runner.ts`, replace `entry.tokenCount` with `estimatePurgedInputSavings(entry.parameters)` when setting the prune map and accumulating `tokensSaved`. Keep deduplication and sweep result-token accounting unchanged.
 
@@ -265,7 +265,7 @@ After this phase:
   );
   ```
 
-- [ ] **Step 6: Add a real pipeline regression**
+- [x] **Step 6: Add a real pipeline regression**
 
   In `tests/pipeline.test.ts`, add a fixture containing one user message, one assistant `custom_tool` call with `{ command: "x".repeat(400) }`, and one failed `toolResult`. Run the same messages twice:
 
@@ -294,7 +294,7 @@ After this phase:
   expect(result.strategyResult.tokensSaved).toBeGreaterThan(0);
   ```
 
-- [ ] **Step 7: Correct internal labels and run focused tests**
+- [x] **Step 7: Correct internal labels and run focused tests**
 
   Change internal log/context labels that say “pruned tool outputs” to “pruned tool calls” or “pruned items.” Run:
 
@@ -305,7 +305,7 @@ After this phase:
 
   Expected: all focused tests and typecheck pass.
 
-- [ ] **Step 8: Commit the semantic and accounting fix**
+- [x] **Step 8: Commit the semantic and accounting fix**
 
   ```bash
   git add src/messages/prune.ts src/strategies/purge-errors.ts src/strategies/runner.ts src/index.ts src/commands/context.ts tests/prune.test.ts tests/pipeline.test.ts tests/strategy-runner.test.ts
@@ -319,7 +319,7 @@ After this phase:
 - Modify: `src/config.ts`
 - Test: `tests/config.test.ts`, `tests/strategy-runner.test.ts`, `tests/commands-sweep.test.ts`
 
-- [ ] **Step 1: Add failing policy tests**
+- [x] **Step 1: Add failing policy tests**
 
   Add these tests to `tests/strategy-runner.test.ts`:
 
@@ -400,11 +400,11 @@ After this phase:
   });
   ```
 
-- [ ] **Step 2: Update the existing conflicting test**
+- [x] **Step 2: Update the existing conflicting test**
 
   Change the current `skips protected tools (BASE_PROTECTED_TOOLS)` fixture from `bash` to `write`; its expected result remains zero.
 
-- [ ] **Step 3: Replace the default list**
+- [x] **Step 3: Replace the default list**
 
   In `src/config.ts`, set:
 
@@ -414,7 +414,7 @@ After this phase:
 
   Preserve the existing additive merges for user-configured protected tools.
 
-- [ ] **Step 4: Cover sweep behavior and run the strategy suite**
+- [x] **Step 4: Cover sweep behavior and run the strategy suite**
 
   Add this sweep regression to `tests/commands-sweep.test.ts`:
 
@@ -459,7 +459,7 @@ After this phase:
 
   Expected: all policy tests and typecheck pass.
 
-- [ ] **Step 5: Commit the policy change**
+- [x] **Step 5: Commit the policy change**
 
   ```bash
   git add src/config.ts tests/config.test.ts tests/strategy-runner.test.ts tests/commands-sweep.test.ts
@@ -473,7 +473,7 @@ After this phase:
 - Modify: `README.md`, `CHANGELOG.md`, `src/config-schema.ts`
 - Regenerate: `dcp.schema.json`
 
-- [ ] **Step 1: Update README behavior and configuration wording**
+- [x] **Step 1: Update README behavior and configuration wording**
 
   Replace the overview and workflow wording with:
 
@@ -497,7 +497,7 @@ After this phase:
   DCP preserves failed tool diagnostics and purges only the historical arguments of eligible stale failures. Repeated `read`, `grep`, `find`, `ls`, and `bash` calls may be deduplicated or swept. `compress`, `write`, `edit`, and `subagent` remain protected by default; configured protected-tool patterns are additive.
   ```
 
-- [ ] **Step 2: Update schema descriptions and regenerate the shipped schema**
+- [x] **Step 2: Update schema descriptions and regenerate the shipped schema**
 
   Change the purge-errors descriptions in `src/config-schema.ts` to refer to failed tool inputs, then run:
 
@@ -507,7 +507,7 @@ After this phase:
 
   Confirm the generated `dcp.schema.json` contains the same wording and a second generation produces no diff.
 
-- [ ] **Step 3: Add merge-ready changelog notes**
+- [x] **Step 3: Add merge-ready changelog notes**
 
   Add this section at the top of `CHANGELOG.md`, without changing the package version:
 
@@ -522,7 +522,7 @@ After this phase:
   - Record source provenance and the verification baseline.
   ```
 
-- [ ] **Step 4: Run final verification and commit documentation**
+- [x] **Step 4: Run final verification and commit documentation**
 
   ```bash
   pnpm vitest run tests/prune.test.ts tests/pipeline.test.ts tests/strategy-runner.test.ts tests/config.test.ts
@@ -567,6 +567,6 @@ Phase 2 may rely on:
 
 ## Release Record
 
-- Status: not started
+- Status: complete (merge-ready)
 - Release commit or tag: not applicable; Phase 1 ends merge-ready
-- Verification date: not recorded
+- Verification date: 2026-07-28

@@ -262,13 +262,13 @@
             "enabled": {
               "type": "boolean",
               "default": true,
-              "description": "Enable error purging strategy"
+              "description": "Enable failed tool-input purging strategy"
             },
             "turns": {
               "type": "number",
               "default": 4,
               "minimum": 1,
-              "description": "Prune failed tool results after this many turns"
+              "description": "Prune failed tool inputs after this many turns"
             },
             "protectedTools": {
               "type": "array",
@@ -276,7 +276,7 @@
                 "type": "string"
               },
               "default": [],
-              "description": "Tool names excluded from error purging (glob patterns)"
+              "description": "Tool names excluded from failed-input purging (glob patterns)"
             }
           }
         }
