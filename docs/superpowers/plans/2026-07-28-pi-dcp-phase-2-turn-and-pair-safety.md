@@ -317,6 +317,6 @@ Phase 3 may rely on `ToolParameterEntry.userTurn`, runtime `SessionState.current
 ## Release Record
 
 - Status: complete
-- Release commit or tag: implementation range `605db9a^..6534710` (the final release-record commit does not self-reference)
+- Release commit or tag: implementation range `605db9a^..798d70d` (the final release-record commit does not self-reference)
 - Verification date: 2026-07-28
 - Verification: schema regenerated; 399 tests, typecheck, lint (84 warnings and 1 info), package, and diff checks passed under Node 23.11.0 (the package requires Node 24.15.0 or newer).
