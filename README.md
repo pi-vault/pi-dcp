@@ -182,8 +182,12 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 - Compression notifications can now surface summary text with `compress.showCompression`.
 - `dcp:permission` adds runtime control over compress-tool usage.
 - Deduplication can preserve recent duplicates via `turnProtection`.
-- Token counting now uses the Anthropic tokenizer for better sizing estimates.
 - Config validation and the shipped `dcp.schema.json` now come from the same TypeBox source of truth.
+
+## What's new in 0.4.1
+
+- Long sessions no longer repeatedly invoke the Anthropic tokenizer during context processing.
+- Per-message token estimates are restored to the lightweight character-based heuristic.
 
 ## Development and verification
 

@@ -4,13 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## 2026-07-27 - [0.4.1]
 
 ### Fixed
 
 - Long sessions no longer repeatedly invoke the Anthropic tokenizer during context processing, preventing high CPU usage and TUI stalls.
 
-## [0.4.0] - 2026-07-08
+## 2026-07-08 - [0.4.0]
 
 ### Added
 
@@ -21,7 +21,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Token counting now uses the Anthropic tokenizer with fallback behavior, improving context and pruning estimates.
 - Configuration loading and validation now derive from TypeBox schemas, keeping runtime validation, defaults, and published schema aligned.
 
 ### Fixed
@@ -29,7 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Config validation now resets invalid values more consistently and warns when `maxContextPercent` is not greater than `minContextPercent`.
 - Generated JSON Schema no longer emits misleading `required` arrays for optional user config.
 
-## [0.3.0] - 2026-06-23
+## 2026-06-23 - [0.3.0]
 
 ### Added
 
@@ -55,7 +54,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Token counts in the tool cache now sync from `toolResult` content instead of remaining `undefined` after rehydration.
 - Anchor sets no longer shift with new messages (anchored to keys, not indices) and persist across sessions.
 
-## [0.2.0] - 2026-06-16
+## 2026-06-16 - [0.2.0]
 
 ### Added
 
@@ -79,7 +78,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Token counts in tool cache now sync from toolResult content instead of remaining undefined.
 
-## [0.1.0] - 2026-06-15
+## 2026-06-15 - [0.1.0]
 
 ### Added
 
