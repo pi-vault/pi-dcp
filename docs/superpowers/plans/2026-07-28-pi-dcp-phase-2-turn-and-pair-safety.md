@@ -20,7 +20,7 @@
 
 ## Public Interfaces
 
-- Add `DcpConfig.turnProtection: number`, default `0`, minimum `0`.
+- Add `DcpConfig.turnProtection: number`, restricted to non-negative integers, default `0`.
 - Replace `ToolParameterEntry.turn` with `userTurn`.
 - Replace `SessionState.currentTurn` with runtime-only `currentUserTurn`.
 - Add `getProtectedTurnStart(messages, turns): number | undefined`.
@@ -33,7 +33,7 @@
 - Modify: `src/config-schema.ts`, `src/config.ts`, `dcp.schema.json`
 - Test: `tests/config.test.ts`, `tests/helpers.ts`
 
-- [ ] **Step 1: Add failing configuration tests**
+- [x] **Step 1: Add failing configuration tests**
 
   Add tests for the default, a positive value, and invalid negative input:
 
@@ -61,18 +61,18 @@
   });
   ```
 
-- [ ] **Step 2: Confirm the tests fail**
+- [x] **Step 2: Confirm the tests fail**
 
   Run `pnpm vitest run tests/config.test.ts -t "top-level turn protection"`.
 
   Expected: failure because `DcpConfig` has no top-level property.
 
-- [ ] **Step 3: Add the schema property once**
+- [x] **Step 3: Add the schema property once**
 
   Add this property to `DcpConfigSchema`:
 
   ```ts
-  turnProtection: Type.Number({
+  turnProtection: Type.Integer({
     default: 0,
     minimum: 0,
     description: "Protect the newest N user turns from all DCP transformations",
@@ -81,13 +81,13 @@
 
   Let `Value.Create` populate `DEFAULT_CONFIG`; do not add a second parser or compatibility alias. Add `turnProtection: 0` to hand-built `makeDefaultConfig()` fixtures.
 
-- [ ] **Step 4: Regenerate and verify the schema**
+- [x] **Step 4: Regenerate and verify the schema**
 
   Run `pnpm run generate:schema` and `pnpm vitest run tests/config.test.ts`.
 
   Expected: configuration tests pass and `dcp.schema.json` contains the default and minimum.
 
-- [ ] **Step 5: Commit the configuration contract**
+- [x] **Step 5: Commit the configuration contract**
 
   ```bash
   git add src/config-schema.ts src/config.ts dcp.schema.json tests/config.test.ts tests/helpers.ts
@@ -103,7 +103,7 @@
 - Test: `tests/tool-cache.test.ts`, `tests/state.test.ts`, `tests/persistence.test.ts`, `tests/pipeline.test.ts`, `tests/integration.test.ts`, `tests/commands-context.test.ts`
 - Update fixtures: `tests/helpers.ts`, `tests/prune.test.ts`, `tests/purge-errors.test.ts`, `tests/compress-search.test.ts`, `tests/commands-sweep.test.ts`
 
-- [ ] **Step 1: Add failing ordinal and rebuild tests**
+- [x] **Step 1: Add failing ordinal and rebuild tests**
 
   Use raw messages containing two tool calls in one user turn and a third call after the next user message:
 
@@ -117,7 +117,7 @@
 
   Also call `syncToolCache()` twice, first with a pending call and then with its result, and assert that status, token count, and indices refresh rather than preserving stale metadata.
 
-- [ ] **Step 2: Replace iteration metadata**
+- [x] **Step 2: Replace iteration metadata**
 
   Change the age fields:
 
@@ -131,15 +131,15 @@
 
   Initialize and reset `currentUserTurn` to `0`. In `syncToolCache()`, clear `state.toolParameters`, count raw `user` messages in order, assign the current ordinal to each assistant `toolCall`, and set `state.currentUserTurn` to the final ordinal. Keep the existing result token/error/index collection.
 
-- [ ] **Step 3: Remove the old lifecycle and sidecar counter**
+- [x] **Step 3: Remove the old lifecycle and sidecar counter**
 
   Delete the `turn_end` listener that increments `currentTurn`. Remove `currentTurn` from sidecar serialization, restoration, and logging. Legacy sidecars may still restore stats, message IDs, nudges, and compaction time, but their discarded counter must not affect protection.
 
-- [ ] **Step 4: Update observability and fixtures**
+- [x] **Step 4: Update observability and fixtures**
 
   Change `/dcp:context` to emit `Current user turn: ${state.currentUserTurn}`. Migrate every fixture field from `turn` to `userTurn` and every manual state assignment from `currentTurn` to `currentUserTurn`. Keep test histories raw-user-message driven where pipeline behavior is being tested.
 
-- [ ] **Step 5: Run state-focused verification**
+- [x] **Step 5: Run state-focused verification**
 
   Run:
 
@@ -149,7 +149,7 @@
 
   Expected: deterministic rebuilds, refreshed result metadata, no persisted counter, and the renamed context output.
 
-- [ ] **Step 6: Commit user-turn metadata**
+- [x] **Step 6: Commit user-turn metadata**
 
   ```bash
   git add src/state src/index.ts src/commands/context.ts tests
@@ -163,7 +163,7 @@
 - Modify: `src/strategies/runner.ts`, `src/strategies/purge-errors.ts`
 - Test: `tests/strategy-runner.test.ts`, `tests/turn-protection.test.ts`, `tests/purge-errors.test.ts`, `tests/commands-sweep.test.ts`
 
-- [ ] **Step 1: Rewrite the existing protection tests around user ordinals**
+- [x] **Step 1: Rewrite the existing protection tests around user ordinals**
 
   Replace the current agent-iteration fixtures with raw-user-turn equivalents. Cover:
   - global `0` preserves existing dedup behavior;
@@ -173,7 +173,7 @@
   - sweep skips recent completed results;
   - fewer historical user turns than configured protects every existing user turn.
 
-- [ ] **Step 2: Use user-turn age in strategies**
+- [x] **Step 2: Use user-turn age in strategies**
 
   Deduplication must use:
 
@@ -188,13 +188,13 @@
 
   Stale errors must use `state.currentUserTurn` and `entry.userTurn`, with the effective threshold equal to the larger of `purgeErrors.turns` and `config.turnProtection`. Sweep must skip entries whose age is less than `config.turnProtection`.
 
-- [ ] **Step 3: Run the pruning suite**
+- [x] **Step 3: Run the pruning suite**
 
   Run `pnpm vitest run tests/strategy-runner.test.ts tests/turn-protection.test.ts tests/purge-errors.test.ts tests/commands-sweep.test.ts`.
 
   Expected: all strategy paths honor their documented effective value.
 
-- [ ] **Step 4: Commit unified pruning protection**
+- [x] **Step 4: Commit unified pruning protection**
 
   ```bash
   git add src/strategies/runner.ts src/strategies/purge-errors.ts tests/strategy-runner.test.ts tests/turn-protection.test.ts tests/purge-errors.test.ts tests/commands-sweep.test.ts
@@ -208,7 +208,7 @@
 - Modify: `src/compress/search.ts`, `src/compress/handler.ts`, `src/messages/prune.ts`
 - Test: `tests/compress-search.test.ts`, `tests/compress-range.test.ts`, `tests/compress-message.test.ts`, `tests/prune.test.ts`, `tests/turn-protection.test.ts`
 
-- [ ] **Step 1: Add boundary tests**
+- [x] **Step 1: Add boundary tests**
 
   Cover zero turns, empty history, one protected turn, fewer turns than configured, and a range that begins before but ends inside the protected window:
 
@@ -218,7 +218,7 @@
   expect(getProtectedTurnStart(messages, 99)).toBe(firstUserIndex);
   ```
 
-- [ ] **Step 2: Add the shared helper**
+- [x] **Step 2: Add the shared helper**
 
   ```ts
   export function getProtectedTurnStart(
@@ -233,15 +233,15 @@
   }
   ```
 
-- [ ] **Step 3: Enforce the boundary before compression mutation**
+- [x] **Step 3: Enforce the boundary before compression mutation**
 
-  In `handleCompress()`, compute `protectedStart` once from raw `messages`, normalize all entries first, and reject if any resolved selection has `endIndex >= protectedStart`. Route message-mode targets through `resolveSelection(messages, index, index, state)` so they expand to complete tool groups. Reject the full batch before allocating a run or block ID.
+  In `handleCompress()`, compute `protectedStart` once from raw `messages`, normalize all entries first, and reject if any resolved selection has `endIndex >= protectedStart`. Route message-mode targets through `resolveSelection(messages, index, index, state)` so they expand to complete tool groups. Reject protected or overlapping selections before allocating a run or block ID.
 
-- [ ] **Step 4: Preserve Pi-compatible fallback behavior**
+- [x] **Step 4: Preserve Pi-compatible fallback behavior**
 
   Keep `removeOrphanedToolResults()` as a one-way cleanup after DCP filtering. Do not remove assistant `toolCall` parts when their result is absent; Pi’s provider transform inserts an error result. Add tests proving an orphan result is removed and an unmatched assistant call survives.
 
-- [ ] **Step 5: Run compression and pair tests**
+- [x] **Step 5: Run compression and pair tests**
 
   Run:
 
@@ -251,7 +251,7 @@
 
   Expected: old selections succeed, protected overlap fails atomically, both compression modes expand pairs, and fallback normalization remains one-way.
 
-- [ ] **Step 6: Commit pair-safe compression**
+- [x] **Step 6: Commit pair-safe compression**
 
   ```bash
   git add src/compress/search.ts src/compress/handler.ts src/messages/prune.ts tests/compress-search.test.ts tests/compress-range.test.ts tests/compress-message.test.ts tests/prune.test.ts tests/turn-protection.test.ts
@@ -304,6 +304,7 @@
 - User-turn ordinals rebuild deterministically from raw messages and are not persisted.
 - Dedup, stale-error pruning, sweep, and both compression modes enforce the hard boundary.
 - Protected compression batches fail atomically.
+- Overlapping expanded compression selections fail atomically.
 - Normal DCP compression does not split assistant/tool-result pairs.
 - DCP removes orphan results it creates but leaves unmatched assistant calls for Pi normalization.
 - README, schema, changelog, and phase index describe the released behavior.
@@ -316,6 +317,6 @@ Phase 3 may rely on `ToolParameterEntry.userTurn`, runtime `SessionState.current
 ## Release Record
 
 - Status: complete
-- Release commit or tag: implementation range `605db9a^..60ff383` (the final release-record commit does not self-reference)
+- Release commit or tag: implementation range `605db9a^..6534710` (the final release-record commit does not self-reference)
 - Verification date: 2026-07-28
-- Verification: schema unchanged; 396 tests, typecheck, lint (84 warnings and 1 info), package, and diff checks passed under Node 23.11.0 (the package requires Node 24.15.0 or newer).
+- Verification: schema regenerated; 399 tests, typecheck, lint (84 warnings and 1 info), package, and diff checks passed under Node 23.11.0 (the package requires Node 24.15.0 or newer).
