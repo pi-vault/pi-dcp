@@ -52,6 +52,38 @@ describe("runStrategies", () => {
     );
   });
 
+  it("counts removed inputs when deduplicating failed calls", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const parameters = { command: "x".repeat(400) };
+    config.strategies.purgeErrors.enabled = false;
+    state.currentTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "error-1",
+        tool: "custom_tool",
+        parameters,
+        status: "error",
+        turn: 1,
+        tokenCount: 500,
+      },
+      {
+        id: "error-2",
+        tool: "custom_tool",
+        parameters,
+        status: "error",
+        turn: 2,
+        tokenCount: 500,
+      },
+    ]);
+
+    const result = runStrategies(state, config);
+
+    expect(result.pruned).toBe(1);
+    expect(result.tokensSaved).toBe(estimatePurgedInputSavings(parameters));
+  });
+
   it("respects disabled deduplication", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();

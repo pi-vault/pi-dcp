@@ -253,7 +253,7 @@ After this phase:
 
 - [x] **Step 5: Make stale-error accounting match the transformation**
 
-  In the purge-errors loop in `src/strategies/runner.ts`, replace `entry.tokenCount` with `estimatePurgedInputSavings(entry.parameters)` when setting the prune map and accumulating `tokensSaved`. Keep deduplication and sweep result-token accounting unchanged.
+  In `src/strategies/runner.ts`, use `estimatePurgedInputSavings(entry.parameters)` whenever a marked entry has error status, including deduplication; keep successful deduplication and sweep result-token accounting unchanged.
 
   Update the combined strategy fixture and assertion as follows:
 

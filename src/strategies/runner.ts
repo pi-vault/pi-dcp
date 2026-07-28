@@ -81,7 +81,10 @@ export function runStrategies(
           continue;
         }
 
-        const tokens = entry.tokenCount ?? 0;
+        const tokens =
+          entry.status === "error"
+            ? estimatePurgedInputSavings(entry.parameters)
+            : (entry.tokenCount ?? 0);
         state.prune.tools.set(callId, tokens);
         pruned++;
         tokensSaved += tokens;
