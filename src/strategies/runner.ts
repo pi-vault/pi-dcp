@@ -39,7 +39,10 @@ export function runStrategies(
       ...BASE_PROTECTED_TOOLS,
       ...config.strategies.deduplication.protectedTools,
     ];
-    const turnProtection = config.strategies.deduplication.turnProtection;
+    const turnProtection = Math.max(
+      config.turnProtection,
+      config.strategies.deduplication.turnProtection,
+    );
 
     const unpruned = state.toolIdList.filter(
       (id) => !state.prune.tools.has(id),
@@ -99,7 +102,10 @@ export function runStrategies(
       ...BASE_PROTECTED_TOOLS,
       ...config.strategies.purgeErrors.protectedTools,
     ];
-    const turnThreshold = config.strategies.purgeErrors.turns;
+    const turnThreshold = Math.max(
+      config.turnProtection,
+      config.strategies.purgeErrors.turns,
+    );
     const unpruned = state.toolIdList.filter(
       (id) => !state.prune.tools.has(id),
     );
@@ -153,6 +159,12 @@ export function sweepAll(
     if (state.prune.tools.has(toolCallId)) continue;
     if (protectedTools.has(entry.tool)) continue;
     if (entry.status !== "completed") continue;
+    if (
+      config.turnProtection > 0 &&
+      state.currentUserTurn - entry.userTurn < config.turnProtection
+    ) {
+      continue;
+    }
 
     const tokens = entry.tokenCount ?? 0;
     state.prune.tools.set(toolCallId, tokens);

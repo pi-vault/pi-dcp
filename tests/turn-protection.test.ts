@@ -69,6 +69,7 @@ describe("turn protection for deduplication", () => {
   it("prunes all duplicates when turnProtection is 0 (disabled)", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
+    config.turnProtection = 0;
     config.strategies.deduplication.turnProtection = 0;
     state.currentUserTurn = 5;
 
@@ -94,6 +95,67 @@ describe("turn protection for deduplication", () => {
     const result = runStrategies(state, config);
     expect(state.prune.tools.has("a1")).toBe(true); // pruned — no protection
     expect(result.pruned).toBe(1);
+  });
+
+  it("uses the larger global turn protection for duplicates", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 5;
+    config.strategies.deduplication.turnProtection = 2;
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "a1",
+        tool: "custom_tool",
+        parameters: { path: "/a.ts" },
+        status: "completed",
+        userTurn: 6,
+        tokenCount: 100,
+      },
+      {
+        id: "a2",
+        tool: "custom_tool",
+        parameters: { path: "/a.ts" },
+        status: "completed",
+        userTurn: 10,
+        tokenCount: 100,
+      },
+    ]);
+
+    runStrategies(state, config);
+
+    expect(state.prune.tools.has("a1")).toBe(false);
+  });
+
+  it("protects duplicates when the global window exceeds user history", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 10;
+    state.currentUserTurn = 5;
+
+    seedToolCache(state, [
+      {
+        id: "a1",
+        tool: "custom_tool",
+        parameters: { path: "/a.ts" },
+        status: "completed",
+        userTurn: 1,
+        tokenCount: 100,
+      },
+      {
+        id: "a2",
+        tool: "custom_tool",
+        parameters: { path: "/a.ts" },
+        status: "completed",
+        userTurn: 5,
+        tokenCount: 100,
+      },
+    ]);
+
+    runStrategies(state, config);
+
+    expect(state.prune.tools.has("a1")).toBe(false);
   });
 
   it("does not affect purge-errors strategy", () => {

@@ -291,6 +291,54 @@ describe("runStrategies", () => {
     expect(result.pruned).toBe(0);
   });
 
+  it("keeps errors protected by the larger global turn window", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 5;
+    config.strategies.purgeErrors.turns = 2;
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "err1",
+        tool: "custom_tool",
+        parameters: {},
+        status: "error",
+        userTurn: 6,
+        tokenCount: 200,
+      },
+    ]);
+
+    const result = runStrategies(state, config);
+
+    expect(state.prune.tools.has("err1")).toBe(false);
+    expect(result.pruned).toBe(0);
+  });
+
+  it("keeps errors until the existing purge threshold", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 2;
+    config.strategies.purgeErrors.turns = 4;
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "err1",
+        tool: "custom_tool",
+        parameters: {},
+        status: "error",
+        userTurn: 7,
+        tokenCount: 200,
+      },
+    ]);
+
+    const result = runStrategies(state, config);
+
+    expect(state.prune.tools.has("err1")).toBe(false);
+    expect(result.pruned).toBe(0);
+  });
+
   it("updates stats correctly", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();

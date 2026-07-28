@@ -106,4 +106,27 @@ describe("sweep command", () => {
     const result = sweepCommand(state, config);
     expect(result).toContain("0");
   });
+
+  it("skips completed output within the global turn protection window", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.turnProtection = 3;
+    state.currentUserTurn = 5;
+
+    state.toolParameters.set("call-1", {
+      tool: "custom-search",
+      parameters: {},
+      status: "completed",
+      error: undefined,
+      userTurn: 3,
+      tokenCount: 200,
+      assistantIndex: undefined,
+      resultIndex: undefined,
+    });
+
+    const result = sweepCommand(state, config);
+
+    expect(result).toContain("0");
+    expect(state.prune.tools.has("call-1")).toBe(false);
+  });
 });
