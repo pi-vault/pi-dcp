@@ -242,34 +242,6 @@ describe("runStrategies", () => {
     expect(state.prune.tools.size).toBe(0);
   });
 
-  it("skips protected tools (BASE_PROTECTED_TOOLS)", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    state.currentTurn = 10;
-
-    seedToolCache(state, [
-      {
-        id: "a1",
-        tool: "write",
-        parameters: { path: "file.txt" },
-        status: "completed",
-        turn: 1,
-        tokenCount: 50,
-      },
-      {
-        id: "a2",
-        tool: "write",
-        parameters: { path: "file.txt" },
-        status: "completed",
-        turn: 2,
-        tokenCount: 50,
-      },
-    ]);
-
-    const result = runStrategies(state, config);
-    expect(result.pruned).toBe(0);
-  });
-
   it("skips tools operating on protected file paths", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();

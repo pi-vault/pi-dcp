@@ -120,7 +120,7 @@ After this phase:
 
 - [x] **Step 1: Replace obsolete unit assertions with a failing argument-purge test**
 
-  Remove the `pruneToolErrors` tests and add a test that seeds an error entry and asserts the assistant argument marker while retaining the same result object/content:
+  Remove the `pruneToolErrors` tests and add a test that seeds an error entry and asserts the assistant argument marker while retaining the same result object; object identity also guarantees unchanged content:
 
   ```ts
   import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -183,9 +183,6 @@ After this phase:
       __purged: "input removed due to failed tool call",
     });
     expect(result[1]).toBe(errorResult);
-    expect(
-      (result[1] as Extract<AgentMessage, { role: "toolResult" }>).content,
-    ).toEqual(errorResult.content);
   });
   ```
 
@@ -400,9 +397,9 @@ After this phase:
   });
   ```
 
-- [x] **Step 2: Update the existing conflicting test**
+- [x] **Step 2: Remove the existing redundant protected-tool test**
 
-  Change the current `skips protected tools (BASE_PROTECTED_TOOLS)` fixture from `bash` to `write`; its expected result remains zero.
+  Delete the old `skips protected tools (BASE_PROTECTED_TOOLS)` test; the exact-list assertion and `keeps write output protected` regression cover the same contract without duplicate setup.
 
 - [x] **Step 3: Replace the default list**
 

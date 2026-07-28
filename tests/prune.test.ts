@@ -134,9 +134,6 @@ describe("prune", () => {
         __purged: "input removed due to failed tool call",
       });
       expect(result[1]).toBe(errorResult);
-      expect((result[1] as { content: unknown }).content).toEqual(
-        (errorResult as { content: unknown }).content,
-      );
     });
   });
 
