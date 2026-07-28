@@ -1,7 +1,11 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
-import { resolveBoundaryIndex, resolveSelection } from "./search.ts";
+import {
+  getProtectedTurnStart,
+  resolveBoundaryIndex,
+  resolveSelection,
+} from "./search.ts";
 import {
   allocateBlockId,
   allocateRunId,
@@ -58,7 +62,16 @@ export function handleCompress(
   messages: AgentMessage[],
   args: CompressArgs,
 ): CompressResult {
+  const protectedStart = getProtectedTurnStart(messages, config.turnProtection);
   const entries = normalizeEntries(state, messages, args);
+  if (
+    protectedStart !== undefined &&
+    entries.some((entry) => entry.endIndex >= protectedStart)
+  ) {
+    throw new Error(
+      "Compression overlaps the turnProtection protected window; choose only older messages.",
+    );
+  }
   const runId = allocateRunId(state);
   let totalCompressed = 0;
   let totalCompressedTokens = 0;
@@ -187,11 +200,12 @@ function normalizeEntries(
       );
     }
 
+    const selection = resolveSelection(messages, index, index, state);
     return {
-      startIndex: index,
-      endIndex: index,
+      startIndex: selection.startIndex,
+      endIndex: selection.endIndex,
       summary: target.summary,
-      messageCount: 1,
+      messageCount: selection.messageIndices.length,
     };
   });
 }

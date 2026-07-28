@@ -2,6 +2,18 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState } from "../state/types.ts";
 import { parseBoundaryId } from "../utils/message-ids.ts";
 
+/** Return the first message index in the newest protected user turns. */
+export function getProtectedTurnStart(
+  messages: AgentMessage[],
+  turns: number,
+): number | undefined {
+  if (turns <= 0) return undefined;
+  const userIndices = messages.flatMap((message, index) =>
+    message.role === "user" ? [index] : [],
+  );
+  return userIndices[Math.max(0, userIndices.length - turns)];
+}
+
 /**
  * Resolve a boundary ID (m0001 or b1) to a message array index.
  */

@@ -221,6 +221,15 @@ describe("prune", () => {
       expect(result[0].role).toBe("assistant");
       expect(result[1].role).toBe("toolResult");
     });
+
+    it("keeps an assistant toolCall when its result is absent", () => {
+      const state = createSessionState();
+      const assistant = makeAssistantWithToolCall("c1", "read", {});
+
+      const result = applyPruning(state, [assistant]);
+
+      expect(result).toEqual([assistant]);
+    });
   });
 
   describe("filterCompressedRanges", () => {

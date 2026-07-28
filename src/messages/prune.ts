@@ -46,11 +46,8 @@ export function filterCompressedRanges(
  * Remove toolResult messages whose toolCallId has no matching toolCall
  * in an assistant message in the output array.
  *
- * Known limitation: does not detect the reverse — an assistant message with
- * toolCall content whose toolResult was removed. That case is prevented by
- * Layer 1 (expandRangeForToolChains) but not caught here because handling it
- * is harder (assistant messages may have mixed content). A future hardening
- * pass could synthesize stub toolResults for orphaned toolCalls.
+ * This intentionally does not remove assistant toolCalls whose result is
+ * absent: Pi normalizes those unmatched calls with an error result.
  */
 function removeOrphanedToolResults(messages: AgentMessage[]): AgentMessage[] {
   // Collect all toolCall IDs from assistant messages
