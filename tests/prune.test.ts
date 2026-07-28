@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pruneToolOutputs, pruneToolErrors, applyPruning } from "../src/messages/prune.ts";
+import { pruneToolOutputs, applyPruning } from "../src/messages/prune.ts";
 import { allocateBlockId, allocateRunId, applyCompressionState } from "../src/compress/state.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -18,6 +18,26 @@ function makeToolResult(
     isError,
     timestamp: Date.now(),
   } as AgentMessage;
+}
+
+function makeAssistantWithToolCall(
+  id: string,
+  name: string,
+  arguments_: Record<string, unknown>,
+): AgentMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "toolCall", id, name, arguments: arguments_ }],
+    stopReason: "toolUse",
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      totalTokens: 0,
+    },
+    timestamp: Date.now(),
+  } as unknown as AgentMessage;
 }
 
 describe("prune", () => {
@@ -47,7 +67,7 @@ describe("prune", () => {
       expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toBe("output");
     });
 
-    it("skips error tool results (handled by pruneToolErrors)", () => {
+    it("skips error tool results", () => {
       const state = createSessionState();
       state.prune.tools.set("call1", 100);
 
@@ -60,38 +80,63 @@ describe("prune", () => {
     });
   });
 
-  describe("pruneToolErrors", () => {
-    it("replaces content of pruned error tool results", () => {
-      const state = createSessionState();
-      state.prune.tools.set("call1", 100);
-
-      const messages: AgentMessage[] = [
-        makeToolResult("call1", "bash", "Error: command not found", true),
-      ];
-
-      const result = pruneToolErrors(state, messages);
-      expect(result).toHaveLength(1);
-      const content = (result[0] as { content: Array<{ text: string }> }).content;
-      expect(content[0].text).toContain("[input removed");
-    });
-  });
-
   describe("applyPruning", () => {
-    it("applies both output and error pruning", () => {
+    it("applies output pruning", () => {
       const state = createSessionState();
       state.prune.tools.set("call1", 100);
-      state.prune.tools.set("call2", 50);
 
       const messages: AgentMessage[] = [
         makeToolResult("call1", "glob", "big output"),
-        makeToolResult("call2", "bash", "Error: fail", true),
-        makeToolResult("call3", "read", "untouched"),
+        makeToolResult("call2", "read", "untouched"),
       ];
 
       const result = applyPruning(state, messages);
       expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toContain("[Output removed");
-      expect((result[1] as { content: Array<{ text: string }> }).content[0].text).toContain("[input removed");
-      expect((result[2] as { content: Array<{ text: string }> }).content[0].text).toBe("untouched");
+      expect((result[1] as { content: Array<{ text: string }> }).content[0].text).toBe("untouched");
+    });
+
+    it("purges failed arguments while preserving the diagnostic result", () => {
+      const state = createSessionState();
+      state.prune.tools.set("failed-1", 40);
+      state.toolParameters.set("failed-1", {
+        tool: "custom_tool",
+        parameters: { command: "very long invalid command" },
+        status: "error",
+        error: "command not found",
+        turn: 0,
+        tokenCount: 40,
+        assistantIndex: 0,
+        resultIndex: 1,
+      });
+      const errorResult = makeToolResult(
+        "failed-1",
+        "custom_tool",
+        "command not found",
+        true,
+      );
+      const messages = [
+        makeAssistantWithToolCall("failed-1", "custom_tool", {
+          command: "very long invalid command",
+        }),
+        errorResult,
+      ];
+
+      const result = applyPruning(state, messages);
+      const assistant = result[0] as Extract<
+        AgentMessage,
+        { role: "assistant" }
+      >;
+      const toolCall = assistant.content.find(
+        (part) => part.type === "toolCall",
+      );
+
+      expect(toolCall?.arguments).toEqual({
+        __purged: "input removed due to failed tool call",
+      });
+      expect(result[1]).toBe(errorResult);
+      expect((result[1] as { content: unknown }).content).toEqual(
+        (errorResult as { content: unknown }).content,
+      );
     });
   });
 

@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState } from "../state/types.ts";
+import { PURGED_ERROR_INPUT } from "../strategies/purge-errors.ts";
 
 /**
  * Filter out compressed message ranges and inject summaries.
@@ -74,7 +75,6 @@ function removeOrphanedToolResults(messages: AgentMessage[]): AgentMessage[] {
 
 const PRUNED_OUTPUT_TEXT =
   "[Output removed to save context - information superseded or no longer needed]";
-const PRUNED_ERROR_INPUT_TEXT = "[input removed due to failed tool call]";
 
 /**
  * Replace outputs of pruned tool results with placeholder text.
@@ -98,25 +98,33 @@ export function pruneToolOutputs(
   });
 }
 
-/**
- * Replace content of pruned error tool results with placeholder text.
- * Returns a new array (does not mutate input).
- */
-export function pruneToolErrors(
+/** Replace arguments of pruned failed tool calls while preserving diagnostics. */
+export function pruneFailedInputs(
   state: SessionState,
   messages: AgentMessage[],
 ): AgentMessage[] {
   if (state.prune.tools.size === 0) return messages;
 
-  return messages.map((msg) => {
-    if (msg.role !== "toolResult") return msg;
-    if (!state.prune.tools.has(msg.toolCallId)) return msg;
-    if (!msg.isError) return msg;
+  const failedIds = new Set(
+    [...state.prune.tools.keys()].filter(
+      (id) => state.toolParameters.get(id)?.status === "error",
+    ),
+  );
+  if (failedIds.size === 0) return messages;
 
-    return {
-      ...msg,
-      content: [{ type: "text" as const, text: PRUNED_ERROR_INPUT_TEXT }],
-    };
+  return messages.map((message) => {
+    if (message.role !== "assistant" || !Array.isArray(message.content)) {
+      return message;
+    }
+
+    let changed = false;
+    const content = message.content.map((part) => {
+      if (part.type !== "toolCall" || !failedIds.has(part.id)) return part;
+      changed = true;
+      return { ...part, arguments: { __purged: PURGED_ERROR_INPUT } };
+    });
+
+    return changed ? { ...message, content } : message;
   });
 }
 
@@ -130,6 +138,6 @@ export function applyPruning(
 ): AgentMessage[] {
   let result = filterCompressedRanges(state, messages);
   result = pruneToolOutputs(state, result);
-  result = pruneToolErrors(state, result);
+  result = pruneFailedInputs(state, result);
   return result;
 }

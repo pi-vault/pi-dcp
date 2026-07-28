@@ -8,6 +8,7 @@ import {
 } from "./helpers.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ContextUsage } from "../src/state/types.ts";
+import { countTokens } from "../src/utils/tokens.ts";
 
 describe("runPipeline", () => {
   it("returns messages unchanged when no pruning applies", () => {
@@ -113,6 +114,75 @@ describe("runPipeline", () => {
     // Deduplication should have pruned the older duplicate (call-1)
     expect(state.prune.tools.has("call-1")).toBe(true);
     expect(state.prune.tools.has("call-2")).toBe(false);
+  });
+
+  it("purges stale failed inputs while preserving their diagnostics", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const parameters = { command: "x".repeat(400) };
+    const messages: AgentMessage[] = [
+      makeUserMessage("Run the command"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "failed-1",
+            name: "custom_tool",
+            arguments: parameters,
+          },
+        ],
+        stopReason: "toolUse",
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        toolCallId: "failed-1",
+        toolName: "custom_tool",
+        content: [{ type: "text", text: "command not found" }],
+        isError: true,
+        timestamp: Date.now(),
+      } as AgentMessage,
+    ];
+
+    state.currentTurn = 0;
+    runPipeline(state, config, messages, undefined);
+
+    state.currentTurn = 4;
+    const result = runPipeline(state, config, messages, undefined);
+    const assistant = result.messages.find(
+      (message): message is Extract<AgentMessage, { role: "assistant" }> =>
+        message.role === "assistant",
+    );
+    const toolCall = assistant?.content.find(
+      (part) => part.type === "toolCall",
+    );
+    const errorResult = result.messages.find(
+      (message): message is Extract<AgentMessage, { role: "toolResult" }> =>
+        message.role === "toolResult",
+    );
+
+    expect(toolCall?.arguments).toEqual({
+      __purged: "input removed due to failed tool call",
+    });
+    expect(errorResult?.content).toEqual([
+      { type: "text", text: "command not found" },
+    ]);
+    expect(result.strategyResult.tokensSaved).toBe(
+      countTokens(JSON.stringify(parameters)) -
+        countTokens(
+          JSON.stringify({
+            __purged: "input removed due to failed tool call",
+          }),
+        ),
+    );
   });
 
   it("injects compress nudges when context usage is high", () => {
