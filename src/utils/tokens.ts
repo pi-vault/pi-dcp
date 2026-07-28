@@ -1,17 +1,12 @@
-import { countTokens as anthropicCountTokens } from "@anthropic-ai/tokenizer";
-
 /**
- * Count tokens using the Anthropic tokenizer (Claude's vocabulary).
- * Falls back to character-based estimation (length/4) if the tokenizer
- * throws (e.g., invalid input or WASM initialization failure).
+ * Estimate per-message tokens from text length.
+ *
+ * Pi's ctx.getContextUsage() supplies accurate context-level counts for
+ * threshold decisions. These estimates support pruning and compression stats.
  */
 export function countTokens(text: string): number {
   if (text.length === 0) return 0;
-  try {
-    return anthropicCountTokens(text);
-  } catch {
-    return Math.max(1, Math.round(text.length / 4));
-  }
+  return Math.max(1, Math.round(text.length / 4));
 }
 
 export function countTokensBatch(texts: string[]): number {
