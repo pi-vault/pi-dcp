@@ -168,7 +168,7 @@ export const DcpConfigSchema = Type.Object({
     default: [],
     description: "Glob patterns for file paths to protect from pruning",
   }),
-  turnProtection: Type.Number({
+  turnProtection: Type.Integer({
     default: 0,
     minimum: 0,
     description: "Protect the newest N user turns from all DCP transformations",

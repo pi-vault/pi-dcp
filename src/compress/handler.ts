@@ -72,6 +72,16 @@ export function handleCompress(
       "Compression overlaps the turnProtection protected window; choose only older messages.",
     );
   }
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = 0; j < i; j++) {
+      if (
+        entries[i].startIndex <= entries[j].endIndex &&
+        entries[j].startIndex <= entries[i].endIndex
+      ) {
+        throw new Error("Overlapping compression selections are not allowed.");
+      }
+    }
+  }
   const runId = allocateRunId(state);
   let totalCompressed = 0;
   let totalCompressedTokens = 0;

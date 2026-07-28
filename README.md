@@ -174,7 +174,7 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 - `purgeErrors.turns` — age threshold for failed tool-input purging.
 - `purgeErrors.protectedTools` — tool names excluded from failed-input purging.
 
-DCP counts turns from raw user messages, not assistant iterations. When the history contains fewer user turns than `turnProtection`, all history is protected. Deduplication, stale-error pruning, `dcp:sweep`, and both compression modes enforce this boundary. Normal compression expands a tool target to its complete assistant call/result group; DCP removes orphan results it creates, while Pi synthesizes error results for assistant calls that have no result.
+DCP counts turns from raw user messages, not assistant iterations. When the history contains fewer user turns than `turnProtection`, all existing user turns are protected. Deduplication, stale-error pruning, `dcp:sweep`, and both compression modes enforce this boundary. Normal compression expands a tool target to its complete assistant call/result group; DCP removes orphan results it creates, while Pi synthesizes error results for assistant calls that have no result.
 
 DCP preserves failed tool diagnostics and purges only the historical arguments of eligible stale failures. Repeated `read`, `grep`, `find`, `ls`, and `bash` calls may be deduplicated or swept. `compress`, `write`, `edit`, and `subagent` remain protected by default; configured protected-tool patterns are additive.
 

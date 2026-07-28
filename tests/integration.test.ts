@@ -246,6 +246,75 @@ describe("integration", () => {
     ).toBeDefined();
   });
 
+  it("uses the session-reloaded turn protection for sweep", async () => {
+    const { api, handlers, commands } = createMockApi();
+    createExtension(api);
+
+    fs.mkdirSync(path.join(agentDir, "extensions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(agentDir, "extensions", "dcp.json"),
+      JSON.stringify({ turnProtection: 1 }),
+    );
+
+    const notify = vi.fn();
+    const mockCtx = {
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
+      hasUI: false,
+      ui: { setStatus: () => {}, notify },
+    };
+
+    const sessionStartHandlers = handlers.get("session_start");
+    if (!sessionStartHandlers) throw new Error("session_start handler not registered");
+    for (const handler of sessionStartHandlers) {
+      await handler({ reason: "new" }, mockCtx);
+    }
+
+    const contextHandlers = handlers.get("context");
+    if (!contextHandlers) throw new Error("context handler not registered");
+    const messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Newest request" }],
+        timestamp: Date.now(),
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "new-call",
+            name: "glob",
+            arguments: { pattern: "**/*.ts" },
+          },
+        ],
+        timestamp: Date.now(),
+      },
+      {
+        role: "toolResult",
+        toolCallId: "new-call",
+        toolName: "glob",
+        content: [{ type: "text", text: "src/index.ts" }],
+        isError: false,
+        timestamp: Date.now(),
+      },
+    ];
+    for (const handler of contextHandlers) {
+      await handler({ messages }, mockCtx);
+    }
+
+    const sweep = commands.get("dcp:sweep") as
+      | { handler: (args: string, ctx: typeof mockCtx) => Promise<void> }
+      | undefined;
+    if (!sweep) throw new Error("dcp:sweep command not registered");
+    await sweep.handler("", mockCtx);
+
+    expect(notify).toHaveBeenLastCalledWith(
+      "Sweep complete: 0 tool outputs pruned, ~0 tokens saved.",
+      "info",
+    );
+  });
+
   it("injects CONTEXT_LIMIT_NUDGE when tokens >= maxContextLimit (absolute)", async () => {
     const { api, handlers } = createMockApi();
     createExtension(api);

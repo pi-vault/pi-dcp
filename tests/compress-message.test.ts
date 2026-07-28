@@ -138,6 +138,46 @@ describe("handleCompress (message mode)", () => {
     expect(block?.endIndex).toBe(2);
   });
 
+  it("rejects overlapping expanded targets before allocating compression state", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ mode: "message" });
+    const messages: AgentMessage[] = [
+      makeUserMessage("read it"),
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
+        stopReason: "toolUse",
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        timestamp: 0,
+      } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        toolCallId: "c1",
+        toolName: "read",
+        content: [{ type: "text", text: "contents" }],
+        isError: false,
+        timestamp: 0,
+      } as AgentMessage,
+    ];
+    assignMessageRefs(state, messages);
+
+    expect(() =>
+      handleCompress(state, config, messages, {
+        topic: "tool pair",
+        mode: "message",
+        targets: [
+          { messageId: "m0002", summary: "call" },
+          { messageId: "m0003", summary: "result" },
+        ],
+      }),
+    ).toThrow(/overlapping compression selections/i);
+
+    expect(state.prune.messages.blocksById.size).toBe(0);
+    expect(state.prune.messages.nextBlockId).toBe(1);
+    expect(state.prune.messages.nextRunId).toBe(1);
+    expect(state.stats.messagesCompressed).toBe(0);
+  });
+
   it("rejects a message target in the protected window", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ mode: "message" });

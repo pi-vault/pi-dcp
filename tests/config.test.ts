@@ -54,6 +54,16 @@ describe("config loading", () => {
     ).toBe(true);
   });
 
+  it("resets fractional top-level turn protection", () => {
+    const file = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(file, JSON.stringify({ turnProtection: 1.5 }));
+    const result = loadConfig(file);
+    expect(result.config.turnProtection).toBe(0);
+    expect(
+      result.warnings.some((warning) => warning.includes("turnProtection")),
+    ).toBe(true);
+  });
+
   it("loads partial config and fills defaults", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(
