@@ -24,13 +24,9 @@ describe("tokens", () => {
       expect(long).toBeGreaterThan(short);
     });
 
-    it("uses tokenizer (not heuristic) for non-trivial text", () => {
+    it("uses character-based estimation for non-trivial text", () => {
       const text = "The quick brown fox jumps over the lazy dog. ".repeat(10);
-      const result = countTokens(text);
-      const heuristic = Math.round(text.length / 4);
-      // 450 chars → heuristic = 113. The Anthropic tokenizer will differ.
-      expect(result).not.toBe(heuristic);
-      expect(result).toBeGreaterThan(0);
+      expect(countTokens(text)).toBe(Math.round(text.length / 4));
     });
   });
 

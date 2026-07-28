@@ -257,8 +257,8 @@ describe("handleCompress token reporting", () => {
     });
 
     // Total original = 150 + 200 + 100 = 450
-    // Wrapped summary "[Compressed Block b1]\nshort summary\n[End Block b1]" → 16 tokens (Anthropic tokenizer; heuristic was ~13)
-    expect(result.text).toMatch(/~450 tokens replaced by ~16 token summary/);
+    // Wrapped summary "[Compressed Block b1]\nshort summary\n[End Block b1]" = 50 chars → 13 tokens
+    expect(result.text).toMatch(/~450 tokens replaced by ~13 token summary/);
     expect(result.text).toContain("Compressed 3 messages");
   });
 

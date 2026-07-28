@@ -94,8 +94,8 @@ describe("tool-cache", () => {
       syncToolCache(state, messages);
 
       const entry = state.toolParameters.get("call1")!;
-      // "a".repeat(400) → 25 tokens (Anthropic tokenizer; heuristic was 400/4 = 100)
-      expect(entry.tokenCount).toBe(25);
+      // "a".repeat(400) uses the length/4 estimate.
+      expect(entry.tokenCount).toBe(100);
     });
 
     it("sets tokenCount undefined when toolResult not yet received", () => {
