@@ -57,6 +57,36 @@ describe("sweep command", () => {
     expect(state.prune.tools.has("call-1")).toBe(false);
   });
 
+  it("sweeps lookup and shell results but protects mutations", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    state.toolParameters.set("bash-1", {
+      tool: "bash",
+      parameters: { command: "same" },
+      status: "completed",
+      error: undefined,
+      turn: 1,
+      tokenCount: 20,
+      assistantIndex: undefined,
+      resultIndex: undefined,
+    });
+    state.toolParameters.set("write-1", {
+      tool: "write",
+      parameters: { path: "same" },
+      status: "completed",
+      error: undefined,
+      turn: 1,
+      tokenCount: 20,
+      assistantIndex: undefined,
+      resultIndex: undefined,
+    });
+
+    sweepCommand(state, config);
+
+    expect(state.prune.tools.has("bash-1")).toBe(true);
+    expect(state.prune.tools.has("write-1")).toBe(false);
+  });
+
   it("skips already-pruned tool outputs", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
