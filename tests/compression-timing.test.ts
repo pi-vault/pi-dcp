@@ -45,7 +45,10 @@ describe("CompressionTimingState", () => {
 
     state.compressionTiming.startTimes.set("batch-call", 2_500);
     for (const blockId of result.blockIds) {
-      state.prune.messages.blocksById.get(blockId)!.durationMs = 0;
+      const block = state.prune.messages.blocksById.get(blockId);
+      expect(block).toBeDefined();
+      if (!block) throw new Error("Expected compression block");
+      block.durationMs = 0;
     }
     applyCompressionTiming(
       state,

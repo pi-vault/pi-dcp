@@ -59,14 +59,15 @@ describe("compress/state", () => {
 
       const block = state.prune.messages.blocksById.get(blockId);
       expect(block).toBeDefined();
-      expect(block!.active).toBe(true);
-      expect(block!.startIndex).toBe(2);
-      expect(block!.endIndex).toBe(8);
-      expect(block!.compressToolCallId).toBe("compress-call-1");
-      expect(block!.startKey).toBe("user:1000:0");
-      expect(block!.endKey).toBe("assistant:1001:0");
-      expect(block!.anchorKey).toBe("user:1000:0");
-      expect(block!.summary).toBe("Summary text");
+      if (!block) throw new Error("Expected compression block");
+      expect(block.active).toBe(true);
+      expect(block.startIndex).toBe(2);
+      expect(block.endIndex).toBe(8);
+      expect(block.compressToolCallId).toBe("compress-call-1");
+      expect(block.startKey).toBe("user:1000:0");
+      expect(block.endKey).toBe("assistant:1001:0");
+      expect(block.anchorKey).toBe("user:1000:0");
+      expect(block.summary).toBe("Summary text");
 
       expect(state.prune.messages.activeBlockIds.has(blockId)).toBe(true);
       expect(state.prune.messages.activeByAnchorIndex.get(2)).toBe(blockId);
@@ -75,7 +76,8 @@ describe("compress/state", () => {
       for (let i = 2; i <= 8; i++) {
         const entry = state.prune.messages.byMessageIndex.get(i);
         expect(entry).toBeDefined();
-        expect(entry!.activeBlockIds).toContain(blockId);
+        if (!entry) throw new Error("Expected message entry");
+        expect(entry.activeBlockIds).toContain(blockId);
       }
     });
   });
