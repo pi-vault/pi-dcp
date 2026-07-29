@@ -3,6 +3,7 @@ import { handleCompress } from "../src/compress/handler.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { makeDefaultConfig } from "./helpers.ts";
+import { countMessageTokens } from "../src/utils/tokens.ts";
 
 function assignRefs(state: ReturnType<typeof createSessionState>, count: number): void {
   for (let index = 0; index < count; index++) {
@@ -283,10 +284,75 @@ describe("handleCompress fixed-point batch validation", () => {
     });
     const block = state.prune.messages.blocksById.get(result.blockIds[0]);
 
-    expect(block?.directMessageIndices).toEqual([2, 3]);
+    expect(block?.directMessageIndices).toEqual([]);
     expect(block?.directToolIds).toEqual(["b"]);
     expect(block?.effectiveMessageIndices).toEqual([0, 1, 2, 3]);
     expect(block?.effectiveToolIds).toEqual(["a", "b"]);
+  });
+});
+
+describe("handleCompress token accounting", () => {
+  it("counts consumed summaries once and only uncovered direct raw messages", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "first raw message" }], timestamp: 0 },
+      { role: "assistant", content: [{ type: "text", text: "second raw reply" }], timestamp: 0 },
+      { role: "user", content: [{ type: "text", text: "third raw request" }], timestamp: 0 },
+    ] as AgentMessage[];
+    assignRefs(state, messages.length);
+
+    const child = handleCompress(state, config, messages, "child-call", {
+      topic: "child",
+      mode: "range",
+      content: [{ startId: "m0001", endId: "m0001", summary: "child summary" }],
+    });
+    const childBlock = state.prune.messages.blocksById.get(child.blockIds[0]);
+    expect(childBlock?.compressedTokens).toBeGreaterThan(0);
+
+    const parent = handleCompress(state, config, messages, "parent-call", {
+      topic: "parent",
+      mode: "range",
+      content: [{ startId: "b1", endId: "m0003", summary: "parent summary" }],
+    });
+    const parentBlock = state.prune.messages.blocksById.get(parent.blockIds[0]);
+    const directRawTokens = countMessageTokens(messages[1]) + countMessageTokens(messages[2]);
+
+    expect(parentBlock?.directMessageIndices).toEqual([1, 2]);
+    expect(parentBlock?.compressedTokens).toBe((childBlock?.summaryTokens ?? 0) + directRawTokens);
+    expect(parent.compressedTokens).toBe(parentBlock?.compressedTokens);
+    expect(parent.summaryTokens).toBe(parentBlock?.summaryTokens);
+  });
+
+  it("totals every block in a batch", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "first batch message" }], timestamp: 0 },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "second batch message" }],
+        timestamp: 0,
+      },
+    ] as AgentMessage[];
+    assignRefs(state, messages.length);
+
+    const result = handleCompress(state, config, messages, "batch-call", {
+      topic: "batch",
+      mode: "range",
+      content: [
+        { startId: "m0001", endId: "m0001", summary: "first summary" },
+        { startId: "m0002", endId: "m0002", summary: "second summary" },
+      ],
+    });
+    const blocks = result.blockIds.map((id) => state.prune.messages.blocksById.get(id)!);
+
+    expect(result.compressedTokens).toBe(
+      blocks.reduce((total, block) => total + block.compressedTokens, 0),
+    );
+    expect(result.summaryTokens).toBe(
+      blocks.reduce((total, block) => total + block.summaryTokens, 0),
+    );
   });
 });
 
@@ -446,23 +512,23 @@ describe("CompressResult struct", () => {
 });
 
 describe("handleCompress token reporting", () => {
-  it("includes token savings in response when tokens are known", () => {
+  it("falls back to message content when cached token metadata is zero", () => {
     const state = createSessionState();
     assignRefs(state, 3);
 
-    // Pre-populate byMessageIndex with token counts (simulating Phase 1 sync having run)
+    // Zero cache entries have no useful estimate, so content is the fallback.
     state.prune.messages.byMessageIndex.set(0, {
-      tokenCount: 150,
+      tokenCount: 0,
       blockIds: [],
       activeBlockIds: [],
     });
     state.prune.messages.byMessageIndex.set(1, {
-      tokenCount: 200,
+      tokenCount: 0,
       blockIds: [],
       activeBlockIds: [],
     });
     state.prune.messages.byMessageIndex.set(2, {
-      tokenCount: 100,
+      tokenCount: 0,
       blockIds: [],
       activeBlockIds: [],
     });
@@ -470,17 +536,17 @@ describe("handleCompress token reporting", () => {
     const messages: AgentMessage[] = [
       {
         role: "user",
-        content: [{ type: "text", text: "msg 0" }],
+        content: [{ type: "text", text: "first message ".repeat(20) }],
         timestamp: Date.now(),
       } as AgentMessage,
       {
         role: "assistant",
-        content: [{ type: "text", text: "msg 1" }],
+        content: [{ type: "text", text: "second message ".repeat(20) }],
         timestamp: Date.now(),
       } as unknown as AgentMessage,
       {
         role: "user",
-        content: [{ type: "text", text: "msg 2" }],
+        content: [{ type: "text", text: "third message ".repeat(20) }],
         timestamp: Date.now(),
       } as AgentMessage,
     ];
@@ -492,13 +558,16 @@ describe("handleCompress token reporting", () => {
       content: [{ startId: "m0001", endId: "m0003", summary: "short summary" }],
     });
 
-    // Total original = 150 + 200 + 100 = 450
+    const originalTokens = messages.reduce(
+      (total, message) => total + countMessageTokens(message),
+      0,
+    );
     // Wrapped summary "[Compressed Block b1]\nshort summary\n[End Block b1]" = 50 chars → 13 tokens
-    expect(result.text).toMatch(/~450 tokens replaced by ~13 token summary/);
+    expect(result.text).toContain(`~${originalTokens - 13} tokens saved`);
     expect(result.text).toContain("Compressed 3 messages");
   });
 
-  it("omits token savings when token counts are zero", () => {
+  it("includes token savings without cached token metadata", () => {
     const state = createSessionState();
     assignRefs(state, 2);
 
@@ -522,35 +591,13 @@ describe("handleCompress token reporting", () => {
       content: [{ startId: "m0001", endId: "m0002", summary: "summary" }],
     });
 
-    // No token info when byMessageIndex has no entries (all tokenCount default to 0)
-    expect(result.text).not.toContain("tokens");
+    expect(result.text).toContain("tokens saved");
     expect(result.text).toContain("Compressed 2 messages");
   });
 
   it("accumulates token savings across multiple ranges", () => {
     const state = createSessionState();
     assignRefs(state, 4);
-
-    state.prune.messages.byMessageIndex.set(0, {
-      tokenCount: 100,
-      blockIds: [],
-      activeBlockIds: [],
-    });
-    state.prune.messages.byMessageIndex.set(1, {
-      tokenCount: 200,
-      blockIds: [],
-      activeBlockIds: [],
-    });
-    state.prune.messages.byMessageIndex.set(2, {
-      tokenCount: 150,
-      blockIds: [],
-      activeBlockIds: [],
-    });
-    state.prune.messages.byMessageIndex.set(3, {
-      tokenCount: 50,
-      blockIds: [],
-      activeBlockIds: [],
-    });
 
     const messages: AgentMessage[] = [
       {
@@ -584,8 +631,11 @@ describe("handleCompress token reporting", () => {
       ],
     });
 
-    // Total = 100 + 200 + 150 + 50 = 500
-    expect(result.text).toContain("~500 tokens");
+    const originalTokens = messages.reduce(
+      (total, message) => total + countMessageTokens(message),
+      0,
+    );
+    expect(result.text).toContain(`~${originalTokens - result.summaryTokens} tokens saved`);
     expect(result.text).toContain("Compressed 4 messages");
   });
 });

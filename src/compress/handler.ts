@@ -11,7 +11,7 @@ import {
   wrapCompressedSummary,
   COMPRESSED_BLOCK_HEADER,
 } from "./state.ts";
-import { countTokens } from "../utils/tokens.ts";
+import { countMessageTokens, countTokens } from "../utils/tokens.ts";
 import { enrichSummaryWithProtectedContent } from "./protected-content.ts";
 
 export interface CompressResult {
@@ -135,7 +135,7 @@ export function handleCompress(
 
   const savings =
     totalCompressedTokens > 0
-      ? ` (~${totalCompressedTokens} tokens replaced by ~${totalSummaryTokens} token summary)`
+      ? ` (~${totalCompressedTokens - totalSummaryTokens} tokens saved from ~${totalCompressedTokens} tokens; ~${totalSummaryTokens} token summary)`
       : "";
 
   return {
@@ -172,10 +172,29 @@ function prepareCompressions(
         state.subAgentResultCache,
       ),
     );
-    const compressedTokens = entry.selection.messageIndices.reduce(
-      (total, index) => total + (state.prune.messages.byMessageIndex.get(index)?.tokenCount ?? 0),
-      0,
+    const coveredMessageIndices = new Set(
+      entry.selection.consumedBlockIds.flatMap(
+        (blockId) => state.prune.messages.blocksById.get(blockId)?.effectiveMessageIndices ?? [],
+      ),
     );
+    const directMessageIndices = entry.selection.directMessageIndices.filter(
+      (index) => !coveredMessageIndices.has(index),
+    );
+    const compressedTokens =
+      entry.selection.consumedBlockIds.reduce(
+        (total, blockId) =>
+          total + (state.prune.messages.blocksById.get(blockId)?.summaryTokens ?? 0),
+        0,
+      ) +
+      directMessageIndices.reduce((total, index) => {
+        const tokenCount = state.prune.messages.byMessageIndex.get(index)?.tokenCount;
+        return (
+          total +
+          (tokenCount !== undefined && tokenCount > 0
+            ? tokenCount
+            : countMessageTokens(messages[index]))
+        );
+      }, 0);
 
     return {
       startIndex: entry.startIndex,
@@ -187,7 +206,7 @@ function prepareCompressions(
       summary,
       summaryTokens: countTokens(summary),
       compressedTokens,
-      directMessageIndices: entry.selection.directMessageIndices,
+      directMessageIndices,
       directToolIds: entry.selection.directToolIds,
       effectiveMessageIndices: entry.selection.messageIndices,
       effectiveToolIds: entry.selection.toolIds,

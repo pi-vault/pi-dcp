@@ -77,6 +77,24 @@ function sendCompressNotification(
   }
 }
 
+export function applyCompressionTiming(
+  state: SessionState,
+  event: { toolCallId: string; toolName: string; isError?: boolean },
+  now = Date.now(),
+): void {
+  if (event.toolName !== "compress") return;
+  const startTime = state.compressionTiming.startTimes.get(event.toolCallId);
+  if (startTime === undefined) return;
+
+  state.compressionTiming.startTimes.delete(event.toolCallId);
+  if (event.isError) return;
+
+  const durationMs = now - startTime;
+  for (const block of state.prune.messages.blocksById.values()) {
+    if (block.compressToolCallId === event.toolCallId) block.durationMs = durationMs;
+  }
+}
+
 export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
   const configFilePath = path.join(agentDir, "extensions", "dcp.json");
@@ -319,10 +337,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
     // Compression timing (Phase 2)
     if (event.toolName === "compress") {
-      const startTime = state.compressionTiming.startTimes.get(event.toolCallId);
-      if (startTime === undefined) return;
-
-      state.compressionTiming.startTimes.delete(event.toolCallId);
+      applyCompressionTiming(state, event);
       return;
     }
 
