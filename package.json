@@ -27,6 +27,7 @@
     "lint": "biome lint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "benchmark": "tsx scripts/benchmark.ts",
     "generate:schema": "tsx scripts/generate-schema.ts > dcp.schema.json",
     "check": "biome lint . && tsc --noEmit && vitest run && pnpm run generate:schema",
     "pack:dry-run": "pnpm pack --dry-run",

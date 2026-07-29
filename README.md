@@ -214,6 +214,39 @@ pnpm check
 pnpm release:check
 ```
 
+### Benchmarks
+
+`pnpm benchmark` runs three deterministic workloads through the production DCP pipeline and writes one JSON report to stdout. The retained [`benchmarks/result.json`](benchmarks/result.json) was recorded on Node 24.15.0 with 30 timed iterations per workload, after one untimed warm-up.
+
+Each timed iteration includes cloning the fixture, creating fresh session state, cloning the default configuration, restoring persisted state when applicable, running the pipeline, projecting the transformed messages, and estimating input and output tokens.
+
+| Workload                     | What it exercises                                                     | Median   | p95      | Input tokens | Output tokens | Reduction |
+| ---------------------------- | --------------------------------------------------------------------- | -------- | -------- | ------------ | ------------- | --------- |
+| `clean-2000-messages`        | Baseline pipeline processing for alternating user/assistant messages  | 9.60 ms  | 13.41 ms | 9,000        | 29,000        | -20,000   |
+| `repeated-tool-pairs-2000`   | Deduplication, stale-error input purging, and protected write results | 36.32 ms | 47.83 ms | 1,017,575    | 54,702        | 962,873   |
+| `restored-nested-blocks-100` | Snapshot restoration and relationship rebuilding for nested blocks    | 2.96 ms  | 4.64 ms  | 1,291        | 120           | 1,171     |
+
+The clean workload intentionally reports a negative reduction: no content is pruned, while DCP adds stable message-ID metadata to all 2,000 messages. It is a baseline for pipeline and metadata overhead, not a token-savings case.
+
+The repeated-tool workload reduces the estimate by 94.6%. It models 2,000 assistant/tool-result pairs with repeated reads, stale failures, and unique writes. Production strategies replace superseded read output and stale failed-call arguments while preserving protected write output, error diagnostics, and complete tool-call ownership.
+
+The restored-nesting workload reduces the estimate by 90.7%. It restores 100 persisted compression blocks arranged as ten nested chains, rebuilds their runtime relationships from real `compress` call/result owners, and leaves the ten outer blocks active.
+
+Report fields:
+
+- `nodeVersion` and `iterations` describe the runtime and timed sample count.
+- `medianMs` is the middle elapsed time; `p95Ms` represents the slower tail.
+- `inputEstimatedTokens` and `outputEstimatedTokens` use DCP's lightweight character-based estimator, not provider billing tokens.
+- `reductionEstimatedTokens` is exactly input minus output, so it may be negative.
+
+Fixtures and token estimates are deterministic, but elapsed times vary with hardware and system load. Compare timing reports only from the same machine and Node version; the benchmark is informational and does not enforce a release threshold.
+
+To refresh the retained evidence:
+
+```bash
+pnpm benchmark > benchmarks/result.json
+```
+
 ## Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for release notes.

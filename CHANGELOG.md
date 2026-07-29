@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Trusted project configuration from `<ctx.cwd>/.pi/dcp.json`, layered over global configuration at session start.
 - `dcp:compress [focus]` to send Pi a hidden manual-compression follow-up.
+- Deterministic whole-workload benchmark evidence for clean messages, repeated tool pairs, and restored nested compression blocks.
 
 ### Changed
 
