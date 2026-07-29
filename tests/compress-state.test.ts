@@ -4,8 +4,27 @@ import {
   allocateRunId,
   wrapCompressedSummary,
   applyCompressionState,
+  storeCompressionState,
+  type ApplyCompressionParams,
 } from "../src/compress/state.ts";
 import { createSessionState } from "../src/state/state.ts";
+
+const compressionParams: ApplyCompressionParams = {
+  blockId: 1,
+  runId: 1,
+  topic: "Auth exploration",
+  mode: "range",
+  startIndex: 2,
+  endIndex: 8,
+  anchorIndex: 2,
+  compressToolCallId: "compress-call-1",
+  startKey: "user:1000:0",
+  endKey: "assistant:1001:0",
+  anchorKey: "user:1000:0",
+  summary: "Summary text",
+  summaryTokens: 50,
+  consumedBlockIds: [],
+};
 
 describe("compress/state", () => {
   describe("allocateBlockId", () => {
@@ -41,25 +60,22 @@ describe("compress/state", () => {
       const runId = allocateRunId(state);
 
       applyCompressionState(state, {
+        ...compressionParams,
         blockId,
         runId,
-        topic: "Auth exploration",
-        mode: "range",
-        startIndex: 2,
-        endIndex: 8,
-        anchorIndex: 2,
-        compressMessageIndex: 10,
-        summary: "Summary text",
-        summaryTokens: 50,
-        consumedBlockIds: [],
       });
 
       const block = state.prune.messages.blocksById.get(blockId);
       expect(block).toBeDefined();
-      expect(block!.active).toBe(true);
-      expect(block!.startIndex).toBe(2);
-      expect(block!.endIndex).toBe(8);
-      expect(block!.summary).toBe("Summary text");
+      if (!block) throw new Error("Expected compression block");
+      expect(block.active).toBe(true);
+      expect(block.startIndex).toBe(2);
+      expect(block.endIndex).toBe(8);
+      expect(block.compressToolCallId).toBe("compress-call-1");
+      expect(block.startKey).toBe("user:1000:0");
+      expect(block.endKey).toBe("assistant:1001:0");
+      expect(block.anchorKey).toBe("user:1000:0");
+      expect(block.summary).toBe("Summary text");
 
       expect(state.prune.messages.activeBlockIds.has(blockId)).toBe(true);
       expect(state.prune.messages.activeByAnchorIndex.get(2)).toBe(blockId);
@@ -68,8 +84,23 @@ describe("compress/state", () => {
       for (let i = 2; i <= 8; i++) {
         const entry = state.prune.messages.byMessageIndex.get(i);
         expect(entry).toBeDefined();
-        expect(entry!.activeBlockIds).toContain(blockId);
+        if (!entry) throw new Error("Expected message entry");
+        expect(entry.activeBlockIds).toContain(blockId);
       }
     });
+  });
+
+  it("stores stable membership without mutating derived message state", () => {
+    const state = createSessionState();
+
+    storeCompressionState(state, {
+      ...compressionParams,
+      endIndex: 3,
+      summary: "summary",
+      summaryTokens: 1,
+    });
+
+    expect(state.prune.messages.byMessageIndex.size).toBe(0);
+    expect(state.prune.messages.blocksById.get(1)?.effectiveMessageIndices).toEqual([2, 3]);
   });
 });

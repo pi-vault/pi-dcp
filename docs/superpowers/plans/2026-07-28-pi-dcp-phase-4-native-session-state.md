@@ -53,7 +53,7 @@ After this phase:
     "compress-call-1",
   );
   expect(restored.toolParameters.size).toBe(0);
-  expect(restored.compressionTiming.callIdToBlockIds.size).toBe(0);
+  expect(restored.compressionTiming.startTimes.size).toBe(0);
   ```
 
   Add cases for the wrong version, malformed roots, one malformed block among valid blocks, and a snapshot owned by a parent session.

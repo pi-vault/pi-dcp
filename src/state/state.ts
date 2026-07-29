@@ -57,8 +57,6 @@ export function resetSessionState(state: SessionState): void {
   state.modelId = undefined;
   state.modelProvider = undefined;
   state.compressionTiming.startTimes.clear();
-  state.compressionTiming.callIdToBlockId.clear();
-  state.compressionTiming.pendingDurations.clear();
   state.isSubAgent = false;
   state.subAgentResultCache.clear();
 }
@@ -66,8 +64,6 @@ export function resetSessionState(state: SessionState): void {
 function createCompressionTiming(): CompressionTimingState {
   return {
     startTimes: new Map(),
-    callIdToBlockId: new Map(),
-    pendingDurations: new Map(),
   };
 }
 

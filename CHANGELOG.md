@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Allow lookup and shell outputs to participate in pruning.
 - Keep compression, file mutations, and sub-agent results protected by default.
 - Record source provenance and the verification baseline.
+- Validate and commit compression batches atomically after fixed-point expansion of tool pairs and active blocks.
+- Preserve nested-block visibility through decompress/recompress cycles, count only visible replaced tokens, and record batch duration on every created block.
+- Resume, fork, tree, and compaction restoration begin in Phase 4.
 
 ## 2026-07-27 - [0.4.1]
 

@@ -3,10 +3,7 @@ import type { SessionState } from "../state/types.ts";
 import { parseBoundaryId } from "../utils/message-ids.ts";
 
 /** Return the first message index in the newest protected user turns. */
-export function getProtectedTurnStart(
-  messages: AgentMessage[],
-  turns: number,
-): number | undefined {
+export function getProtectedTurnStart(messages: AgentMessage[], turns: number): number | undefined {
   if (turns <= 0) return undefined;
   const userIndices = messages.flatMap((message, index) =>
     message.role === "user" ? [index] : [],
@@ -17,10 +14,7 @@ export function getProtectedTurnStart(
 /**
  * Resolve a boundary ID (m0001 or b1) to a message array index.
  */
-export function resolveBoundaryIndex(
-  state: SessionState,
-  boundaryId: string,
-): number | undefined {
+export function resolveBoundaryIndex(state: SessionState, boundaryId: string): number | undefined {
   const parsed = parseBoundaryId(boundaryId);
   if (!parsed) return undefined;
 
@@ -49,11 +43,10 @@ export interface SelectionResult {
   messageIndices: number[];
   startIndex: number;
   endIndex: number;
-}
-
-export interface ExpandedRange {
-  startIndex: number;
-  endIndex: number;
+  toolIds: string[];
+  directMessageIndices: number[];
+  directToolIds: string[];
+  consumedBlockIds: number[];
 }
 
 /**
@@ -67,7 +60,7 @@ export function expandRangeForToolChains(
   startIndex: number,
   endIndex: number,
   state?: SessionState,
-): ExpandedRange {
+) {
   // Fast path: use cached indices from tool parameter entries
   if (state && state.toolParameters.size > 0) {
     return expandWithCachedIndices(messages, startIndex, endIndex, state);
@@ -82,7 +75,7 @@ function expandWithCachedIndices(
   startIndex: number,
   endIndex: number,
   state: SessionState,
-): ExpandedRange {
+) {
   let start = startIndex;
   let end = endIndex;
   let changed = true;
@@ -120,7 +113,7 @@ function expandByScan(
   messages: AgentMessage[],
   startIndex: number,
   endIndex: number,
-): ExpandedRange {
+) {
   let start = startIndex;
   let end = endIndex;
   let changed = true;
@@ -192,28 +185,79 @@ export function resolveSelection(
   state?: SessionState,
 ): SelectionResult {
   if (startIndex > endIndex) {
-    throw new Error(
-      `startId appears after endId in the conversation. Start must come before end.`,
-    );
+    throw new Error(`startId appears after endId in the conversation. Start must come before end.`);
   }
 
   if (startIndex < 0 || endIndex >= messages.length) {
-    throw new Error(
-      `Boundary indices out of range. Valid range: 0-${messages.length - 1}`,
-    );
+    throw new Error(`Boundary indices out of range. Valid range: 0-${messages.length - 1}`);
   }
 
-  // Expand range to avoid splitting tool call chains
-  const expanded = expandRangeForToolChains(messages, startIndex, endIndex, state);
+  const direct = expandRangeForToolChains(messages, startIndex, endIndex, state);
+  const directMembership = collectMembership(messages, direct.startIndex, direct.endIndex);
+  let start = direct.startIndex;
+  let end = direct.endIndex;
+  const consumedBlockIds = new Set<number>();
+  let changed = true;
 
-  const messageIndices: number[] = [];
-  for (let i = expanded.startIndex; i <= expanded.endIndex; i++) {
-    messageIndices.push(i);
+  while (changed) {
+    changed = false;
+    const expanded = expandRangeForToolChains(messages, start, end, state);
+    if (expanded.startIndex !== start || expanded.endIndex !== end) {
+      start = expanded.startIndex;
+      end = expanded.endIndex;
+      changed = true;
+    }
+
+    if (!state) continue;
+    for (const blockId of state.prune.messages.activeBlockIds) {
+      const block = state.prune.messages.blocksById.get(blockId);
+      if (
+        !block?.active ||
+        !block.effectiveMessageIndices.some((index) => index >= start && index <= end)
+      ) {
+        continue;
+      }
+
+      consumedBlockIds.add(blockId);
+      const blockStart = Math.min(...block.effectiveMessageIndices);
+      const blockEnd = Math.max(...block.effectiveMessageIndices);
+      if (blockStart < start || blockEnd > end) {
+        start = Math.min(start, blockStart);
+        end = Math.max(end, blockEnd);
+        changed = true;
+      }
+    }
   }
+
+  const membership = collectMembership(messages, start, end);
 
   return {
-    messageIndices,
-    startIndex: expanded.startIndex,
-    endIndex: expanded.endIndex,
+    ...membership,
+    startIndex: start,
+    endIndex: end,
+    directMessageIndices: directMembership.messageIndices,
+    directToolIds: directMembership.toolIds,
+    consumedBlockIds: [...consumedBlockIds].sort((a, b) => a - b),
   };
+}
+
+function collectMembership(
+  messages: AgentMessage[],
+  start: number,
+  end: number,
+): { messageIndices: number[]; toolIds: string[] } {
+  const messageIndices: number[] = [];
+  const toolIds = new Set<string>();
+  for (let i = start; i <= end; i++) {
+    messageIndices.push(i);
+    const message = messages[i];
+    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (typeof part !== "object" || part === null) continue;
+      const call = part as unknown as Record<string, unknown>;
+      if (call.type === "toolCall" && typeof call.id === "string") toolIds.add(call.id);
+    }
+  }
+
+  return { messageIndices, toolIds: [...toolIds].sort() };
 }

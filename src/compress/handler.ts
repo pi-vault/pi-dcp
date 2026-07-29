@@ -1,19 +1,17 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
-import {
-  getProtectedTurnStart,
-  resolveBoundaryIndex,
-  resolveSelection,
-} from "./search.ts";
+import { getProtectedTurnStart, resolveBoundaryIndex, resolveSelection } from "./search.ts";
 import {
   allocateBlockId,
   allocateRunId,
-  applyCompressionState,
+  getEligibleCompressionBlockIds,
+  rebuildCompressionState,
+  storeCompressionState,
   wrapCompressedSummary,
   COMPRESSED_BLOCK_HEADER,
 } from "./state.ts";
-import { countTokens } from "../utils/tokens.ts";
+import { countMessageTokens, countTokens } from "../utils/tokens.ts";
 import { enrichSummaryWithProtectedContent } from "./protected-content.ts";
 
 export interface CompressResult {
@@ -45,11 +43,19 @@ export interface CompressArgs {
   }>;
 }
 
-interface NormalizedEntry {
+interface PreparedCompression {
   startIndex: number;
   endIndex: number;
+  startKey: string;
+  endKey: string;
   summary: string;
-  messageCount: number;
+  summaryTokens: number;
+  compressedTokens: number;
+  directMessageIndices: number[];
+  directToolIds: string[];
+  effectiveMessageIndices: number[];
+  effectiveToolIds: string[];
+  consumedBlockIds: number[];
 }
 
 /**
@@ -60,14 +66,12 @@ export function handleCompress(
   state: SessionState,
   config: DcpConfig,
   messages: AgentMessage[],
+  compressToolCallId: string,
   args: CompressArgs,
 ): CompressResult {
+  const entries = prepareCompressions(state, config, messages, args);
   const protectedStart = getProtectedTurnStart(messages, config.turnProtection);
-  const entries = normalizeEntries(state, messages, args);
-  if (
-    protectedStart !== undefined &&
-    entries.some((entry) => entry.endIndex >= protectedStart)
-  ) {
+  if (protectedStart !== undefined && entries.some((entry) => entry.endIndex >= protectedStart)) {
     throw new Error(
       "Compression overlaps the turnProtection protected window; choose only older messages.",
     );
@@ -83,22 +87,12 @@ export function handleCompress(
   let totalCompressedTokens = 0;
   let totalSummaryTokens = 0;
   const blockIds: number[] = [];
+  const eligibleBlockIds = getEligibleCompressionBlockIds(state);
 
   for (const entry of entries) {
     const blockId = allocateBlockId(state);
     blockIds.push(blockId);
-    const rangeMessages = messages.slice(entry.startIndex, entry.endIndex + 1);
-    const enrichedSummary = enrichSummaryWithProtectedContent(
-      entry.summary,
-      rangeMessages,
-      config,
-      state.subAgentResultCache,
-    );
-    const wrappedSummary = wrapCompressedSummary(blockId, enrichedSummary);
-    const summaryTokens = countTokens(wrappedSummary);
-    const compressMessageIndex = messages.length - 1;
-
-    applyCompressionState(state, {
+    const block = storeCompressionState(state, {
       blockId,
       runId,
       topic: args.topic,
@@ -107,28 +101,35 @@ export function handleCompress(
       startIndex: entry.startIndex,
       endIndex: entry.endIndex,
       anchorIndex: entry.startIndex,
-      compressMessageIndex,
-      summary: wrappedSummary,
-      summaryTokens,
-      consumedBlockIds: [],
+      compressToolCallId,
+      startKey: entry.startKey,
+      endKey: entry.endKey,
+      anchorKey: entry.startKey,
+      summary: entry.summary,
+      summaryTokens: entry.summaryTokens,
+      consumedBlockIds: entry.consumedBlockIds,
     });
+    eligibleBlockIds.add(blockId);
 
-    totalCompressed += entry.messageCount;
+    totalCompressed += entry.effectiveMessageIndices.length;
 
-    // Read back compressedTokens and summaryTokens (populated by applyCompressionState)
-    const block = state.prune.messages.blocksById.get(blockId);
-    if (block) {
-      totalCompressedTokens += block.compressedTokens;
-      totalSummaryTokens += block.summaryTokens;
-    }
+    block.compressedTokens = entry.compressedTokens;
+    block.directMessageIndices = entry.directMessageIndices;
+    block.directToolIds = entry.directToolIds;
+    block.effectiveMessageIndices = entry.effectiveMessageIndices;
+    block.effectiveToolIds = entry.effectiveToolIds;
+    totalCompressedTokens += entry.compressedTokens;
+    totalSummaryTokens += entry.summaryTokens;
   }
+
+  rebuildCompressionState(state, eligibleBlockIds);
 
   // Fix: messagesCompressed stat was defined but never incremented
   state.stats.messagesCompressed += totalCompressed;
 
   const savings =
     totalCompressedTokens > 0
-      ? ` (~${totalCompressedTokens} tokens replaced by ~${totalSummaryTokens} token summary)`
+      ? ` (~${totalCompressedTokens - totalSummaryTokens} tokens saved from ~${totalCompressedTokens} tokens; ~${totalSummaryTokens} token summary)`
       : "";
 
   return {
@@ -145,11 +146,84 @@ export function handleCompress(
  * Normalize range or message args into a common form.
  * Validates input and resolves boundary IDs to indices.
  */
+function prepareCompressions(
+  state: SessionState,
+  config: DcpConfig,
+  messages: AgentMessage[],
+  args: CompressArgs,
+): PreparedCompression[] {
+  const entries = normalizeEntries(state, messages, args);
+  return entries.map((entry, offset) => {
+    const startKey = getRawMessageKey(state, entry.startIndex);
+    const endKey = getRawMessageKey(state, entry.endIndex);
+    const blockId = state.prune.messages.nextBlockId + offset;
+    const summary = wrapCompressedSummary(
+      blockId,
+      enrichSummaryWithProtectedContent(
+        entry.summary,
+        messages.slice(entry.startIndex, entry.endIndex + 1),
+        config,
+        state.subAgentResultCache,
+      ),
+    );
+    const coveredMessageIndices = new Set(
+      entry.selection.consumedBlockIds.flatMap(
+        (blockId) => state.prune.messages.blocksById.get(blockId)?.effectiveMessageIndices ?? [],
+      ),
+    );
+    const directMessageIndices = entry.selection.directMessageIndices.filter(
+      (index) => !coveredMessageIndices.has(index),
+    );
+    const compressedTokens =
+      entry.selection.consumedBlockIds.reduce(
+        (total, blockId) =>
+          total + (state.prune.messages.blocksById.get(blockId)?.summaryTokens ?? 0),
+        0,
+      ) +
+      directMessageIndices.reduce((total, index) => {
+        const tokenCount = state.prune.messages.byMessageIndex.get(index)?.tokenCount;
+        return (
+          total +
+          (tokenCount !== undefined && tokenCount > 0
+            ? tokenCount
+            : countMessageTokens(messages[index]))
+        );
+      }, 0);
+
+    return {
+      startIndex: entry.startIndex,
+      endIndex: entry.endIndex,
+      startKey,
+      endKey,
+      summary,
+      summaryTokens: countTokens(summary),
+      compressedTokens,
+      directMessageIndices,
+      directToolIds: entry.selection.directToolIds,
+      effectiveMessageIndices: entry.selection.messageIndices,
+      effectiveToolIds: entry.selection.toolIds,
+      consumedBlockIds: entry.selection.consumedBlockIds,
+    };
+  });
+}
+
+function getRawMessageKey(state: SessionState, index: number): string {
+  const ref = state.messageIds.byIndex.get(index);
+  const key = ref && state.messageIds.byRef.get(ref);
+  if (!key) throw new Error(`Message at index ${index} has no stable message key.`);
+  return key;
+}
+
 function normalizeEntries(
   state: SessionState,
   messages: AgentMessage[],
   args: CompressArgs,
-): NormalizedEntry[] {
+): Array<{
+  startIndex: number;
+  endIndex: number;
+  summary: string;
+  selection: ReturnType<typeof resolveSelection>;
+}> {
   if (args.mode === "range") {
     if (!args.content || args.content.length === 0) {
       throw new Error("content array is required and must not be empty");
@@ -157,9 +231,7 @@ function normalizeEntries(
 
     return args.content.map((entry) => {
       if (!entry.startId || !entry.endId || !entry.summary) {
-        throw new Error(
-          "Each content entry requires startId, endId, and summary",
-        );
+        throw new Error("Each content entry requires startId, endId, and summary");
       }
 
       const startIndex = resolveBoundaryIndex(state, entry.startId);
@@ -183,7 +255,7 @@ function normalizeEntries(
         startIndex: selection.startIndex,
         endIndex: selection.endIndex,
         summary: entry.summary,
-        messageCount: selection.messageIndices.length,
+        selection,
       };
     });
   }
@@ -211,7 +283,7 @@ function normalizeEntries(
       startIndex: selection.startIndex,
       endIndex: selection.endIndex,
       summary: target.summary,
-      messageCount: selection.messageIndices.length,
+      selection,
     };
   });
 }

@@ -1,79 +1,64 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createSessionState } from "../src/state/state.ts";
-import { applyPendingCompressionDurations } from "../src/compress/state.ts";
-import type { CompressionBlock } from "../src/state/types.ts";
+import { handleCompress } from "../src/compress/handler.ts";
+import { applyCompressionTiming } from "../src/index.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { makeDefaultConfig } from "./helpers.ts";
 
 describe("CompressionTimingState", () => {
-  it("initializes with empty maps", () => {
+  it("initializes with only in-flight start timestamps", () => {
     const state = createSessionState();
-    expect(state.compressionTiming).toBeDefined();
-    expect(state.compressionTiming.startTimes.size).toBe(0);
-    expect(state.compressionTiming.callIdToBlockId.size).toBe(0);
-    expect(state.compressionTiming.pendingDurations.size).toBe(0);
-  });
-});
-
-function makeBlock(blockId: number, durationMs = 0): CompressionBlock {
-  return {
-    blockId,
-    runId: 1,
-    active: true,
-    deactivatedByUser: false,
-    compressedTokens: 1000,
-    summaryTokens: 200,
-    durationMs,
-    mode: "range",
-    topic: "test",
-    batchTopic: undefined,
-    startIndex: 0,
-    endIndex: 5,
-    anchorIndex: 5,
-    compressMessageIndex: 7,
-    includedBlockIds: [],
-    consumedBlockIds: [],
-    parentBlockIds: [],
-    directMessageIndices: [0, 1, 2, 3, 4, 5],
-    directToolIds: [],
-    effectiveMessageIndices: [0, 1, 2, 3, 4, 5],
-    effectiveToolIds: [],
-    createdAt: Date.now(),
-    deactivatedAt: undefined,
-    deactivatedByBlockId: undefined,
-    summary: "Test summary",
-  };
-}
-
-describe("applyPendingCompressionDurations", () => {
-  it("applies pending duration to the matching block", () => {
-    const state = createSessionState();
-    const block = makeBlock(1);
-    state.prune.messages.blocksById.set(1, block);
-
-    // Simulate state after tool_execution_end
-    state.compressionTiming.callIdToBlockId.set("call-abc", 1);
-    state.compressionTiming.pendingDurations.set("call-abc", 1500);
-
-    applyPendingCompressionDurations(state);
-
-    expect(block.durationMs).toBe(1500);
-    expect(state.compressionTiming.pendingDurations.size).toBe(0);
-    expect(state.compressionTiming.callIdToBlockId.size).toBe(0);
+    expect(state.compressionTiming).toEqual({ startTimes: new Map() });
   });
 
-  it("no-ops when no pending durations", () => {
+  it("records one successful Pi end duration on every block in a compression batch", () => {
     const state = createSessionState();
-    applyPendingCompressionDurations(state);
-    expect(state.compressionTiming.pendingDurations.size).toBe(0);
-  });
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "first" }], timestamp: 0 },
+      { role: "assistant", content: [{ type: "text", text: "second" }], timestamp: 0 },
+    ] as AgentMessage[];
+    for (let index = 0; index < messages.length; index++) {
+      const ref = `m${String(index + 1).padStart(4, "0")}`;
+      state.messageIds.byIndex.set(index, ref);
+      state.messageIds.byRef.set(ref, `message:${index}`);
+    }
+    const result = handleCompress(state, makeDefaultConfig(), messages, "batch-call", {
+      topic: "batch",
+      mode: "range",
+      content: [
+        { startId: "m0001", endId: "m0001", summary: "first summary" },
+        { startId: "m0002", endId: "m0002", summary: "second summary" },
+      ],
+    });
+    state.compressionTiming.startTimes.set("batch-call", 1_000);
 
-  it("removes pending entry even if block not found", () => {
-    const state = createSessionState();
-    state.compressionTiming.callIdToBlockId.set("orphan-call", 999);
-    state.compressionTiming.pendingDurations.set("orphan-call", 500);
+    applyCompressionTiming(
+      state,
+      { toolCallId: "batch-call", toolName: "compress", isError: false },
+      2_500,
+    );
 
-    applyPendingCompressionDurations(state);
+    expect(
+      result.blockIds.map((id) => state.prune.messages.blocksById.get(id)?.durationMs),
+    ).toEqual([1_500, 1_500]);
+    expect(state.compressionTiming.startTimes.has("batch-call")).toBe(false);
 
-    expect(state.compressionTiming.pendingDurations.size).toBe(0);
-    expect(state.compressionTiming.callIdToBlockId.size).toBe(0);
+    state.compressionTiming.startTimes.set("batch-call", 2_500);
+    for (const blockId of result.blockIds) {
+      const block = state.prune.messages.blocksById.get(blockId);
+      expect(block).toBeDefined();
+      if (!block) throw new Error("Expected compression block");
+      block.durationMs = 0;
+    }
+    applyCompressionTiming(
+      state,
+      { toolCallId: "batch-call", toolName: "compress", isError: true },
+      4_000,
+    );
+
+    expect(
+      result.blockIds.map((id) => state.prune.messages.blocksById.get(id)?.durationMs),
+    ).toEqual([0, 0]);
+    expect(state.compressionTiming.startTimes.has("batch-call")).toBe(false);
   });
 });

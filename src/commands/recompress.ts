@@ -1,4 +1,5 @@
 import type { SessionState } from "../state/types.ts";
+import { getEligibleCompressionBlockIds, rebuildCompressionState } from "../compress/state.ts";
 
 export function recompressCommand(state: SessionState, args: string): string {
   const blockIdStr = args.trim();
@@ -12,11 +13,11 @@ export function recompressCommand(state: SessionState, args: string): string {
   if (block.active) return `Block ${blockId} is already active.`;
   if (!block.deactivatedByUser) return `Block ${blockId} was not deactivated by user. Cannot reactivate.`;
 
-  block.active = true;
+  const eligibleBlockIds = getEligibleCompressionBlockIds(state);
+  eligibleBlockIds.add(blockId);
   block.deactivatedByUser = false;
   block.deactivatedAt = undefined;
-  state.prune.messages.activeBlockIds.add(blockId);
-  state.prune.messages.activeByAnchorIndex.set(block.anchorIndex, blockId);
+  rebuildCompressionState(state, eligibleBlockIds);
 
   return `Block ${blockId} reactivated. Compression will apply on next context pass.`;
 }
