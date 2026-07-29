@@ -6,6 +6,16 @@ import { loadAllSessionStats } from "../src/state/persistence.ts";
 import * as persistence from "../src/state/persistence.ts";
 import { createSessionState } from "../src/state/state.ts";
 
+function sessionHeader(id: string) {
+  return {
+    type: "session",
+    version: 3,
+    id,
+    timestamp: "2026-07-29T00:00:00.000Z",
+    cwd: "/tmp/project",
+  };
+}
+
 describe("persistence", () => {
   let tempDir: string;
 
@@ -31,14 +41,14 @@ describe("persistence", () => {
         nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
       });
       fs.writeFileSync(path.join(dir1, "session.jsonl"), [
-        JSON.stringify({ type: "session" }),
-        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: 1, data: snapshot("one", 300, 2, 1) }),
-        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: 2, data: snapshot("one", 400, 3, 2) }),
+        JSON.stringify(sessionHeader("session-1")),
+        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: "2026-07-29T00:00:01.000Z", data: snapshot("one", 300, 2, 1) }),
+        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: "2026-07-29T00:00:02.000Z", data: snapshot("one", 400, 3, 2) }),
       ].join("\n"));
       fs.writeFileSync(path.join(dir2, "session.jsonl"), [
-        JSON.stringify({ type: "session" }),
+        JSON.stringify(sessionHeader("session-2")),
         "not json",
-        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: 1, data: snapshot("two", 700, 5, 3) }),
+        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: "2026-07-29T00:00:01.000Z", data: snapshot("two", 700, 5, 3) }),
       ].join("\n"));
 
       const result = await loadAllSessionStats(tempDir);
@@ -68,6 +78,49 @@ describe("persistence", () => {
 
       const result = await loadAllSessionStats(tempDir);
       expect(result.totalTokensSaved).toBe(0);
+      expect(result.sessionCount).toBe(0);
+    });
+
+    it("ignores JSONL files with an incomplete Pi session header", async () => {
+      const state = createSessionState();
+      state.sessionId = "owner";
+      state.stats.totalPruneTokens = 100;
+      const snapshot = persistence.serializeDcpSnapshot(state);
+      if (!snapshot) throw new Error("expected snapshot");
+      fs.writeFileSync(path.join(tempDir, "fake.jsonl"), [
+        JSON.stringify({ type: "session" }),
+        JSON.stringify({
+          type: "custom",
+          customType: "pi-dcp-state",
+          timestamp: "2026-07-29T00:00:00.000Z",
+          data: snapshot,
+        }),
+      ].join("\n"));
+
+      const result = await loadAllSessionStats(tempDir);
+
+      expect(result.sessionCount).toBe(0);
+      expect(result.totalTokensSaved).toBe(0);
+    });
+
+    it("ignores native snapshots without a valid custom-entry timestamp", async () => {
+      const state = createSessionState();
+      state.sessionId = "owner";
+      state.stats.totalPruneTokens = 100;
+      const snapshot = persistence.serializeDcpSnapshot(state);
+      if (!snapshot) throw new Error("expected snapshot");
+      fs.writeFileSync(path.join(tempDir, "invalid-timestamp.jsonl"), [
+        JSON.stringify(sessionHeader("session")),
+        JSON.stringify({
+          type: "custom",
+          customType: "pi-dcp-state",
+          timestamp: "not-a-date",
+          data: snapshot,
+        }),
+      ].join("\n"));
+
+      const result = await loadAllSessionStats(tempDir);
+
       expect(result.sessionCount).toBe(0);
     });
   });
@@ -221,7 +274,12 @@ describe("persistence", () => {
         { blockId: 1 } as never,
         { blockId: "bad" } as never,
       ];
-      snapshot.messageIds.byRawId = [["valid", "m0001"], ["valid", "m0002"], ["broken"] as never];
+      snapshot.messageIds.byRawId = [
+        ["valid", "m0001"],
+        ["valid", "m0002"],
+        ["bad-ref", "not-a-message-ref"],
+        ["broken"] as never,
+      ];
       const warnings: string[] = [];
       const parsed = persistence.parseDcpSnapshot(snapshot, (message) => warnings.push(message));
 
@@ -233,6 +291,74 @@ describe("persistence", () => {
       const restored = createSessionState();
       persistence.restoreDcpSnapshot({ ...snapshot, nextBlockId: 1 }, restored, "owner");
       expect(restored.prune.messages.nextBlockId).toBe(2);
+    });
+
+    it("repairs the message reference counter during restore", () => {
+      const state = createSessionState();
+      state.sessionId = "owner";
+      const snapshot = persistence.serializeDcpSnapshot(state);
+      if (!snapshot) throw new Error("expected snapshot");
+      snapshot.messageIds = {
+        byRawId: [["user:1:0", "m0007"]],
+        nextRefIndex: 1,
+      };
+
+      const restored = createSessionState();
+      persistence.restoreDcpSnapshot(snapshot, restored, "owner");
+
+      expect(restored.messageIds.nextRefIndex).toBe(8);
+    });
+
+    it("normalizes duplicate pruning entries", () => {
+      const state = createSessionState();
+      state.sessionId = "owner";
+      const snapshot = persistence.serializeDcpSnapshot(state);
+      if (!snapshot) throw new Error("expected snapshot");
+      snapshot.pruneTools = [["call", 1], ["call", 2]];
+
+      const parsed = persistence.parseDcpSnapshot(snapshot);
+
+      expect(parsed?.pruneTools).toEqual([["call", 2]]);
+    });
+
+    it("rejects negative and fractional persisted counters", () => {
+      const state = createSessionState();
+      state.sessionId = "owner";
+      const snapshot = persistence.serializeDcpSnapshot(state);
+      if (!snapshot) throw new Error("expected snapshot");
+
+      expect(
+        persistence.parseDcpSnapshot({
+          ...snapshot,
+          stats: { ...snapshot.stats, totalPruneTokens: -1 },
+        }),
+      ).toBeUndefined();
+      expect(
+        persistence.parseDcpSnapshot({ ...snapshot, nextRunId: 1.5 }),
+      ).toBeUndefined();
+
+      snapshot.pruneTools = [["negative", -1], ["fractional", 1.5], ["valid", 0]];
+      snapshot.blocks = [{
+        blockId: 1,
+        runId: 1,
+        deactivatedByUser: false,
+        compressedTokens: -1,
+        summaryTokens: 1,
+        durationMs: 1,
+        mode: "range",
+        topic: "topic",
+        compressToolCallId: "owner",
+        startKey: "start",
+        endKey: "end",
+        anchorKey: "anchor",
+        consumedBlockIds: [],
+        createdAt: 1,
+        summary: "summary",
+      }];
+
+      const parsed = persistence.parseDcpSnapshot(snapshot);
+      expect(parsed?.pruneTools).toEqual([["valid", 0]]);
+      expect(parsed?.blocks).toEqual([]);
     });
   });
 });

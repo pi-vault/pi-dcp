@@ -4,6 +4,16 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { lifetimeCommand } from "../src/commands/lifetime.ts";
 
+function sessionHeader(id: string) {
+  return {
+    type: "session",
+    version: 3,
+    id,
+    timestamp: "2026-07-29T00:00:00.000Z",
+    cwd: "/tmp/project",
+  };
+}
+
 describe("lifetime command", () => {
   let tempDir: string;
 
@@ -23,15 +33,15 @@ describe("lifetime command", () => {
 
     fs.writeFileSync(
       path.join(dir1, "session.jsonl"),
-      `${JSON.stringify({ type: "session" })}\n${JSON.stringify({
-        type: "custom", customType: "pi-dcp-state", timestamp: 1,
+      `${JSON.stringify(sessionHeader("session-1"))}\n${JSON.stringify({
+        type: "custom", customType: "pi-dcp-state", timestamp: "2026-07-29T00:00:01.000Z",
         data: { version: 1, ownerSessionId: "one", manualMode: false, compressPermission: "allow", stats: { totalPruneTokens: 500, toolsPruned: 3, messagesCompressed: 1, pruneTokenCounter: 0 }, lastCompaction: 0, pruneTools: [], blocks: [], nextBlockId: 1, nextRunId: 1, messageIds: { byRawId: [], nextRefIndex: 1 }, nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] } },
       })}`,
     );
     fs.writeFileSync(
       path.join(dir2, "session.jsonl"),
-      `${JSON.stringify({ type: "session" })}\n${JSON.stringify({
-        type: "custom", customType: "pi-dcp-state", timestamp: 1,
+      `${JSON.stringify(sessionHeader("session-2"))}\n${JSON.stringify({
+        type: "custom", customType: "pi-dcp-state", timestamp: "2026-07-29T00:00:01.000Z",
         data: { version: 1, ownerSessionId: "two", manualMode: false, compressPermission: "allow", stats: { totalPruneTokens: 1500, toolsPruned: 7, messagesCompressed: 4, pruneTokenCounter: 0 }, lastCompaction: 0, pruneTools: [], blocks: [], nextBlockId: 1, nextRunId: 1, messageIds: { byRawId: [], nextRefIndex: 1 }, nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] } },
       })}`,
     );

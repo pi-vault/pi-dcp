@@ -21,9 +21,13 @@ export function formatBlockRef(blockId: number): string {
 }
 
 export function parseMessageRef(ref: string): number | undefined {
-  const match = /^m(\d{4})$/.exec(ref);
+  const match = /^m(\d{4,})$/.exec(ref);
   if (!match) return undefined;
-  return parseInt(match[1], 10);
+  const index = parseInt(match[1], 10);
+  if (!Number.isSafeInteger(index) || index <= 0 || formatMessageRef(index) !== ref) {
+    return undefined;
+  }
+  return index;
 }
 
 export function parseBlockRef(ref: string): number | undefined {

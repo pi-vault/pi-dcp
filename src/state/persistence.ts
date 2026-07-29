@@ -8,6 +8,7 @@ import type {
   SessionState,
 } from "./types.ts";
 import { resetSessionState } from "./state.ts";
+import { parseMessageRef } from "../utils/message-ids.ts";
 
 function sorted<T>(values: Iterable<T>, compare: (a: T, b: T) => number): T[] {
   return [...values].sort(compare);
@@ -83,8 +84,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0;
 }
 
 function isPositiveInteger(value: unknown): value is number {
@@ -99,7 +100,13 @@ function parsePairs(value: unknown): Array<[string, string]> {
   if (!Array.isArray(value)) return [];
   const byKey = new Map<string, string>();
   for (const entry of value) {
-    if (Array.isArray(entry) && entry.length === 2 && isString(entry[0]) && isString(entry[1])) {
+    if (
+      Array.isArray(entry) &&
+      entry.length === 2 &&
+      isString(entry[0]) &&
+      isString(entry[1]) &&
+      (parseMessageRef(entry[1]) ?? 0) > 0
+    ) {
       byKey.set(entry[0], entry[1]);
     }
   }
@@ -113,13 +120,18 @@ function parsePairs(value: unknown): Array<[string, string]> {
 
 function parseNumberPairs(value: unknown): Array<[string, number]> {
   if (!Array.isArray(value)) return [];
-  return sorted(
-    value.filter(
-      (entry): entry is [string, number] =>
-        Array.isArray(entry) && entry.length === 2 && isString(entry[0]) && isNumber(entry[1]),
-    ),
-    ([a], [b]) => a.localeCompare(b),
-  );
+  const byKey = new Map<string, number>();
+  for (const entry of value) {
+    if (
+      Array.isArray(entry) &&
+      entry.length === 2 &&
+      isString(entry[0]) &&
+      isNonNegativeInteger(entry[1])
+    ) {
+      byKey.set(entry[0], entry[1]);
+    }
+  }
+  return sorted(byKey, ([a], [b]) => a.localeCompare(b));
 }
 
 function parseStrings(value: unknown): string[] {
@@ -133,10 +145,10 @@ function parseBlock(value: unknown): DcpSnapshotBlockV1 | undefined {
   if (
     !isPositiveInteger(value.blockId) ||
     !isPositiveInteger(value.runId) ||
-    !isNumber(value.compressedTokens) ||
-    !isNumber(value.summaryTokens) ||
-    !isNumber(value.durationMs) ||
-    !isNumber(value.createdAt) ||
+    !isNonNegativeInteger(value.compressedTokens) ||
+    !isNonNegativeInteger(value.summaryTokens) ||
+    !isNonNegativeInteger(value.durationMs) ||
+    !isNonNegativeInteger(value.createdAt) ||
     !isString(value.topic) ||
     !isString(value.compressToolCallId) ||
     !isString(value.startKey) ||
@@ -184,12 +196,16 @@ export function parseDcpSnapshot(
   if (value.compressPermission !== "allow" && value.compressPermission !== "deny") return undefined;
   if (
     !isRecord(value.stats) ||
-    !isNumber(value.stats.pruneTokenCounter) ||
-    !isNumber(value.stats.totalPruneTokens) ||
-    !isNumber(value.stats.toolsPruned) ||
-    !isNumber(value.stats.messagesCompressed)
+    !isNonNegativeInteger(value.stats.pruneTokenCounter) ||
+    !isNonNegativeInteger(value.stats.totalPruneTokens) ||
+    !isNonNegativeInteger(value.stats.toolsPruned) ||
+    !isNonNegativeInteger(value.stats.messagesCompressed)
   ) return undefined;
-  if (!isNumber(value.lastCompaction) || !isPositiveInteger(value.nextBlockId) || !isPositiveInteger(value.nextRunId)) {
+  if (
+    !isNonNegativeInteger(value.lastCompaction) ||
+    !isPositiveInteger(value.nextBlockId) ||
+    !isPositiveInteger(value.nextRunId)
+  ) {
     return undefined;
   }
   if (!isRecord(value.messageIds) || !isPositiveInteger(value.messageIds.nextRefIndex) || !isRecord(value.nudges)) {
@@ -279,7 +295,10 @@ export function restoreDcpSnapshot(
   state.prune.tools = new Map(snapshot.pruneTools);
   state.messageIds.byRawId = new Map(snapshot.messageIds.byRawId);
   state.messageIds.byRef = new Map(snapshot.messageIds.byRawId.map(([key, ref]) => [ref, key]));
-  state.messageIds.nextRefIndex = snapshot.messageIds.nextRefIndex;
+  state.messageIds.nextRefIndex = Math.max(
+    snapshot.messageIds.nextRefIndex,
+    ...snapshot.messageIds.byRawId.map(([, ref]) => (parseMessageRef(ref) ?? 0) + 1),
+  );
   state.nudges.contextLimitAnchors = new Set(snapshot.nudges.contextLimitAnchors);
   state.nudges.turnAnchors = new Set(snapshot.nudges.turnAnchors);
   state.nudges.iterationAnchors = new Set(snapshot.nudges.iterationAnchors);
@@ -309,20 +328,6 @@ export async function loadAllSessionStats(parentDir: string): Promise<{
 }> {
   const snapshots = new Map<string, { snapshot: DcpSnapshotV1; timestamp: number }>();
 
-  async function scanDirectory(directory: string): Promise<void> {
-    let entries: fs.Dirent[];
-    try {
-      entries = await fs.promises.readdir(directory, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    await Promise.all(entries.map(async (entry) => {
-      const file = path.join(directory, entry.name);
-      if (entry.isDirectory()) return scanDirectory(file);
-      if (entry.isFile() && entry.name.endsWith(".jsonl")) await scanFile(file);
-    }));
-  }
-
   async function scanFile(file: string): Promise<void> {
     let hasHeader = false;
     try {
@@ -336,7 +341,14 @@ export async function loadAllSessionStats(parentDir: string): Promise<{
         } catch {
           continue;
         }
-        if (entry.type === "session") {
+        if (
+          entry.type === "session" &&
+          isString(entry.id) &&
+          entry.id.length > 0 &&
+          isString(entry.timestamp) &&
+          Number.isFinite(Date.parse(entry.timestamp)) &&
+          isString(entry.cwd)
+        ) {
           hasHeader = true;
           continue;
         }
@@ -346,8 +358,9 @@ export async function loadAllSessionStats(parentDir: string): Promise<{
         const timestamp = typeof entry.timestamp === "number"
           ? entry.timestamp
           : typeof entry.timestamp === "string"
-            ? Date.parse(entry.timestamp) || 0
-            : 0;
+            ? Date.parse(entry.timestamp)
+            : Number.NaN;
+        if (!Number.isFinite(timestamp)) continue;
         const existing = snapshots.get(snapshot.ownerSessionId);
         if (!existing || timestamp >= existing.timestamp) snapshots.set(snapshot.ownerSessionId, { snapshot, timestamp });
       }
@@ -356,7 +369,13 @@ export async function loadAllSessionStats(parentDir: string): Promise<{
     }
   }
 
-  await scanDirectory(parentDir);
+  try {
+    for await (const file of fs.promises.glob("**/*.jsonl", { cwd: parentDir })) {
+      await scanFile(path.join(parentDir, file));
+    }
+  } catch {
+    // A missing or inaccessible sessions directory has no lifetime stats.
+  }
   const result = {
     totalTokensSaved: 0,
     totalToolsPruned: 0,
