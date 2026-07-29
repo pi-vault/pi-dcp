@@ -1,18 +1,27 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import createExtension from "../src/index.ts";
 import * as subagentResults from "../src/subagents/subagent-results.ts";
+import { createSessionState } from "../src/state/state.ts";
+import { serializeDcpSnapshot } from "../src/state/persistence.ts";
+
+const agentDir = vi.hoisted(
+  () => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`,
+);
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
-  getAgentDir: () => "/tmp/test-pi-agent",
+  getAgentDir: () => agentDir,
 }));
+
+afterEach(() => fs.rmSync(agentDir, { recursive: true, force: true }));
 
 type Handler = (...args: never[]) => unknown;
 
 function createMockApi() {
   const handlers = new Map<string, Handler[]>();
+  const entries: Array<{ customType: string; data: unknown }> = [];
   const api = {
     on(event: string, handler: Handler) {
       const list = handlers.get(event) ?? [];
@@ -21,8 +30,11 @@ function createMockApi() {
     },
     registerTool() {},
     registerCommand() {},
+    appendEntry(customType: string, data: unknown) {
+      entries.push({ customType, data });
+    },
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
-  return { api, handlers };
+  return { api, handlers, entries };
 }
 
 describe("dcp extension", () => {
@@ -287,6 +299,37 @@ describe("dcp extension", () => {
       ),
     ).resolves.not.toThrow();
   });
+
+  it("restores the newest valid branch snapshot and appends a child-owned fork", async () => {
+    const { api, handlers, entries } = createMockApi();
+    const parent = createSessionState();
+    parent.sessionId = "parent";
+    parent.stats.totalPruneTokens = 99;
+    const snapshot = serializeDcpSnapshot(parent)!;
+    createExtension(api);
+
+    const start = handlers.get("session_start")?.[0];
+    await (start as (...args: unknown[]) => Promise<void>)(
+      { reason: "fork" },
+      {
+        sessionManager: {
+          getSessionDir: () => "/tmp/test-session-dir",
+          getSessionId: () => "child",
+          getBranch: () => [
+            { type: "custom", customType: "pi-dcp-state", data: { nope: true } },
+            { type: "custom", customType: "pi-dcp-state", data: snapshot },
+          ],
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      customType: "pi-dcp-state",
+      data: { ownerSessionId: "child", stats: { totalPruneTokens: 0 } },
+    });
+  });
 });
 
 describe("permission gating (tool_call handler)", () => {
@@ -342,7 +385,7 @@ describe("permission gating (tool_call handler)", () => {
     // by calling session_start with a deny config.
 
     // Use a config file that sets permission to deny:
-    const configDir = "/tmp/test-pi-agent/extensions";
+    const configDir = path.join(agentDir, "extensions");
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(
       path.join(configDir, "dcp.json"),
@@ -433,7 +476,7 @@ describe("sub-agent support", () => {
     process.env.PI_SUBAGENT_CHILD = "1";
 
     // Write a config file to the mocked agent dir enabling allowSubAgents
-    const configDir = "/tmp/test-pi-agent/extensions";
+    const configDir = path.join(agentDir, "extensions");
     const configFile = path.join(configDir, "dcp.json");
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(configFile, JSON.stringify({ experimental: { allowSubAgents: true } }));
