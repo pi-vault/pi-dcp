@@ -11,6 +11,7 @@ import { decompressCommand } from "./decompress.ts";
 import { recompressCommand } from "./recompress.ts";
 import { lifetimeCommand } from "./lifetime.ts";
 import { permissionCommand } from "./permission.ts";
+import { compressCommand } from "./compress.ts";
 
 export function registerDcpCommands(
   pi: ExtensionAPI,
@@ -18,6 +19,13 @@ export function registerDcpCommands(
   config: DcpConfig,
   onStateChange: () => void,
 ): void {
+  pi.registerCommand("dcp:compress", {
+    description: "Trigger manual compression, optionally focused on a topic",
+    handler: async (args, ctx) => {
+      ctx.ui.notify(compressCommand(pi, state, config, args), "info");
+    },
+  });
+
   pi.registerCommand("dcp:help", {
     description: "Show DCP command help",
     handler: async (_args, ctx) => {
@@ -29,10 +37,7 @@ export function registerDcpCommands(
     description: "Show context usage breakdown",
     handler: async (_args, ctx) => {
       const usage = ctx.getContextUsage();
-      ctx.ui.notify(
-        contextCommand(state, usage ?? undefined),
-        "info",
-      );
+      ctx.ui.notify(contextCommand(state, usage ?? undefined), "info");
     },
   });
 
