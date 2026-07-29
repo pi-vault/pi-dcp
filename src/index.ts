@@ -171,6 +171,30 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   registerDcpCommands(pi, state, config, persistIfChanged);
 
+  function executeCompressTool(
+    mode: CompressArgs["mode"],
+    toolCallId: string,
+    params: Record<string, unknown>,
+    ctx: ExtensionContext,
+  ) {
+    if (!config.enabled) {
+      return {
+        content: [{ type: "text" as const, text: "Compression is disabled by configuration." }],
+        details: {},
+        isError: true,
+      };
+    }
+    const result = handleCompress(state, config, latestMessages, toolCallId, {
+      ...params,
+      mode,
+    } as CompressArgs);
+    sendCompressNotification(result, state, config, ctx);
+    return {
+      content: [{ type: "text" as const, text: result.text }],
+      details: {},
+    };
+  }
+
   function registerCompressTool(): void {
     if (config.compress.mode === "message") {
       pi.registerTool({
@@ -194,24 +218,12 @@ export default function createExtension(pi: ExtensionAPI): void {
           ),
         }),
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-          if (!config.enabled) {
-            return {
-              content: [
-                { type: "text" as const, text: "Compression is disabled by configuration." },
-              ],
-              details: {},
-              isError: true,
-            };
-          }
-          const result = handleCompress(state, config, latestMessages, _toolCallId, {
-            ...(params as Record<string, unknown>),
-            mode: "message",
-          } as CompressArgs);
-          sendCompressNotification(result, state, config, ctx);
-          return {
-            content: [{ type: "text" as const, text: result.text }],
-            details: {},
-          };
+          return executeCompressTool(
+            "message",
+            _toolCallId,
+            params as Record<string, unknown>,
+            ctx,
+          );
         },
       });
     } else {
@@ -238,24 +250,7 @@ export default function createExtension(pi: ExtensionAPI): void {
           ),
         }),
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-          if (!config.enabled) {
-            return {
-              content: [
-                { type: "text" as const, text: "Compression is disabled by configuration." },
-              ],
-              details: {},
-              isError: true,
-            };
-          }
-          const result = handleCompress(state, config, latestMessages, _toolCallId, {
-            ...(params as Record<string, unknown>),
-            mode: "range",
-          } as CompressArgs);
-          sendCompressNotification(result, state, config, ctx);
-          return {
-            content: [{ type: "text" as const, text: result.text }],
-            details: {},
-          };
+          return executeCompressTool("range", _toolCallId, params as Record<string, unknown>, ctx);
         },
       });
     }
