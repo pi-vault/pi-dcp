@@ -11,31 +11,12 @@ export function syncCompressionBlocks(
 ): void {
   const messagesState = state.prune.messages;
   if (messagesState.blocksById.size === 0) return;
-  const ownerIds = collectOwnerIds(messages);
-
-  // Unit-level callers without assigned refs retain the legacy ownership-only sync.
-  if (state.messageIds.byIndex.size === 0) {
-    rebuildCompressionState(
-      state,
-      new Set(
-        [...messagesState.blocksById.values()]
-          .filter((block) => ownerIds.has(block.compressToolCallId))
-          .map((block) => block.blockId),
-      ),
-    );
-    return;
-  }
 
   const keyToIndex = new Map<string, number>();
   for (const [index, ref] of state.messageIds.byIndex) {
     const key = state.messageIds.byRef.get(ref);
     if (key) keyToIndex.set(key, index);
   }
-
-  const hasOwner = (toolCallId: string) =>
-    state.toolParameters.size > 0
-      ? state.toolParameters.has(toolCallId)
-      : ownerIds.has(toolCallId);
 
   state.prune.messages.byMessageIndex.clear();
   for (const [blockId, block] of messagesState.blocksById) {
@@ -47,7 +28,7 @@ export function syncCompressionBlocks(
       endIndex === undefined ||
       anchorIndex === undefined ||
       startIndex > endIndex ||
-      !hasOwner(block.compressToolCallId)
+      !state.toolParameters.has(block.compressToolCallId)
     ) {
       messagesState.blocksById.delete(blockId);
       continue;
@@ -57,13 +38,11 @@ export function syncCompressionBlocks(
     block.endIndex = endIndex;
     block.anchorIndex = anchorIndex;
     block.parentBlockIds = [];
-    block.directMessageIndices = Array.from(
+    block.effectiveMessageIndices = Array.from(
       { length: endIndex - startIndex + 1 },
       (_, offset) => startIndex + offset,
     );
-    block.effectiveMessageIndices = [...block.directMessageIndices];
-    block.directToolIds = collectToolIds(messages, startIndex, endIndex);
-    block.effectiveToolIds = [...block.directToolIds];
+    block.effectiveToolIds = collectToolIds(messages, block.effectiveMessageIndices);
   }
 
   const blockIds = new Set(messagesState.blocksById.keys());
@@ -75,32 +54,23 @@ export function syncCompressionBlocks(
         child.parentBlockIds.push(block.blockId);
       }
     }
+    const coveredIndices = new Set(
+      block.consumedBlockIds.flatMap(
+        (id) => messagesState.blocksById.get(id)?.effectiveMessageIndices ?? [],
+      ),
+    );
+    block.directMessageIndices = block.effectiveMessageIndices.filter(
+      (index) => !coveredIndices.has(index),
+    );
+    block.directToolIds = collectToolIds(messages, block.directMessageIndices);
   }
 
-  rebuildCompressionState(
-    state,
-    new Set(
-      [...messagesState.blocksById.values()]
-        .filter((block) => hasOwner(block.compressToolCallId))
-        .map((block) => block.blockId),
-    ),
-  );
+  rebuildCompressionState(state, new Set(messagesState.blocksById.keys()));
 }
 
-function collectOwnerIds(messages: AgentMessage[]): Set<string> {
-  const ownerIds = new Set<string>();
-  for (const message of messages) {
-    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
-    for (const part of message.content) {
-      if (part.type === "toolCall" && typeof part.id === "string") ownerIds.add(part.id);
-    }
-  }
-  return ownerIds;
-}
-
-function collectToolIds(messages: AgentMessage[], start: number, end: number): string[] {
+function collectToolIds(messages: AgentMessage[], indices: number[]): string[] {
   const toolIds = new Set<string>();
-  for (let index = start; index <= end; index++) {
+  for (const index of indices) {
     const message = messages[index];
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
     for (const part of message.content) {
