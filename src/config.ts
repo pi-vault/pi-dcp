@@ -26,12 +26,7 @@ export type {
  * Tool names always protected from pruning strategies.
  * Pi's core tools that should never have their outputs removed.
  */
-export const BASE_PROTECTED_TOOLS = [
-  "compress",
-  "write",
-  "edit",
-  "subagent",
-];
+export const BASE_PROTECTED_TOOLS = ["compress", "write", "edit", "subagent"];
 
 // Value.Create fills all schema defaults, but Optional fields without
 // defaults resolve to undefined. Override the context limits that need
@@ -47,7 +42,7 @@ export const DEFAULT_CONFIG: DcpConfig = (() => {
 })();
 
 /**
- * Load DCP configuration from a single JSON file.
+ * Load DCP configuration from global and optional trusted project JSON files.
  * Falls back to defaults on missing file, parse error, or invalid content.
  * Returns warnings for validation errors and out-of-range values.
  * Invalid-typed values are reset to their defaults.
@@ -56,19 +51,20 @@ export const DEFAULT_CONFIG: DcpConfig = (() => {
  */
 export function loadConfig(
   configFilePath: string,
+  projectConfigPath?: string,
 ): { config: DcpConfig; warnings: string[] } {
   const warnings: string[] = [];
+  const merged = structuredClone(DEFAULT_CONFIG) as Record<string, unknown>;
 
-  const parsed = parseConfigFile(configFilePath);
-  if (!parsed) return { config: structuredClone(DEFAULT_CONFIG), warnings };
+  for (const filePath of [configFilePath, projectConfigPath]) {
+    if (!filePath) continue;
+    const parsed = parseConfigFile(filePath);
+    if (parsed.warning) warnings.push(parsed.warning);
+    if (parsed.value) deepMerge(merged, parsed.value);
+  }
 
   // Deep merge raw user config over defaults so partial nested objects
   // (e.g. { compress: { mode: "message" } }) don't wipe sibling defaults.
-  const merged = deepMerge(
-    structuredClone(DEFAULT_CONFIG) as Record<string, unknown>,
-    parsed,
-  );
-
   // Clean unknown properties first
   Value.Clean(DcpConfigSchema, merged);
 
@@ -118,18 +114,17 @@ export function loadConfig(
   return { config, warnings };
 }
 
-function parseConfigFile(
-  filePath: string,
-): Record<string, unknown> | undefined {
+function parseConfigFile(filePath: string): { value?: Record<string, unknown>; warning?: string } {
   try {
     const content = fs.readFileSync(filePath, "utf-8");
     const parsed = JSON.parse(content);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
+      return { value: parsed as Record<string, unknown> };
     }
-    return undefined;
-  } catch {
-    return undefined;
+    return { warning: `Unable to parse config file: ${filePath}` };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    return { warning: `Unable to parse config file: ${filePath}` };
   }
 }
 
@@ -152,10 +147,7 @@ function deepMerge(
       typeof tgtVal === "object" &&
       !Array.isArray(tgtVal)
     ) {
-      target[key] = deepMerge(
-        tgtVal as Record<string, unknown>,
-        srcVal as Record<string, unknown>,
-      );
+      target[key] = deepMerge(tgtVal as Record<string, unknown>, srcVal as Record<string, unknown>);
     } else {
       target[key] = srcVal;
     }
@@ -179,11 +171,7 @@ function getByPath(obj: Record<string, unknown>, path: string): unknown {
 /**
  * Set a value in a nested object using a JSON Pointer path (e.g. "/compress/mode").
  */
-function setByPath(
-  obj: Record<string, unknown>,
-  path: string,
-  value: unknown,
-): void {
+function setByPath(obj: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split("/").filter(Boolean);
   if (parts.length === 0) return;
   let current: Record<string, unknown> = obj;
