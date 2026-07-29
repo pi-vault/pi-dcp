@@ -455,10 +455,10 @@
   pnpm lint
   pnpm pack --dry-run
   git diff --check
-  git diff --exit-code HEAD -- docs/superpowers/plans/2026-07-28-pi-dcp-reliability-roadmap.md
+  git diff --exit-code 0dc5ec7 -- docs/superpowers/plans/2026-07-28-pi-dcp-reliability-roadmap.md
   ```
 
-  Expected: 421 existing tests plus Phase 5 tests pass, typecheck succeeds, lint does not exceed the Phase 5 entry baseline of 58 warnings and 1 info, packaging succeeds, and the source roadmap is unchanged. Run the release gate on Node 24.15+; the local Node 23.11 result is supplemental.
+  Expected: 442 tests pass, typecheck succeeds, lint does not exceed the Phase 5 entry baseline of 58 warnings and 1 info, packaging succeeds, and the source roadmap is unchanged. Run the release gate on Node 24.15+; Node 24.15.0 is the recorded verification environment.
 
 - [x] **Step 4: Record Phase 5 completion**
 
@@ -490,5 +490,5 @@
 ## Release Record
 
 - Status: complete
-- Release commit or tag: not recorded
+- Release commit or tag: `0dc5ec7`
 - Verification date: 2026-07-29 (Node 24.15.0)
