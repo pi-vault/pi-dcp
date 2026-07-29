@@ -214,6 +214,12 @@ pnpm check
 pnpm release:check
 ```
 
+### Benchmarks
+
+Run `pnpm benchmark` to emit a JSON report and retain the Node 24.15.0 evidence at [`benchmarks/result.json`](benchmarks/result.json). Fixtures are deterministic, but timings cover fixture cloning, fresh-state setup, restoration where applicable, and pipeline execution, so compare them only on the same machine and Node version.
+
+The report covers `clean-2000-messages`, `repeated-tool-pairs-2000`, and `restored-nested-blocks-100`. Each result includes `name`, `medianMs`, `p95Ms`, `inputEstimatedTokens`, `outputEstimatedTokens`, and `reductionEstimatedTokens`; the top-level report includes `nodeVersion`, `iterations`, and `workloads`.
+
 ## Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
