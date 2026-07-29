@@ -31,21 +31,34 @@ export function runPipeline(
   contextUsage: ContextUsage | undefined,
   runtimePrompts?: RuntimePrompts,
 ): PipelineResult {
-  // Step 0: Reconcile real tool-call ownership before compression state.
-  syncToolCache(state, messages);
-  syncCompressionBlocks(state, messages);
-
-  // Step 1: Strip hallucinated DCP tags from assistant messages
+  // Step 0: Strip stale tags, then rebuild stable refs before state rehydration.
   let result = stripHallucinations(messages);
 
-  // Step 2: Rebuild ordered tool ID list
-  buildToolIdList(state, result);
-
-  // Step 3: Run strategies (deduplication + purge errors)
-  const strategyResult = runStrategies(state, config);
-
-  // Step 4: Assign message refs (stable raw indices)
   assignMessageRefs(state, result);
+  syncToolCache(state, result);
+  buildToolIdList(state, result);
+  state.prune.tools = new Map(
+    [...state.prune.tools].filter(([toolCallId]) => state.toolParameters.has(toolCallId)),
+  );
+  const currentKeys = new Set(state.messageIds.byIndex.values());
+  const rawKeys = new Set(
+    [...currentKeys]
+      .map((ref) => state.messageIds.byRef.get(ref))
+      .filter((key): key is string => key !== undefined),
+  );
+  state.messageIds.byRawId = new Map(
+    [...state.messageIds.byRawId].filter(([key]) => rawKeys.has(key)),
+  );
+  state.messageIds.byRef = new Map(
+    [...state.messageIds.byRawId].map(([key, ref]) => [ref, key]),
+  );
+  for (const anchors of Object.values(state.nudges)) {
+    for (const key of anchors) if (!rawKeys.has(key)) anchors.delete(key);
+  }
+  syncCompressionBlocks(state, result);
+
+  // Step 1: Run strategies (deduplication + purge errors)
+  const strategyResult = runStrategies(state, config);
 
   // Step 4.5: Build priority map for message-mode compression
   let priorityMap: PriorityMap | undefined;
@@ -56,11 +69,11 @@ export function runPipeline(
   // Step 5: Inject message IDs (with priority attrs if message mode)
   result = injectMessageIds(state, result, priorityMap);
 
-  // Step 6: Apply pruning (compressed ranges removed, tool outputs pruned)
-  result = applyPruning(state, result);
-
-  // Step 7: Inject nudges based on context usage
+  // Step 6: Inject nudges while message indices still match the raw refs
   result = injectCompressNudges(state, config, result, contextUsage, runtimePrompts);
+
+  // Step 7: Apply pruning (compressed ranges removed, tool outputs pruned)
+  result = applyPruning(state, result);
 
   return { messages: result, strategyResult };
 }

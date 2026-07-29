@@ -28,6 +28,7 @@ describe("message-ids", () => {
     it("parses valid message refs", () => {
       expect(parseMessageRef("m0001")).toBe(1);
       expect(parseMessageRef("m0042")).toBe(42);
+      expect(parseMessageRef(formatMessageRef(10000))).toBe(10000);
     });
 
     it("returns undefined for invalid refs", () => {

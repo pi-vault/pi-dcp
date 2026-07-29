@@ -224,6 +224,7 @@ function getKeyForIndex(state: SessionState, index: number): string | undefined 
 function buildKeyToIndexMap(state: SessionState, messageCount: number): Map<string, number> {
   const map = new Map<string, number>();
   for (let i = 0; i < messageCount; i++) {
+    if (state.prune.messages.byMessageIndex.get(i)?.activeBlockIds.length) continue;
     const key = getKeyForIndex(state, i);
     if (key) map.set(key, i);
   }

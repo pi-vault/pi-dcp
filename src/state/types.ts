@@ -139,6 +139,49 @@ export interface SessionStats {
   messagesCompressed: number;
 }
 
+/** Version 1 durable representation of a compression block. */
+export interface DcpSnapshotBlockV1 {
+  blockId: number;
+  runId: number;
+  deactivatedByUser: boolean;
+  compressedTokens: number;
+  summaryTokens: number;
+  durationMs: number;
+  mode: "range" | "message";
+  topic: string;
+  batchTopic?: string;
+  compressToolCallId: string;
+  startKey: string;
+  endKey: string;
+  anchorKey: string;
+  consumedBlockIds: number[];
+  createdAt: number;
+  summary: string;
+}
+
+/** Versioned durable DCP state stored in Pi custom session entries. */
+export interface DcpSnapshotV1 {
+  version: 1;
+  ownerSessionId: string;
+  manualMode: false | "active";
+  compressPermission: "allow" | "deny";
+  stats: SessionStats;
+  lastCompaction: number;
+  pruneTools: Array<[string, number]>;
+  blocks: DcpSnapshotBlockV1[];
+  nextBlockId: number;
+  nextRunId: number;
+  messageIds: {
+    byRawId: Array<[string, string]>;
+    nextRefIndex: number;
+  };
+  nudges: {
+    contextLimitAnchors: string[];
+    turnAnchors: string[];
+    iterationAnchors: string[];
+  };
+}
+
 export interface MessageIdState {
   /** Content-derived key -> ref string (e.g. "user:1719100000000:0" -> "m0001"). */
   byRawId: Map<string, string>;

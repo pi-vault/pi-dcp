@@ -3,8 +3,12 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
 
+const agentDir = vi.hoisted(
+  () => `/tmp/dcp-integration-test-${Date.now()}-${Math.random()}`,
+);
+
 vi.mock("@earendil-works/pi-coding-agent", () => ({
-  getAgentDir: () => "/tmp/test-pi-agent",
+  getAgentDir: () => agentDir,
 }));
 
 type Handler = (...args: any[]) => unknown;
@@ -14,8 +18,6 @@ type OutputMessage = {
   content: Array<{ id?: string; text?: string }>;
 };
 type ContextResult = { messages: OutputMessage[] };
-
-const agentDir = "/tmp/test-pi-agent";
 
 afterEach(() => fs.rmSync(agentDir, { recursive: true, force: true }));
 
@@ -36,6 +38,7 @@ function createMockApi() {
     registerCommand(name: string, def: unknown) {
       commands.set(name, def);
     },
+    appendEntry() {},
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
 
   return { api, handlers, tools, commands };

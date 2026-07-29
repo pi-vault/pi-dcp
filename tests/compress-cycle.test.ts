@@ -4,6 +4,7 @@ import { createSessionState } from "../src/state/state.ts";
 import { assignMessageRefs, injectMessageIds } from "../src/messages/inject.ts";
 import { applyPruning } from "../src/messages/prune.ts";
 import { syncCompressionBlocks } from "../src/messages/sync.ts";
+import { syncToolCache } from "../src/state/tool-cache.ts";
 import { handleCompress } from "../src/compress/handler.ts";
 import { resolveBoundaryIndex } from "../src/compress/search.ts";
 import { makeUserMessage as makeUser, makeAssistantMessage as makeAssistant, makeDefaultConfig } from "./helpers.ts";
@@ -16,16 +17,17 @@ function textOf(msg: AgentMessage): string {
 
 /**
  * Simulate the context pipeline as it runs in index.ts:
- * 1. sync compression blocks
- * 2. assign refs (to raw messages)
+ * 1. assign refs (to raw messages)
+ * 2. sync tool and compression state
  * 3. inject IDs (into raw messages)
  * 4. apply pruning (filter compressed ranges)
  *
  * Returns the filtered messages (as the model would see them).
  */
 function runContextPipeline(state: ReturnType<typeof createSessionState>, rawMessages: AgentMessage[]): AgentMessage[] {
-  syncCompressionBlocks(state, rawMessages);
   assignMessageRefs(state, rawMessages);
+  syncToolCache(state, rawMessages);
+  syncCompressionBlocks(state, rawMessages);
   let messages = injectMessageIds(state, rawMessages);
   messages = applyPruning(state, messages);
   return messages;
