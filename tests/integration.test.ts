@@ -23,6 +23,8 @@ function createMockApi() {
   const handlers = new Map<string, Handler[]>();
   const tools = new Map<string, unknown>();
   const commands = new Map<string, unknown>();
+  const sentMessages: Array<{ message: unknown; options: unknown }> = [];
+  const entries: Array<{ customType: string; data: unknown }> = [];
 
   const api = {
     on(event: string, handler: Handler) {
@@ -36,10 +38,15 @@ function createMockApi() {
     registerCommand(name: string, def: unknown) {
       commands.set(name, def);
     },
-    appendEntry() {},
+    sendMessage(message: unknown, options: unknown) {
+      sentMessages.push({ message, options });
+    },
+    appendEntry(customType: string, data: unknown) {
+      entries.push({ customType, data });
+    },
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
 
-  return { api, handlers, tools, commands };
+  return { api, handlers, tools, commands, sentMessages, entries };
 }
 
 describe("integration", () => {
@@ -425,10 +432,13 @@ describe("integration", () => {
     expect(tools.has("compress")).toBe(false);
   });
 
-  it("blocks an already registered compression tool after DCP is disabled", async () => {
+  it.each([
+    "range",
+    "message",
+  ] as const)("blocks an already registered %s compression tool after DCP is disabled", async (mode) => {
     const globalConfigPath = path.join(agentDir, "extensions", "dcp.json");
     fs.mkdirSync(path.dirname(globalConfigPath), { recursive: true });
-    fs.writeFileSync(globalConfigPath, JSON.stringify({ enabled: true }));
+    fs.writeFileSync(globalConfigPath, JSON.stringify({ enabled: true, compress: { mode } }));
     const { api, handlers, tools } = createMockApi();
     createExtension(api);
     const ctx = {
@@ -457,6 +467,72 @@ describe("integration", () => {
       content: [{ text: "Compression is disabled by configuration." }],
       isError: true,
     });
+  });
+
+  it.each([
+    false,
+    true,
+  ])("delivers manual compression as a follow-up without persisting while streaming=%s", async (isStreaming) => {
+    const { api, commands, sentMessages, entries } = createMockApi();
+    createExtension(api);
+    const command = commands.get("dcp:compress") as
+      | { handler: (args: string, ctx: unknown) => Promise<void> }
+      | undefined;
+    if (!command) throw new Error("dcp:compress command not registered");
+    const entryCount = entries.length;
+
+    await command.handler("database migrations", {
+      isStreaming,
+      ui: { notify: () => {} },
+    });
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]).toMatchObject({
+      message: {
+        customType: "dcp-compress-trigger",
+        content: expect.stringContaining("Focus especially on: database migrations"),
+        display: false,
+      },
+      options: { triggerTurn: true, deliverAs: "followUp" },
+    });
+    expect(entries).toHaveLength(entryCount);
+  });
+
+  it.each([
+    ["dcp:sweep", ""],
+    ["dcp:manual", "on"],
+    ["dcp:decompress", "1"],
+    ["dcp:recompress", "1"],
+    ["dcp:permission", ""],
+  ])("blocks mutating command %s after session config disables DCP", async (name, args) => {
+    const globalConfigPath = path.join(agentDir, "extensions", "dcp.json");
+    fs.mkdirSync(path.dirname(globalConfigPath), { recursive: true });
+    fs.writeFileSync(globalConfigPath, JSON.stringify({ enabled: true }));
+    const { api, handlers, commands, entries } = createMockApi();
+    createExtension(api);
+    const notify = vi.fn();
+    const ctx = {
+      cwd: agentDir,
+      isProjectTrusted: () => false,
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      getContextUsage: () => undefined,
+      hasUI: false,
+      ui: { setStatus: () => {}, notify },
+    };
+    const start = handlers.get("session_start")?.[0];
+    await start?.({ reason: "new" }, ctx);
+    fs.writeFileSync(globalConfigPath, JSON.stringify({ enabled: false }));
+    await start?.({ reason: "resume" }, ctx);
+    const entryCount = entries.length;
+    const command = commands.get(name) as
+      | { handler: (commandArgs: string, commandCtx: typeof ctx) => Promise<void> }
+      | undefined;
+    if (!command) throw new Error(`${name} command not registered`);
+
+    await command.handler(args, ctx);
+
+    expect(notify).toHaveBeenLastCalledWith("DCP is disabled by configuration.", "info");
+    expect(entries).toHaveLength(entryCount);
   });
 
   it("uses project prompt overrides only when the project is trusted", async () => {

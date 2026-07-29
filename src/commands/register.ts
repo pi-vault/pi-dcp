@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { helpCommand } from "./help.ts";
@@ -19,6 +19,12 @@ export function registerDcpCommands(
   config: DcpConfig,
   onStateChange: () => void,
 ): void {
+  const rejectWhenDisabled = (ctx: ExtensionCommandContext): boolean => {
+    if (config.enabled) return false;
+    ctx.ui.notify("DCP is disabled by configuration.", "info");
+    return true;
+  };
+
   pi.registerCommand("dcp:compress", {
     description: "Trigger manual compression, optionally focused on a topic",
     handler: async (args, ctx) => {
@@ -51,6 +57,7 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:sweep", {
     description: "Force-prune all eligible tool outputs",
     handler: async (_args, ctx) => {
+      if (rejectWhenDisabled(ctx)) return;
       const message = sweepCommand(state, config);
       onStateChange();
       ctx.ui.notify(message, "info");
@@ -60,6 +67,7 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:manual", {
     description: "Toggle manual compression mode",
     handler: async (args, ctx) => {
+      if (rejectWhenDisabled(ctx)) return;
       const message = manualCommand(state, args);
       onStateChange();
       ctx.ui.notify(message, "info");
@@ -69,6 +77,7 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:decompress", {
     description: "Deactivate a compression block",
     handler: async (args, ctx) => {
+      if (rejectWhenDisabled(ctx)) return;
       const message = decompressCommand(state, args);
       onStateChange();
       ctx.ui.notify(message, "info");
@@ -78,6 +87,7 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:recompress", {
     description: "Reactivate a deactivated compression block",
     handler: async (args, ctx) => {
+      if (rejectWhenDisabled(ctx)) return;
       const message = recompressCommand(state, args);
       onStateChange();
       ctx.ui.notify(message, "info");
@@ -95,6 +105,7 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:permission", {
     description: "Toggle compress permission (allow/deny)",
     handler: async (_args, ctx) => {
+      if (rejectWhenDisabled(ctx)) return;
       const message = permissionCommand(state);
       onStateChange();
       ctx.ui.notify(message, "info");
