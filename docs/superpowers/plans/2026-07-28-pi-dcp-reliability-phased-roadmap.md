@@ -31,7 +31,7 @@ Expected: exit code 0 and no output.
 | 1. Pruning Foundation             | complete    | v0.4.1 baseline  | Failed inputs are purged without losing diagnostics; lookup outputs can deduplicate                    | [Phase 1](2026-07-28-pi-dcp-phase-1-pruning-foundation.md)             |
 | 2. Turn and Pair Safety           | complete    | Phase 1 complete | Fresh user turns are protected consistently and DCP preserves Pi tool-pair invariants                  | [Phase 2](2026-07-28-pi-dcp-phase-2-turn-and-pair-safety.md)           |
 | 3. Compression Correctness        | complete    | Phase 2 complete | In-session compression has correct ownership, accounting, batching, nesting, and timing                | [Phase 3](2026-07-28-pi-dcp-phase-3-compression-correctness.md)        |
-| 4. Native Session State           | not started | Phase 3 complete | Reliability state survives resume, fork, tree navigation, and compaction without cross-session leakage | [Phase 4](2026-07-28-pi-dcp-phase-4-native-session-state.md)           |
+| 4. Native Session State           | complete    | Phase 3 complete | Reliability state survives resume, fork, tree navigation, and compaction without cross-session leakage | [Phase 4](2026-07-28-pi-dcp-phase-4-native-session-state.md)           |
 | 5. Operator and Release Hardening | not started | Phase 4 complete | Trusted project config, manual compression, benchmarks, and final release documentation are available  | [Phase 5](2026-07-28-pi-dcp-phase-5-operator-and-release-hardening.md) |
 
 Allowed status values are `not started`, `in progress`, `blocked`, and `complete`.

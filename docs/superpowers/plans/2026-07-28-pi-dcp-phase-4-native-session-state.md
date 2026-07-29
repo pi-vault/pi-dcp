@@ -196,6 +196,6 @@ Phase 5 may use `DcpSnapshotV1`, active-branch restore, `durableStateFingerprint
 
 ## Release Record
 
-- Status: not started
+- Status: complete
 - Release commit or tag: not recorded
 - Verification date: not recorded

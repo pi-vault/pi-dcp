@@ -46,7 +46,9 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 
 - Compression batches validate completely before state changes, then commit atomically. Selection expands tool-call/result pairs and active blocks to a fixed point.
 - Nested compression blocks restore coherent visibility when decompressed or recompressed; savings count only visible context, without nested double-counting.
-- Every block created by a successful batch receives the batch duration. Resume, fork, tree, and compaction restoration begin in Phase 4.
+- DCP state now lives in versioned `pi-dcp-state` entries on the active Pi session branch. Resume and tree navigation recover the newest valid entry; forks inherit settings but start with fresh statistics.
+- Compression memberships, message indices, tool caches, and nudge positions are rebuilt from current messages. Corrupt entries are skipped, compaction persists its reset, and legacy `dcp/state.json` files are ignored.
+- `dcp:lifetime` scans Pi session JSONL files and totals the newest snapshot for each owning session.
 
 ## Commands
 

@@ -15,7 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Record source provenance and the verification baseline.
 - Validate and commit compression batches atomically after fixed-point expansion of tool pairs and active blocks.
 - Preserve nested-block visibility through decompress/recompress cycles, count only visible replaced tokens, and record batch duration on every created block.
-- Resume, fork, tree, and compaction restoration begin in Phase 4.
+- Persist versioned DCP snapshots in Pi session branches, restoring safely across resume, fork, tree navigation, and compaction without shared sidecars.
+- Rebuild runtime compression state from stable message keys and aggregate `dcp:lifetime` totals from native Pi JSONL sessions.
 
 ## 2026-07-27 - [0.4.1]
 
