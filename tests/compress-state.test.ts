@@ -4,8 +4,27 @@ import {
   allocateRunId,
   wrapCompressedSummary,
   applyCompressionState,
+  storeCompressionState,
+  type ApplyCompressionParams,
 } from "../src/compress/state.ts";
 import { createSessionState } from "../src/state/state.ts";
+
+const compressionParams: ApplyCompressionParams = {
+  blockId: 1,
+  runId: 1,
+  topic: "Auth exploration",
+  mode: "range",
+  startIndex: 2,
+  endIndex: 8,
+  anchorIndex: 2,
+  compressToolCallId: "compress-call-1",
+  startKey: "user:1000:0",
+  endKey: "assistant:1001:0",
+  anchorKey: "user:1000:0",
+  summary: "Summary text",
+  summaryTokens: 50,
+  consumedBlockIds: [],
+};
 
 describe("compress/state", () => {
   describe("allocateBlockId", () => {
@@ -41,20 +60,9 @@ describe("compress/state", () => {
       const runId = allocateRunId(state);
 
       applyCompressionState(state, {
+        ...compressionParams,
         blockId,
         runId,
-        topic: "Auth exploration",
-        mode: "range",
-        startIndex: 2,
-        endIndex: 8,
-        anchorIndex: 2,
-        compressToolCallId: "compress-call-1",
-        startKey: "user:1000:0",
-        endKey: "assistant:1001:0",
-        anchorKey: "user:1000:0",
-        summary: "Summary text",
-        summaryTokens: 50,
-        consumedBlockIds: [],
       });
 
       const block = state.prune.messages.blocksById.get(blockId);
@@ -80,5 +88,19 @@ describe("compress/state", () => {
         expect(entry.activeBlockIds).toContain(blockId);
       }
     });
+  });
+
+  it("stores stable membership without mutating derived message state", () => {
+    const state = createSessionState();
+
+    storeCompressionState(state, {
+      ...compressionParams,
+      endIndex: 3,
+      summary: "summary",
+      summaryTokens: 1,
+    });
+
+    expect(state.prune.messages.byMessageIndex.size).toBe(0);
+    expect(state.prune.messages.blocksById.get(1)?.effectiveMessageIndices).toEqual([2, 3]);
   });
 });

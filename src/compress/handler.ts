@@ -46,10 +46,8 @@ export interface CompressArgs {
 interface PreparedCompression {
   startIndex: number;
   endIndex: number;
-  anchorIndex: number;
   startKey: string;
   endKey: string;
-  anchorKey: string;
   summary: string;
   summaryTokens: number;
   compressedTokens: number;
@@ -94,7 +92,7 @@ export function handleCompress(
   for (const entry of entries) {
     const blockId = allocateBlockId(state);
     blockIds.push(blockId);
-    storeCompressionState(state, {
+    const block = storeCompressionState(state, {
       blockId,
       runId,
       topic: args.topic,
@@ -102,11 +100,11 @@ export function handleCompress(
       mode: args.mode,
       startIndex: entry.startIndex,
       endIndex: entry.endIndex,
-      anchorIndex: entry.anchorIndex,
+      anchorIndex: entry.startIndex,
       compressToolCallId,
       startKey: entry.startKey,
       endKey: entry.endKey,
-      anchorKey: entry.anchorKey,
+      anchorKey: entry.startKey,
       summary: entry.summary,
       summaryTokens: entry.summaryTokens,
       consumedBlockIds: entry.consumedBlockIds,
@@ -115,17 +113,13 @@ export function handleCompress(
 
     totalCompressed += entry.effectiveMessageIndices.length;
 
-    // Read back compressedTokens and summaryTokens (populated by applyCompressionState)
-    const block = state.prune.messages.blocksById.get(blockId);
-    if (block) {
-      block.compressedTokens = entry.compressedTokens;
-      block.directMessageIndices = entry.directMessageIndices;
-      block.directToolIds = entry.directToolIds;
-      block.effectiveMessageIndices = entry.effectiveMessageIndices;
-      block.effectiveToolIds = entry.effectiveToolIds;
-      totalCompressedTokens += entry.compressedTokens;
-      totalSummaryTokens += entry.summaryTokens;
-    }
+    block.compressedTokens = entry.compressedTokens;
+    block.directMessageIndices = entry.directMessageIndices;
+    block.directToolIds = entry.directToolIds;
+    block.effectiveMessageIndices = entry.effectiveMessageIndices;
+    block.effectiveToolIds = entry.effectiveToolIds;
+    totalCompressedTokens += entry.compressedTokens;
+    totalSummaryTokens += entry.summaryTokens;
   }
 
   rebuildCompressionState(state, eligibleBlockIds);
@@ -199,10 +193,8 @@ function prepareCompressions(
     return {
       startIndex: entry.startIndex,
       endIndex: entry.endIndex,
-      anchorIndex: entry.startIndex,
       startKey,
       endKey,
-      anchorKey: startKey,
       summary,
       summaryTokens: countTokens(summary),
       compressedTokens,

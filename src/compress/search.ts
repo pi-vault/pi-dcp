@@ -49,11 +49,6 @@ export interface SelectionResult {
   consumedBlockIds: number[];
 }
 
-export interface ExpandedRange {
-  startIndex: number;
-  endIndex: number;
-}
-
 /**
  * Expand a compression range to ensure all tool call chains are complete.
  * If state is provided with populated toolParameters, uses cached assistantIndex/resultIndex
@@ -65,7 +60,7 @@ export function expandRangeForToolChains(
   startIndex: number,
   endIndex: number,
   state?: SessionState,
-): ExpandedRange {
+) {
   // Fast path: use cached indices from tool parameter entries
   if (state && state.toolParameters.size > 0) {
     return expandWithCachedIndices(messages, startIndex, endIndex, state);
@@ -80,7 +75,7 @@ function expandWithCachedIndices(
   startIndex: number,
   endIndex: number,
   state: SessionState,
-): ExpandedRange {
+) {
   let start = startIndex;
   let end = endIndex;
   let changed = true;
@@ -118,7 +113,7 @@ function expandByScan(
   messages: AgentMessage[],
   startIndex: number,
   endIndex: number,
-): ExpandedRange {
+) {
   let start = startIndex;
   let end = endIndex;
   let changed = true;

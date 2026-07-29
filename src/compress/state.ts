@@ -53,21 +53,22 @@ export interface ApplyCompressionParams {
 export function applyCompressionState(
   state: SessionState,
   params: ApplyCompressionParams,
-): { messageIndices: number[] } {
-  const result = storeCompressionState(state, params);
+): void {
+  storeCompressionState(state, params);
   rebuildCompressionState(state, getEligibleCompressionBlockIds(state));
-  return result;
 }
 
 /** Store a block and its stable memberships; rebuild derived visibility separately. */
 export function storeCompressionState(
   state: SessionState,
   params: ApplyCompressionParams,
-): { messageIndices: number[] } {
+): CompressionBlock {
   const now = Date.now();
-  const messageIndices: number[] = [];
+  const messageIndices = Array.from(
+    { length: params.endIndex - params.startIndex + 1 },
+    (_, offset) => params.startIndex + offset,
+  );
 
-  // Create the block
   const block: CompressionBlock = {
     blockId: params.blockId,
     runId: params.runId,
@@ -98,28 +99,6 @@ export function storeCompressionState(
     summary: params.summary,
   };
 
-  // Mark messages in range
-  let totalTokens = 0;
-  for (let i = params.startIndex; i <= params.endIndex; i++) {
-    messageIndices.push(i);
-
-    let entry = state.prune.messages.byMessageIndex.get(i);
-    if (!entry) {
-      entry = {
-        tokenCount: 0,
-        blockIds: [],
-        activeBlockIds: [],
-      };
-      state.prune.messages.byMessageIndex.set(i, entry);
-    }
-
-    if (!entry.blockIds.includes(params.blockId)) {
-      entry.blockIds.push(params.blockId);
-    }
-    totalTokens += entry.tokenCount;
-  }
-
-  block.compressedTokens = totalTokens;
   block.directMessageIndices = messageIndices;
   block.effectiveMessageIndices = messageIndices;
 
@@ -133,7 +112,7 @@ export function storeCompressionState(
     }
   }
 
-  return { messageIndices };
+  return block;
 }
 
 /** Candidates retained across rebuilds, including blocks hidden by a parent. */
