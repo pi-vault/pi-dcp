@@ -2,11 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import {
-  saveSessionState,
-  loadSessionState,
-  loadAllSessionStats,
-} from "../src/state/persistence.ts";
+import { loadAllSessionStats } from "../src/state/persistence.ts";
+import * as persistence from "../src/state/persistence.ts";
 import { createSessionState } from "../src/state/state.ts";
 
 describe("persistence", () => {
@@ -20,189 +17,222 @@ describe("persistence", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("saves and loads session state", () => {
-    const state = createSessionState();
-    state.sessionId = "test-session";
-    state.currentUserTurn = 5;
-    state.stats.toolsPruned = 3;
-    state.stats.totalPruneTokens = 500;
-    state.stats.messagesCompressed = 2;
-    state.prune.tools.set("c1", 100);
-
-    const stateDir = path.join(tempDir, "test-session-dir");
-    fs.mkdirSync(stateDir, { recursive: true });
-    saveSessionState(state, stateDir);
-
-    const loaded = loadSessionState(stateDir);
-    expect(loaded).toBeDefined();
-    expect(loaded).not.toHaveProperty("currentUserTurn");
-    const saved = JSON.parse(
-      fs.readFileSync(path.join(stateDir, "dcp", "state.json"), "utf-8"),
-    );
-    expect(saved).not.toHaveProperty("currentTurn");
-    expect(loaded!.stats.toolsPruned).toBe(3);
-    expect(loaded!.stats.totalPruneTokens).toBe(500);
-    expect(loaded!.stats.messagesCompressed).toBe(2);
-    expect(loaded!.lastCompaction).toBe(0);
-  });
-
-  it("returns undefined when no state file exists", () => {
-    const loaded = loadSessionState(tempDir);
-    expect(loaded).toBeUndefined();
-  });
-
-  it("handles corrupt JSON gracefully", () => {
-    const dcpDir = path.join(tempDir, "dcp");
-    fs.mkdirSync(dcpDir, { recursive: true });
-    fs.writeFileSync(path.join(dcpDir, "state.json"), "not json");
-
-    const loaded = loadSessionState(tempDir);
-    expect(loaded).toBeUndefined();
-  });
-
-  it("does not write when sessionId is null", () => {
-    const state = createSessionState();
-    state.sessionId = null;
-
-    saveSessionState(state, tempDir);
-
-    const dcpDir = path.join(tempDir, "dcp");
-    expect(fs.existsSync(path.join(dcpDir, "state.json"))).toBe(false);
-  });
-
-  it("saves and loads messageIds state", () => {
-    const state = createSessionState();
-    state.sessionId = "test-session";
-    state.messageIds.byRawId.set("user:1000:0", "m0001");
-    state.messageIds.byRawId.set("assistant:2000:0", "m0002");
-    state.messageIds.byRef.set("m0001", "user:1000:0");
-    state.messageIds.byRef.set("m0002", "assistant:2000:0");
-    state.messageIds.nextRefIndex = 3;
-
-    const stateDir = path.join(tempDir, "ids-test");
-    fs.mkdirSync(stateDir, { recursive: true });
-    saveSessionState(state, stateDir);
-
-    const loaded = loadSessionState(stateDir);
-    expect(loaded).toBeDefined();
-    expect(loaded!.messageIds).toBeDefined();
-    expect(loaded!.messageIds!.byRawId.get("user:1000:0")).toBe("m0001");
-    expect(loaded!.messageIds!.byRef.get("m0001")).toBe("user:1000:0");
-    expect(loaded!.messageIds!.nextRefIndex).toBe(3);
-    // byIndex is not persisted — runtime-only
-    expect(loaded!.messageIds!.byIndex.size).toBe(0);
-  });
-
-  it("saves and loads nudge anchor sets", () => {
-    const state = createSessionState();
-    state.sessionId = "test-session";
-    state.nudges.contextLimitAnchors.add("user:1000:0");
-    state.nudges.contextLimitAnchors.add("user:2000:0");
-    state.nudges.turnAnchors.add("assistant:3000:0");
-    state.nudges.iterationAnchors.add("user:4000:0");
-    state.nudges.iterationAnchors.add("assistant:5000:0");
-
-    const stateDir = path.join(tempDir, "nudges-test");
-    fs.mkdirSync(stateDir, { recursive: true });
-    saveSessionState(state, stateDir);
-
-    const loaded = loadSessionState(stateDir);
-    expect(loaded).toBeDefined();
-    expect(loaded!.nudges).toBeDefined();
-    expect(loaded!.nudges!.contextLimitAnchors).toEqual(
-      new Set(["user:1000:0", "user:2000:0"]),
-    );
-    expect(loaded!.nudges!.turnAnchors).toEqual(new Set(["assistant:3000:0"]));
-    expect(loaded!.nudges!.iterationAnchors).toEqual(
-      new Set(["user:4000:0", "assistant:5000:0"]),
-    );
-  });
-
-  it("handles legacy state files without nudges", () => {
-    const dcpDir = path.join(tempDir, "dcp");
-    fs.mkdirSync(dcpDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(dcpDir, "state.json"),
-      JSON.stringify({
-        currentTurn: 7,
-        stats: { pruneTokenCounter: 0, totalPruneTokens: 0, toolsPruned: 0, messagesCompressed: 0 },
-        lastCompaction: 0,
-      }),
-    );
-
-    const loaded = loadSessionState(tempDir);
-    expect(loaded).toBeDefined();
-    expect(loaded!.nudges).toBeUndefined();
-  });
-
-  it("handles legacy state files without messageIds", () => {
-    const dcpDir = path.join(tempDir, "dcp");
-    fs.mkdirSync(dcpDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(dcpDir, "state.json"),
-      JSON.stringify({
-        currentTurn: 3,
-        stats: { pruneTokenCounter: 0, totalPruneTokens: 100, toolsPruned: 1, messagesCompressed: 0 },
-        lastCompaction: 0,
-      }),
-    );
-
-    const loaded = loadSessionState(tempDir);
-    expect(loaded).toBeDefined();
-    expect(loaded!.messageIds).toBeUndefined(); // gracefully absent
-  });
-
   describe("loadAllSessionStats", () => {
-    it("aggregates stats from multiple session dirs", () => {
-      // Create two session dirs with state files
-      const dir1 = path.join(tempDir, "session-1", "dcp");
-      const dir2 = path.join(tempDir, "session-2", "dcp");
+    it("aggregates each owner's newest snapshot from nested Pi JSONL sessions", async () => {
+      const dir1 = path.join(tempDir, "project-a", "session-1");
+      const dir2 = path.join(tempDir, "project-b", "session-2");
       fs.mkdirSync(dir1, { recursive: true });
       fs.mkdirSync(dir2, { recursive: true });
+      const snapshot = (owner: string, total: number, tools: number, messages: number) => ({
+        version: 1, ownerSessionId: owner, manualMode: false, compressPermission: "allow",
+        stats: { pruneTokenCounter: 0, totalPruneTokens: total, toolsPruned: tools, messagesCompressed: messages },
+        lastCompaction: 0, pruneTools: [], blocks: [], nextBlockId: 1, nextRunId: 1,
+        messageIds: { byRawId: [], nextRefIndex: 1 },
+        nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+      });
+      fs.writeFileSync(path.join(dir1, "session.jsonl"), [
+        JSON.stringify({ type: "session" }),
+        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: 1, data: snapshot("one", 300, 2, 1) }),
+        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: 2, data: snapshot("one", 400, 3, 2) }),
+      ].join("\n"));
+      fs.writeFileSync(path.join(dir2, "session.jsonl"), [
+        JSON.stringify({ type: "session" }),
+        "not json",
+        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: 1, data: snapshot("two", 700, 5, 3) }),
+      ].join("\n"));
 
-      fs.writeFileSync(
-        path.join(dir1, "state.json"),
-        JSON.stringify({
-          stats: { totalPruneTokens: 300, toolsPruned: 2, messagesCompressed: 1, pruneTokenCounter: 0 },
-        }),
-      );
-      fs.writeFileSync(
-        path.join(dir2, "state.json"),
-        JSON.stringify({
-          stats: { totalPruneTokens: 700, toolsPruned: 5, messagesCompressed: 3, pruneTokenCounter: 0 },
-        }),
-      );
-
-      const result = loadAllSessionStats(tempDir);
-      expect(result.totalTokensSaved).toBe(1000);
-      expect(result.totalToolsPruned).toBe(7);
-      expect(result.totalMessagesCompressed).toBe(4);
+      const result = await loadAllSessionStats(tempDir);
+      expect(result.totalTokensSaved).toBe(1100);
+      expect(result.totalToolsPruned).toBe(8);
+      expect(result.totalMessagesCompressed).toBe(5);
       expect(result.sessionCount).toBe(2);
     });
 
-    it("returns zeros when directory does not exist", () => {
-      const result = loadAllSessionStats("/tmp/nonexistent-dcp-dir-xyz");
+    it("returns zeros when directory does not exist", async () => {
+      const result = await loadAllSessionStats("/tmp/nonexistent-dcp-dir-xyz");
       expect(result.totalTokensSaved).toBe(0);
       expect(result.sessionCount).toBe(0);
     });
 
-    it("skips corrupt state files", () => {
-      const dir1 = path.join(tempDir, "good-session", "dcp");
-      const dir2 = path.join(tempDir, "bad-session", "dcp");
+    it("ignores files without a Pi session header", async () => {
+      const dir1 = path.join(tempDir, "good-session");
+      const dir2 = path.join(tempDir, "bad-session");
       fs.mkdirSync(dir1, { recursive: true });
       fs.mkdirSync(dir2, { recursive: true });
 
       fs.writeFileSync(
-        path.join(dir1, "state.json"),
-        JSON.stringify({
-          stats: { totalPruneTokens: 100, toolsPruned: 1, messagesCompressed: 0, pruneTokenCounter: 0 },
-        }),
+        path.join(dir1, "session.jsonl"),
+        JSON.stringify({ type: "custom", customType: "pi-dcp-state", data: {} }),
       );
-      fs.writeFileSync(path.join(dir2, "state.json"), "{{{invalid");
+      fs.writeFileSync(path.join(dir2, "session.jsonl"), "{{{invalid");
 
-      const result = loadAllSessionStats(tempDir);
-      expect(result.totalTokensSaved).toBe(100);
-      expect(result.sessionCount).toBe(1);
+      const result = await loadAllSessionStats(tempDir);
+      expect(result.totalTokensSaved).toBe(0);
+      expect(result.sessionCount).toBe(0);
+    });
+  });
+
+  describe("native snapshots", () => {
+    it("serializes only stable durable state in deterministic order", () => {
+      const state = createSessionState();
+      state.sessionId = "owner";
+      state.manualMode = "active";
+      state.compressPermission = "allow";
+      state.stats.totalPruneTokens = 42;
+      state.lastCompaction = 123;
+      state.prune.tools.set("z-tool", 5);
+      state.prune.tools.set("a-tool", 3);
+      state.messageIds.byRawId.set("z-key", "m0002");
+      state.messageIds.byRawId.set("a-key", "m0001");
+      state.messageIds.nextRefIndex = 3;
+      state.nudges.contextLimitAnchors.add("z-key");
+      state.nudges.contextLimitAnchors.add("a-key");
+      state.prune.messages.nextBlockId = 3;
+      state.prune.messages.nextRunId = 2;
+      state.prune.messages.blocksById.set(2, {
+        blockId: 2,
+        runId: 1,
+        active: true,
+        deactivatedByUser: false,
+        compressedTokens: 10,
+        summaryTokens: 2,
+        durationMs: 30,
+        mode: "range",
+        topic: "topic",
+        batchTopic: undefined,
+        startIndex: 4,
+        endIndex: 8,
+        anchorIndex: 8,
+        compressToolCallId: "call-2",
+        startKey: "start",
+        endKey: "end",
+        anchorKey: "anchor",
+        consumedBlockIds: [],
+        parentBlockIds: [],
+        directMessageIndices: [4, 5],
+        directToolIds: ["tool"],
+        effectiveMessageIndices: [4, 5],
+        effectiveToolIds: ["tool"],
+        createdAt: 1,
+        deactivatedAt: undefined,
+        deactivatedByBlockId: undefined,
+        summary: "summary",
+      });
+
+      const snapshot = persistence.serializeDcpSnapshot(state);
+      expect(snapshot).toMatchObject({
+        version: 1,
+        ownerSessionId: "owner",
+        manualMode: "active",
+        compressPermission: "allow",
+        stats: { totalPruneTokens: 42 },
+        pruneTools: [["a-tool", 3], ["z-tool", 5]],
+        messageIds: { byRawId: [["a-key", "m0001"], ["z-key", "m0002"]] },
+        nudges: { contextLimitAnchors: ["a-key", "z-key"] },
+      });
+      expect(snapshot?.blocks[0]).toEqual({
+        blockId: 2,
+        runId: 1,
+        deactivatedByUser: false,
+        compressedTokens: 10,
+        summaryTokens: 2,
+        durationMs: 30,
+        mode: "range",
+        topic: "topic",
+        compressToolCallId: "call-2",
+        startKey: "start",
+        endKey: "end",
+        anchorKey: "anchor",
+        consumedBlockIds: [],
+        createdAt: 1,
+        summary: "summary",
+      });
+      expect(snapshot?.blocks[0]).not.toHaveProperty("startIndex");
+      expect(snapshot?.blocks[0]).not.toHaveProperty("active");
+    });
+
+    it("restores in place and resets statistics for a forked owner", () => {
+      const saved = createSessionState();
+      saved.sessionId = "parent";
+      saved.manualMode = "active";
+      saved.compressPermission = "deny";
+      saved.stats.totalPruneTokens = 50;
+      saved.prune.tools.set("call", 7);
+      saved.messageIds.byRawId.set("key", "m0001");
+      saved.messageIds.nextRefIndex = 2;
+      saved.nudges.turnAnchors.add("key");
+      const snapshot = persistence.serializeDcpSnapshot(saved);
+      expect(snapshot).toBeDefined();
+      if (!snapshot) throw new Error("expected snapshot");
+
+      const restored = createSessionState();
+      restored.toolParameters.set("stale", {} as never);
+      restored.messageIds.byIndex.set(3, "stale");
+
+      expect(persistence).toHaveProperty("restoreDcpSnapshot");
+      expect(
+        persistence.restoreDcpSnapshot(snapshot, restored, "child"),
+      ).toBe(true);
+      expect(restored.sessionId).toBe("child");
+      expect(restored.manualMode).toBe("active");
+      expect(restored.compressPermission).toBe("deny");
+      expect(restored.stats).toEqual({
+        pruneTokenCounter: 0,
+        totalPruneTokens: 0,
+        toolsPruned: 0,
+        messagesCompressed: 0,
+      });
+      expect(restored.prune.tools).toEqual(new Map([["call", 7]]));
+      expect(restored.messageIds.byRef).toEqual(new Map([["m0001", "key"]]));
+      expect(restored.messageIds.byIndex.size).toBe(0);
+      expect(restored.toolParameters.size).toBe(0);
+    });
+
+    it("rejects invalid roots and salvages valid snapshot entries", () => {
+      expect(persistence.parseDcpSnapshot(null)).toBeUndefined();
+      const state = createSessionState();
+      state.sessionId = "owner";
+      const snapshot = persistence.serializeDcpSnapshot(state)!;
+      expect(
+        persistence.parseDcpSnapshot({ ...snapshot, nextBlockId: 0 }),
+      ).toBeUndefined();
+      expect(
+        persistence.parseDcpSnapshot({ ...snapshot, stats: { totalPruneTokens: 1 } }),
+      ).toBeUndefined();
+
+      snapshot.blocks = [
+        {
+          blockId: 1,
+          runId: 1,
+          deactivatedByUser: false,
+          compressedTokens: 1,
+          summaryTokens: 1,
+          durationMs: 1,
+          mode: "range",
+          topic: "topic",
+          compressToolCallId: "owner",
+          startKey: "start",
+          endKey: "end",
+          anchorKey: "anchor",
+          consumedBlockIds: [1, 2],
+          createdAt: 1,
+          summary: "summary",
+        },
+        { blockId: 1 } as never,
+        { blockId: "bad" } as never,
+      ];
+      snapshot.messageIds.byRawId = [["valid", "m0001"], ["valid", "m0002"], ["broken"] as never];
+      const warnings: string[] = [];
+      const parsed = persistence.parseDcpSnapshot(snapshot, (message) => warnings.push(message));
+
+      expect(parsed?.blocks).toHaveLength(1);
+      expect(parsed?.blocks[0]?.consumedBlockIds).toEqual([]);
+      expect(parsed?.messageIds.byRawId).toEqual([["valid", "m0002"]]);
+      expect(warnings).toHaveLength(2);
+
+      const restored = createSessionState();
+      persistence.restoreDcpSnapshot({ ...snapshot, nextBlockId: 1 }, restored, "owner");
+      expect(restored.prune.messages.nextBlockId).toBe(2);
     });
   });
 });
