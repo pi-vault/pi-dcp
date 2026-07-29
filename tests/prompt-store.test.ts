@@ -11,13 +11,7 @@ describe("PromptStore", () => {
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-prompts-test-"));
-    projectDir = path.join(
-      tempDir,
-      "project",
-      ".pi",
-      "dcp-prompts",
-      "overrides",
-    );
+    projectDir = path.join(tempDir, "project", ".pi", "dcp-prompts", "overrides");
     globalDir = path.join(tempDir, "global", "overrides");
   });
 
@@ -43,10 +37,7 @@ describe("PromptStore", () => {
     fs.mkdirSync(projectDir, { recursive: true });
     fs.mkdirSync(globalDir, { recursive: true });
     fs.writeFileSync(path.join(globalDir, "system.md"), "Global system prompt");
-    fs.writeFileSync(
-      path.join(projectDir, "system.md"),
-      "Project system prompt",
-    );
+    fs.writeFileSync(path.join(projectDir, "system.md"), "Project system prompt");
 
     const store = new PromptStore({
       projectOverrideDir: projectDir,
@@ -59,10 +50,7 @@ describe("PromptStore", () => {
 
   it("global override used when no project override exists", () => {
     fs.mkdirSync(globalDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(globalDir, "turn-nudge.md"),
-      "Custom turn nudge",
-    );
+    fs.writeFileSync(path.join(globalDir, "turn-nudge.md"), "Custom turn nudge");
 
     const store = new PromptStore({
       projectOverrideDir: projectDir,
@@ -75,12 +63,19 @@ describe("PromptStore", () => {
     expect(store.getRuntimePrompts().system).toContain("context-constrained");
   });
 
+  it("uses global overrides when the project directory is absent", () => {
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.writeFileSync(path.join(globalDir, "system.md"), "Global prompt");
+    const store = new PromptStore({ globalOverrideDir: globalDir });
+
+    store.reload();
+
+    expect(store.getRuntimePrompts().system).toBe("Global prompt");
+  });
+
   it("strips HTML comments from override files", () => {
     fs.mkdirSync(projectDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(projectDir, "system.md"),
-      "Prompt <!-- comment --> text",
-    );
+    fs.writeFileSync(path.join(projectDir, "system.md"), "Prompt <!-- comment --> text");
 
     const store = new PromptStore({
       projectOverrideDir: projectDir,

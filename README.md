@@ -66,6 +66,7 @@ All commands are also discoverable in-session via `dcp:help`.
 | `dcp:recompress <blockId>` | Reactivate a compression block                  |
 | `dcp:lifetime`             | Show aggregate statistics across saved sessions |
 | `dcp:permission`           | Toggle compress permission between allow/deny   |
+| `dcp:compress [focus]`     | Ask Pi to run compression on stale context      |
 
 ## Typical workflows
 
@@ -77,20 +78,22 @@ All commands are also discoverable in-session via `dcp:help`.
 
 **Need to block compression temporarily?** Run `dcp:permission` to flip between `allow` and `deny`.
 
+**Need compression now?** Run `dcp:compress [focus]`. It sends Pi a hidden follow-up that asks it to use the `compress` tool; it does nothing while DCP or compression permission is disabled.
+
 **Need to undo a compression block?** Use `dcp:decompress <blockId>` and `dcp:recompress <blockId>`.
 
 **Need lifetime totals?** Use `dcp:lifetime` to see aggregate savings across saved sessions.
 
-**Customize prompts (experimental).** Enable `experimental.customPrompts`, then edit prompt overrides in either:
+**Customize prompts (experimental).** Enable `experimental.customPrompts`, then edit prompt overrides in either trusted project or global locations:
 
-- Project: `.pi/dcp-prompts/overrides/<file>.md`
+- Trusted project: `.pi/dcp-prompts/overrides/<file>.md`
 - Global: `~/.pi/agent/extensions/dcp-prompts/overrides/<file>.md`
 
 Files: `system.md`, `context-limit-nudge.md`, `turn-nudge.md`, `iteration-nudge.md`.
 
 ## Configuration
 
-Create `~/.pi/agent/extensions/dcp.json` to override defaults. Every field is optional; missing keys fall back to built-in defaults.
+Create `<agentDir>/extensions/dcp.json` (normally `~/.pi/agent/extensions/dcp.json`) to override defaults. On each session start, DCP merges built-in defaults, this global file, and `<ctx.cwd>/.pi/dcp.json` when Pi marks the project trusted. Nested objects merge recursively; arrays replace earlier arrays. Untrusted project configuration is ignored, and a previously registered compression tool safely reports that DCP is disabled after a later disable.
 
 You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor tooling or config validation workflows.
 

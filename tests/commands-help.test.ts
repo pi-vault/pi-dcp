@@ -10,5 +10,8 @@ describe("help command", () => {
     expect(result).toContain("dcp:manual");
     expect(result).toContain("dcp:decompress");
     expect(result).toContain("dcp:recompress");
+    expect(result).toContain("dcp:lifetime");
+    expect(result).toContain("dcp:permission");
+    expect(result).toContain("dcp:compress");
   });
 });

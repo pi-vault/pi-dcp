@@ -11,7 +11,7 @@ export interface RuntimePrompts {
 }
 
 interface PromptStoreOptions {
-  projectOverrideDir: string;
+  projectOverrideDir?: string;
   globalOverrideDir: string;
 }
 
@@ -45,7 +45,7 @@ export class PromptStore {
   private prompts: RuntimePrompts;
 
   constructor(options: PromptStoreOptions) {
-    this.projectDir = options.projectOverrideDir;
+    this.projectDir = options.projectOverrideDir ?? "";
     this.globalDir = options.globalOverrideDir;
     this.prompts = { ...BUNDLED_DEFAULTS };
   }
@@ -73,9 +73,11 @@ export class PromptStore {
 
   private loadOverride(filename: string): string | undefined {
     // Project overrides take precedence
-    const projectFile = path.join(this.projectDir, filename);
-    const projectContent = this.readAndNormalize(projectFile);
-    if (projectContent !== undefined) return projectContent;
+    if (this.projectDir) {
+      const projectFile = path.join(this.projectDir, filename);
+      const projectContent = this.readAndNormalize(projectFile);
+      if (projectContent !== undefined) return projectContent;
+    }
 
     // Fall back to global overrides
     const globalFile = path.join(this.globalDir, filename);

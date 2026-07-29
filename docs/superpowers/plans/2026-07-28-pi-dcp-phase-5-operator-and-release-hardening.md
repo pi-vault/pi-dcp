@@ -1,67 +1,100 @@
-# Pi DCP Phase 5 Operator and Release Hardening Implementation Plan
+# Pi DCP Phase 5 Trusted Operator Controls Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Finish the reliability roadmap with trusted project configuration, live operator controls, manual compression, deterministic benchmark evidence, and release-ready documentation.
+**Goal:** Add trusted project configuration and a safe manual compression command while preserving Phase 4 native state behavior.
 
-**Architecture:** Resolve effective configuration at session start from defaults, global JSON, and trusted project JSON. Keep handlers registered when global config is disabled, read current config at execution time, trigger manual compression through Pi’s follow-up message API, and reuse Phase 4 snapshot callbacks for durable command changes.
+**Architecture:** Load defaults, global JSON, and an optional trusted project JSON at `session_start`. Keep one mutable effective-config object so existing handlers observe reloads, register the mode-specific tool after the effective config is known, and gate every command/tool path on current enablement and permission. Project prompt overrides use the same Pi cwd/trust boundary.
 
-**Tech Stack:** TypeScript ESM, Pi ExtensionAPI 0.80.3-compatible trust and message APIs, TypeBox, Vitest, pnpm, `tsx`, and Node standard-library filesystem/performance APIs.
+**Tech Stack:** TypeScript ESM, Pi ExtensionAPI 0.80.3-compatible APIs, TypeBox, Vitest, pnpm, and Node standard-library filesystem/path APIs.
 
 ---
 
 ## Source, Prerequisite, and Boundaries
 
-- Source roadmap: Task 5 and the benchmark/release portion of Task 6 in [2026-07-28-pi-dcp-reliability-roadmap.md](2026-07-28-pi-dcp-reliability-roadmap.md).
-- Prerequisite: [Phase 4](2026-07-28-pi-dcp-phase-4-native-session-state.md) is released and its full verification passes.
-- This phase uses Phase 4 native snapshots for command persistence; it does not add another state store.
-- Benchmark results are informational. No percentage gate is introduced without measured variance data.
+- Source requirements: Task 5 of [2026-07-28-pi-dcp-reliability-roadmap.md](2026-07-28-pi-dcp-reliability-roadmap.md).
+- Phase 4 prerequisite: [2026-07-28-pi-dcp-phase-4-native-session-state.md](2026-07-28-pi-dcp-phase-4-native-session-state.md) is released and its full checks pass.
+- Pi 0.80.3 is authoritative for `ctx.cwd`, `ctx.isProjectTrusted()`, `registerTool()`, and `sendMessage()`.
+- Phase 5 does not add a state store, benchmark harness, lifetime scanner, package version bump, tag, or publish action. Benchmarks and final release evidence belong to Phase 6.
+- The original reliability roadmap remains byte-for-byte unchanged.
 
-## Stable Outcome
+## File Map
 
-After this phase:
+- `src/config.ts`: parse global/project layers, merge plain objects, replace arrays, clean unknown keys, validate, and return warnings.
+- `src/prompts/store.ts`: accept an absent project override directory so untrusted project prompt files cannot be read.
+- `src/index.ts`: load trusted project config at session start, retain the stable config object, register/gate the compression tool, and pass the current config to commands.
+- `src/commands/register.ts`, `src/commands/compress.ts`: register live-config commands and send the hidden manual-compression follow-up.
+- `tests/config.test.ts`, `tests/prompt-store.test.ts`, `tests/commands-register.test.ts`, `tests/commands-compress.test.ts`, `tests/integration.test.ts`: focused config, trust, lifecycle, tool, and command regressions.
+- `README.md`, `CHANGELOG.md`: document the Phase 5 operator contract after code verification.
 
-- Effective config merges defaults → global config → trusted `<ctx.cwd>/.pi/dcp.json`.
-- Nested objects merge and arrays replace.
-- Untrusted project config is ignored.
-- Commands and tool execution read the current effective config.
-- Project config can enable DCP even when global config disables it.
-- `/dcp:compress [focus]` triggers a Pi follow-up turn unless compression permission is denied.
-- Deterministic benchmark workloads report token and timing evidence as JSON.
-- README, schema, changelog, package contents, and release checks agree.
-
-### Task 1: Merge trusted project configuration
+### Task 1: Load trusted project configuration and prompt overrides
 
 **Files:**
 
-- Modify: `src/config.ts`, `src/index.ts`
-- Test: `tests/config.test.ts`, `tests/integration.test.ts`
+- Modify: `src/config.ts`, `src/prompts/store.ts`
+- Test: `tests/config.test.ts`, `tests/prompt-store.test.ts`
 
-- [ ] **Step 1: Add failing precedence and trust tests**
+- [x] **Step 1: Add failing layered-config tests**
 
-  Using temporary global and project files, cover:
+  Add tests that create temporary files and call the loader with explicit absolute paths:
 
-  - defaults → global → project precedence;
-  - recursive nested-object merging;
-  - array replacement;
-  - unknown-property cleanup and validation warnings;
-  - missing/invalid files;
-  - exclusion when `ctx.isProjectTrusted()` is false;
-  - path resolution from `ctx.cwd`, not process cwd.
+  ```ts
+  it("merges defaults, global, and project layers", () => {
+    writeJson(globalPath, {
+      enabled: false,
+      compress: { mode: "message", protectedTools: ["read"] },
+      protectedFilePatterns: ["**/*.secret"],
+    });
+    writeJson(projectPath, {
+      enabled: true,
+      compress: { showCompression: true, protectedTools: ["write"] },
+      protectedFilePatterns: ["**/*.key"],
+    });
 
-  Assert a trusted project can set `enabled: true` over global `enabled: false`.
+    const result = loadConfig(globalPath, projectPath);
 
-- [ ] **Step 2: Confirm only global config is loaded**
+    expect(result.config.enabled).toBe(true);
+    expect(result.config.compress.mode).toBe("message");
+    expect(result.config.compress.showCompression).toBe(true);
+    expect(result.config.compress.protectedTools).toEqual(["write"]);
+    expect(result.config.protectedFilePatterns).toEqual(["**/*.key"]);
+  });
 
-  ```bash
-  pnpm vitest run tests/config.test.ts tests/integration.test.ts -t "project config|trusted|precedence"
+  it("skips a missing layer and warns for malformed JSON", () => {
+    fs.writeFileSync(globalPath, "{");
+    const result = loadConfig(globalPath, path.join(tempDir, "missing.json"));
+    expect(result.config).toEqual(DEFAULT_CONFIG);
+    expect(result.warnings).toContain(
+      `Unable to parse config file: ${globalPath}`,
+    );
+  });
+
+  it("cleans unknown keys and warns for invalid values", () => {
+    writeJson(globalPath, { unknown: true, compress: { mode: "invalid" } });
+    const result = loadConfig(globalPath);
+    expect("unknown" in (result.config as Record<string, unknown>)).toBe(false);
+    expect(result.config.compress.mode).toBe(DEFAULT_CONFIG.compress.mode);
+    expect(
+      result.warnings.some((warning) => warning.includes("/compress/mode")),
+    ).toBe(true);
+  });
   ```
 
-  Expected: FAIL because `loadConfig()` accepts one path and startup may return before project config is known.
+  Also assert arrays replace rather than concatenate and that the returned config is a fresh clone on every call.
 
-- [ ] **Step 3: Extend the existing loader**
+- [x] **Step 2: Run the focused tests and confirm the current API fails**
 
-  Change:
+  Run:
+
+  ```bash
+  pnpm vitest run tests/config.test.ts -t "merges defaults|malformed JSON|unknown keys"
+  ```
+
+  Expected: FAIL because `loadConfig()` currently accepts one path, does not parse a second layer, and does not report malformed JSON.
+
+- [x] **Step 3: Implement the two-layer loader**
+
+  Change the exported signature to:
 
   ```ts
   export function loadConfig(
@@ -70,92 +103,172 @@ After this phase:
   ): { config: DcpConfig; warnings: string[] };
   ```
 
-  Parse both with the current parser. Deep-merge plain objects, replace arrays, clean unknown properties, and validate the final merged value once. Do not add a general merge dependency.
+  Make `parseConfigFile()` return `{ value?: Record<string, unknown>; warning?: string }`. Treat `ENOENT` as an absent file with no warning; report malformed JSON, non-object JSON, and read failures as `Unable to parse config file: <path>`. Start from `structuredClone(DEFAULT_CONFIG)`, merge the parsed global value, then the parsed project value. Reuse the existing `deepMerge`, `Value.Clean`, validation, semantic range checks, and default replacement logic. Do not add a merge dependency.
 
-- [ ] **Step 4: Resolve trusted project config at session start**
+- [x] **Step 4: Add trust-safe prompt-store tests**
 
-  Use:
+  Extend `PromptStore` tests with:
 
   ```ts
-  const projectConfigPath = ctx.isProjectTrusted()
-    ? path.join(ctx.cwd, ".pi", "dcp.json")
-    : undefined;
+  it("uses global overrides when the project directory is absent", () => {
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.writeFileSync(path.join(globalDir, "system.md"), "Global prompt");
+    const store = new PromptStore({ globalOverrideDir: globalDir });
+    store.reload();
+    expect(store.getRuntimePrompts().system).toBe("Global prompt");
+  });
   ```
 
-  Load effective config during `session_start` and retain it in the extension closure. Route warnings through the existing logger/notification behavior.
+  Keep the existing project-over-global test for trusted projects.
 
-- [ ] **Step 5: Remove factory-time disablement**
+- [x] **Step 5: Make project prompt overrides optional**
 
-  Remove the extension-factory `if (!config.enabled) return`. Lifecycle listeners and commands must exist long enough for trusted project config to enable DCP.
+  Change the options interface and loader path:
 
-- [ ] **Step 6: Run config and lifecycle tests**
+  ```ts
+  interface PromptStoreOptions {
+    projectOverrideDir?: string;
+    globalOverrideDir: string;
+  }
+
+  private loadOverride(filename: string): string | undefined {
+    if (this.projectDir) {
+      const projectContent = this.readAndNormalize(path.join(this.projectDir, filename));
+      if (projectContent !== undefined) return projectContent;
+    }
+    return this.readAndNormalize(path.join(this.globalDir, filename));
+  }
+  ```
+
+  Store `projectDir` as `options.projectOverrideDir ?? ""` so existing filesystem error handling remains unchanged.
+
+- [x] **Step 6: Run config and prompt tests**
 
   ```bash
-  pnpm vitest run tests/config.test.ts tests/integration.test.ts
+  pnpm vitest run tests/config.test.ts tests/prompt-store.test.ts
   ```
 
-  Expected: precedence, trust exclusion, cwd resolution, validation, and project-enabled startup pass.
+  Expected: all precedence, warning, merge, and trust-boundary tests pass.
 
-- [ ] **Step 7: Commit trusted project config**
+- [ ] **Step 7: Commit the loader and trust boundary**
 
   ```bash
-  git add src/config.ts src/index.ts tests/config.test.ts tests/integration.test.ts
-  git commit -m "feat: load trusted project dcp config"
+  git add src/config.ts src/prompts/store.ts tests/config.test.ts tests/prompt-store.test.ts
+  git commit -m "feat: load trusted project configuration"
   ```
 
-### Task 2: Register tools and commands against live config
+### Task 2: Load effective config at session start and gate runtime behavior
 
 **Files:**
 
-- Modify: `src/index.ts`, `src/commands/register.ts`
-- Test: `tests/commands-register.test.ts`, `tests/integration.test.ts`
+- Modify: `src/index.ts`
+- Test: `tests/integration.test.ts`, `tests/commands-register.test.ts`
 
-- [ ] **Step 1: Add failing live-config tests**
+- [x] **Step 1: Add failing lifecycle tests**
 
-  Retain Phase 2's session-reloaded sweep regression. Start globally disabled and project enabled, then assert the configured compression mode is registered and other config-dependent command behavior reads the same updated config object.
-
-- [ ] **Step 2: Confirm stale registration behavior**
-
-  ```bash
-  pnpm vitest run tests/commands-register.test.ts tests/integration.test.ts -t "live config|register"
-  ```
-
-  Expected: FAIL because compression-tool registration and factory-time disablement occur before trusted project config is known.
-
-- [ ] **Step 3: Register the compression tool after config load**
-
-  Register the mode-specific `compress` tool from `session_start` after effective config is known. Pi’s installed API refreshes the active tool registry when `registerTool()` is called after the extension factory.
-
-  Keep the execute closure reading the current `config` variable. When effective config is disabled, keep lifecycle and commands active but skip DCP pipeline transformations and compression execution.
-
-- [ ] **Step 4: Keep command registration on the stable config object**
-
-  Extend the Phase 4 signature:
+  Extend the mock context with `cwd` and `isProjectTrusted()` and add these cases:
 
   ```ts
-  registerDcpCommands(
-    pi: ExtensionAPI,
-    state: SessionState,
-    config: DcpConfig,
-    onStateChange: () => void,
-  ): void;
+  it("lets trusted project config enable a globally disabled extension", async () => {
+    writeJson(globalConfigPath, { enabled: false });
+    writeJson(path.join(projectCwd, ".pi", "dcp.json"), {
+      enabled: true,
+      compress: { mode: "message" },
+    });
+    const { api, handlers, tools, commands } = createMockApi();
+    createExtension(api);
+
+    expect(commands.has("dcp:help")).toBe(true);
+    expect(tools.has("compress")).toBe(false);
+    await runHandlers(handlers.get("session_start"), {
+      cwd: projectCwd,
+      isProjectTrusted: () => true,
+    });
+
+    expect(tools.has("compress")).toBe(true);
+    expect(getRegisteredCompressParameters(tools)).toMatchObject({
+      type: "object",
+    });
+  });
+
+  it("ignores the project file when the project is untrusted", async () => {
+    writeJson(globalConfigPath, { enabled: false });
+    writeJson(path.join(projectCwd, ".pi", "dcp.json"), { enabled: true });
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    await runHandlers(handlers.get("session_start"), {
+      cwd: projectCwd,
+      isProjectTrusted: () => false,
+    });
+    expect(tools.has("compress")).toBe(false);
+  });
   ```
 
-  Keep Phase 2's `Object.assign(config, result.config)` reload so existing handlers observe the effective config without a getter abstraction. Preserve the Phase 4 `onStateChange()` calls after successful durable mutations.
+  Add a regression that changes the global file between two `session_start` events and confirms existing command handlers observe the updated stable config object.
 
-- [ ] **Step 5: Run registration tests**
+- [x] **Step 2: Run the lifecycle tests and confirm the current startup order fails**
 
   ```bash
-  pnpm vitest run tests/commands-register.test.ts tests/integration.test.ts
+  pnpm vitest run tests/integration.test.ts tests/commands-register.test.ts -t "trusted|untrusted|stable config"
   ```
 
-  Expected: startup enable/disable, mode-specific tool registration, and current-config command behavior pass without duplicate observable handlers.
+  Expected: FAIL because the factory returns before registering handlers when global config is disabled and `session_start` loads only the global path.
 
-- [ ] **Step 6: Commit live config use**
+- [x] **Step 3: Register handlers before configuration is known**
+
+  In `createExtension`, initialize the stable object from the global file only, remove the factory-level `if (!config.enabled) return`, and register commands/lifecycle handlers unconditionally. Keep existing Phase 4 snapshot and mutation persistence closures unchanged.
+
+- [x] **Step 4: Resolve trusted project config from the Pi context**
+
+  Change `reloadConfig` to accept the session context:
+
+  ```ts
+  function reloadConfig(ctx: ExtensionContext, logDir?: string): void {
+    const projectConfigPath = ctx.isProjectTrusted()
+      ? path.join(ctx.cwd, ".pi", "dcp.json")
+      : undefined;
+    const result = loadConfig(configFilePath, projectConfigPath);
+    Object.assign(config, result.config);
+    logger = new Logger(config.debug, logDir);
+    for (const warning of result.warnings) logger.info("config", warning);
+  }
+  ```
+
+  Call it before `if (!config.enabled)` inside `session_start`. Use `ctx.cwd` and trust for `PromptStore`; never use `process.cwd()` for project-local prompt overrides.
+
+- [x] **Step 5: Register the mode-specific tool after effective config load**
+
+  Move the existing two `pi.registerTool()` definitions into a local `registerCompressTool()` function. Call it from `session_start` after `reloadConfig(ctx, logDir)` only when `config.enabled` is true. Re-registering the same `name: "compress"` replaces the extension map entry and Pi refreshes the active registry.
+
+  Every tool execute closure must begin with:
+
+  ```ts
+  if (!config.enabled) {
+    return {
+      content: [
+        { type: "text", text: "Compression is disabled by configuration." },
+      ],
+      details: {},
+      isError: true,
+    };
+  }
+  ```
+
+  Keep the `tool_call` handler’s disabled guard and permission block so a stale registration cannot mutate state after a later session disables DCP. Do not call `setActiveTools()`; it would modify the user’s tool selection.
+
+- [x] **Step 6: Run lifecycle and full integration tests**
 
   ```bash
-  git add src/index.ts src/commands/register.ts tests/commands-register.test.ts tests/integration.test.ts
-  git commit -m "fix: register tools against effective config"
+  pnpm vitest run tests/integration.test.ts tests/commands-register.test.ts tests/index.test.ts
+  ```
+
+  Expected: trusted enablement, untrusted exclusion, mode-specific registration, stable-config reload, disabled pipeline behavior, and Phase 4 persistence regressions pass.
+
+- [ ] **Step 7: Commit live configuration behavior**
+
+  ```bash
+  git add src/index.ts tests/integration.test.ts tests/commands-register.test.ts
+  git commit -m "fix: bind dcp runtime to trusted session config"
   ```
 
 ### Task 3: Add `/dcp:compress [focus]`
@@ -164,49 +277,108 @@ After this phase:
 
 - Create: `src/commands/compress.ts`
 - Modify: `src/commands/register.ts`
-- Create: `tests/commands-compress.test.ts`
-- Test: `tests/integration.test.ts`
+- Test: `tests/commands-compress.test.ts`, `tests/commands-register.test.ts`, `tests/integration.test.ts`
 
-- [ ] **Step 1: Add failing command tests**
+- [x] **Step 1: Add failing command tests**
 
-  Cover:
-
-  - empty args send a generic hidden trigger;
-  - nonempty args include the trimmed focus;
-  - permission `deny` sends nothing;
-  - idle execution uses a triggered follow-up turn;
-  - streaming execution queues the same follow-up;
-  - the command does not mutate durable state.
-
-- [ ] **Step 2: Confirm the command is absent**
-
-  ```bash
-  pnpm vitest run tests/commands-compress.test.ts tests/integration.test.ts -t "dcp:compress|compression triggered"
-  ```
-
-  Expected: FAIL because the command and trigger message do not exist.
-
-- [ ] **Step 3: Implement the minimum command**
-
-  In `src/commands/compress.ts`:
+  Use a fake `ExtensionAPI` that records `sendMessage` calls and assert the exact contract:
 
   ```ts
+  it("sends a hidden generic follow-up", () => {
+    const sendMessage = vi.fn();
+    const message = compressCommand(
+      { sendMessage } as unknown as ExtensionAPI,
+      createSessionState(),
+      makeDefaultConfig(),
+      "",
+    );
+    expect(message).toBe("Compression triggered.");
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        customType: "dcp-compress-trigger",
+        content:
+          "Run the compress tool now on stale, completed context. Preserve details needed for active work.",
+        display: false,
+      },
+      { triggerTurn: true, deliverAs: "followUp" },
+    );
+  });
+
+  it("trims and includes focus", () => {
+    const sendMessage = vi.fn();
+    compressCommand(
+      { sendMessage } as unknown as ExtensionAPI,
+      createSessionState(),
+      makeDefaultConfig(),
+      "  database migrations  ",
+    );
+    expect(sendMessage.mock.calls[0][0].content).toContain(
+      "Focus especially on: database migrations",
+    );
+  });
+
+  it("does not send when disabled or denied", () => {
+    const sendMessage = vi.fn();
+    const state = createSessionState();
+    state.compressPermission = "deny";
+    expect(
+      compressCommand(
+        { sendMessage } as unknown as ExtensionAPI,
+        state,
+        makeDefaultConfig(),
+        "focus",
+      ),
+    ).toBe("Compression is denied by configuration.");
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(
+      compressCommand(
+        { sendMessage } as unknown as ExtensionAPI,
+        createSessionState(),
+        { ...makeDefaultConfig(), enabled: false },
+        "focus",
+      ),
+    ).toBe("DCP is disabled by configuration.");
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+  ```
+
+  Add integration assertions for command delivery while idle and while streaming; both must use `{ triggerTurn: true, deliverAs: "followUp" }`. Assert the command does not call `appendEntry`.
+
+- [x] **Step 2: Run the command tests and confirm the module is absent**
+
+  ```bash
+  pnpm vitest run tests/commands-compress.test.ts tests/commands-register.test.ts -t "compress"
+  ```
+
+  Expected: FAIL because `src/commands/compress.ts` and the `dcp:compress` registration do not exist.
+
+- [x] **Step 3: Implement the command with an explicit current-config gate**
+
+  Create:
+
+  ```ts
+  import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+  import type { DcpConfig } from "../config.ts";
+  import type { SessionState } from "../state/types.ts";
+
+  const TRIGGER =
+    "Run the compress tool now on stale, completed context. Preserve details needed for active work.";
+
   export function compressCommand(
     pi: ExtensionAPI,
     state: SessionState,
+    config: DcpConfig,
     args: string,
   ): string {
-    if ((state.compressPermission ?? "allow") === "deny") {
+    if (!config.enabled) return "DCP is disabled by configuration.";
+    if ((state.compressPermission ?? config.compress.permission) === "deny") {
       return "Compression is denied by configuration.";
     }
-
     const focus = args.trim();
     pi.sendMessage(
       {
         customType: "dcp-compress-trigger",
-        content: focus
-          ? `Compress stale context now, focusing on: ${focus}`
-          : "Compress stale context now using the compress tool.",
+        content: focus ? `${TRIGGER} Focus especially on: ${focus}` : TRIGGER,
         display: false,
       },
       { triggerTurn: true, deliverAs: "followUp" },
@@ -215,184 +387,108 @@ After this phase:
   }
   ```
 
-  Register it as `dcp:compress`. Permission denial returns before `sendMessage()`.
+- [x] **Step 4: Register the command against the stable config object**
 
-- [ ] **Step 4: Run command tests**
+  Add to `registerDcpCommands`:
 
-  ```bash
-  pnpm vitest run tests/commands-compress.test.ts tests/integration.test.ts
+  ```ts
+  pi.registerCommand("dcp:compress", {
+    description: "Trigger manual compression, optionally focused on a topic",
+    handler: async (args, ctx) => {
+      ctx.ui.notify(compressCommand(pi, state, config, args), "info");
+    },
+  });
   ```
 
-  Expected: focus, empty, denied, idle, and streaming cases pass with the exact Pi message options.
+  Keep the existing four-argument `registerDcpCommands(pi, state, config, onStateChange)` signature so every handler shares the Phase 4 stable config object. Do not call `onStateChange()` for this command.
 
-- [ ] **Step 5: Commit manual compression**
+- [x] **Step 5: Run command and integration tests**
 
   ```bash
-  git add src/commands/compress.ts src/commands/register.ts tests/commands-compress.test.ts tests/integration.test.ts
+  pnpm vitest run tests/commands-compress.test.ts tests/commands-register.test.ts tests/integration.test.ts
+  ```
+
+  Expected: generic/focused triggers, disabled/denied no-send behavior, idle/streaming follow-up delivery, and command registration pass.
+
+- [ ] **Step 6: Commit manual compression**
+
+  ```bash
+  git add src/commands/compress.ts src/commands/register.ts tests/commands-compress.test.ts tests/commands-register.test.ts tests/integration.test.ts
   git commit -m "feat: add manual compression trigger"
   ```
 
-### Task 4: Add deterministic informational benchmarks
+### Task 4: Document and release Phase 5
 
 **Files:**
 
-- Create: `scripts/benchmark.ts`, `tests/benchmark.test.ts`
-- Modify: `package.json`
+- Modify: `README.md`, `CHANGELOG.md`
+- Test/verification: all Phase 5 tests and release checks
 
-- [ ] **Step 1: Add failing correctness tests**
+- [x] **Step 1: Document the operator contract**
 
-  Import deterministic fixture runners and assert:
+  Add README sections covering:
+  - global path `<agentDir>/extensions/dcp.json`;
+  - trusted project path `<ctx.cwd>/.pi/dcp.json`;
+  - defaults → global → project precedence, recursive object merge, and array replacement;
+  - untrusted project exclusion;
+  - trusted project prompt overrides and global fallback;
+  - `/dcp:compress [focus]`, hidden follow-up delivery, and denial behavior;
+  - configuration reload at session start and disabled stale-tool blocking.
 
-  - repeated stale tool output reduces estimated tokens;
-  - protected tools remain;
-  - failed-result text remains;
-  - no orphan `toolResult` remains;
-  - restored nested blocks retain active/parent/consumed relationships.
+  Add matching Unreleased changelog entries without changing the package version.
 
-  Do not assert elapsed milliseconds in Vitest.
-
-- [ ] **Step 2: Confirm benchmark helpers are absent**
-
-  ```bash
-  pnpm vitest run tests/benchmark.test.ts
-  ```
-
-  Expected: FAIL because the benchmark module does not exist.
-
-- [ ] **Step 3: Implement three fixed workloads**
-
-  In `scripts/benchmark.ts`, create:
-
-  1. 2,000 clean messages;
-  2. 2,000 repeated tool pairs including stale errors;
-  3. restored state with 100 active/nested blocks.
-
-  Use deterministic timestamps, IDs, text, and config. Run 30 iterations with `performance.now()`. Emit one JSON object containing workload name, median/p95 milliseconds, input/output estimated tokens, and token reduction.
-
-  Reuse production pipeline helpers and the existing estimator. Do not add a benchmark framework.
-
-- [ ] **Step 4: Add the package command**
-
-  In `package.json`:
-
-  ```json
-  "benchmark": "tsx scripts/benchmark.ts"
-  ```
-
-- [ ] **Step 5: Run correctness and smoke checks**
+- [x] **Step 2: Run focused Phase 5 verification**
 
   ```bash
-  pnpm vitest run tests/benchmark.test.ts
-  pnpm run benchmark
-  ```
-
-  Expected: correctness assertions pass and stdout is valid JSON containing all three workloads and all required metrics.
-
-- [ ] **Step 6: Commit benchmark evidence**
-
-  ```bash
-  git add scripts/benchmark.ts tests/benchmark.test.ts package.json
-  git commit -m "test: add deterministic dcp benchmarks"
-  ```
-
-### Task 5: Finish operator and release documentation
-
-**Files:**
-
-- Modify: `README.md`, `CHANGELOG.md`, `dcp.schema.json`
-- Modify: `docs/superpowers/plans/2026-07-28-pi-dcp-reliability-phased-roadmap.md`
-
-- [ ] **Step 1: Document the complete operator contract**
-
-  Cover:
-
-  - global and trusted project paths;
-  - precedence, recursive object merge, and array replacement;
-  - untrusted-project exclusion;
-  - top-level and legacy turn protection;
-  - `/dcp:compress [focus]` and permission denial;
-  - native session snapshot/recovery and lifetime totals;
-  - benchmark invocation and informational interpretation;
-  - legacy sidecars being ignored but not deleted.
-
-- [ ] **Step 2: Regenerate and verify schema**
-
-  ```bash
+  pnpm vitest run tests/config.test.ts tests/prompt-store.test.ts tests/commands-register.test.ts tests/commands-compress.test.ts tests/integration.test.ts tests/index.test.ts
   pnpm run generate:schema
   git diff --exit-code -- dcp.schema.json
   ```
 
-  Expected: regeneration is clean after the intended Phase 2 schema field is present; no undocumented configuration appears.
+  Expected: all focused tests pass and schema regeneration produces no diff because Phase 5 adds no configuration fields.
 
-- [ ] **Step 3: Run focused Phase 5 verification**
-
-  ```bash
-  pnpm vitest run tests/config.test.ts tests/commands-register.test.ts tests/commands-compress.test.ts tests/integration.test.ts tests/benchmark.test.ts tests/commands-lifetime.test.ts
-  pnpm run benchmark
-  ```
-
-  Expected: trusted config, live handlers, manual trigger, lifecycle integration, benchmark correctness, and lifetime reporting pass; benchmark emits valid JSON.
-
-- [ ] **Step 4: Run full release verification**
+- [x] **Step 3: Run the Phase 5 release checks**
 
   ```bash
   pnpm test
   pnpm typecheck
   pnpm lint
-  pnpm run generate:schema
-  pnpm run benchmark
   pnpm pack --dry-run
   git diff --check
   git diff --exit-code HEAD -- docs/superpowers/plans/2026-07-28-pi-dcp-reliability-roadmap.md
   ```
 
-  Expected: all tests and typechecking pass; lint adds no diagnostics above the recorded baseline; schema regeneration is stable; benchmark JSON contains every workload; package dry-run succeeds; the source roadmap remains unchanged.
+  Expected: 421 existing tests plus Phase 5 tests pass, typecheck succeeds, lint does not exceed the Phase 5 entry baseline of 58 warnings and 1 info, packaging succeeds, and the source roadmap is unchanged. Run the release gate on Node 24.15+; the local Node 23.11 result is supplemental.
 
-- [ ] **Step 5: Prove the complete release behavior**
+- [x] **Step 4: Record Phase 5 completion**
 
-  In a trusted project with global DCP disabled and project DCP enabled:
-
-  1. confirm the configured compression mode is registered;
-  2. run `/dcp:compress database migrations`;
-  3. observe the hidden follow-up trigger and resulting compression;
-  4. resume the session and verify the block persists;
-  5. run lifetime reporting and confirm the owning session is counted once;
-  6. run the benchmark command and retain its JSON with release evidence.
-
-- [ ] **Step 6: Mark Phase 5 complete and commit**
-
-  Update only Phase 5’s status after every acceptance criterion passes:
+  Update only the Phase 5 status and this plan’s release record after all acceptance criteria pass. Do not mark Phase 6 complete.
 
   ```bash
-  git add README.md CHANGELOG.md dcp.schema.json docs/superpowers/plans/2026-07-28-pi-dcp-reliability-phased-roadmap.md
-  git commit -m "docs: complete dcp reliability roadmap"
+  git add README.md CHANGELOG.md docs/superpowers/plans/2026-07-28-pi-dcp-phase-5-operator-and-release-hardening.md docs/superpowers/plans/2026-07-28-pi-dcp-reliability-phased-roadmap.md
+  git commit -m "docs: complete phase 5 operator controls"
   ```
 
 ## Acceptance Criteria
 
-- Trusted project config uses `ctx.cwd`, follows documented precedence, and cannot load when the project is untrusted.
-- Tools and commands consume current effective config; project config can enable a globally disabled extension.
-- `/dcp:compress [focus]` uses Pi’s hidden follow-up message API and honors permission denial.
-- New command mutations reuse Phase 4 persistence behavior.
-- Benchmark fixtures are deterministic, test behavior rather than wall-clock thresholds, and emit complete JSON metrics.
-- README, schema, changelog, package contents, and runtime behavior agree.
-- Focused and full verification pass.
-- The original reliability roadmap remains unchanged.
-- All five phases are independently releasable and the parent index can be marked complete.
+- Trusted project configuration uses `ctx.cwd`, is excluded when `ctx.isProjectTrusted()` is false, and follows documented precedence.
+- Project prompt overrides use the same trust boundary.
+- A trusted project can enable DCP when global config disables it.
+- Commands and compression execution observe the current effective config object.
+- A disabled or denied `/dcp:compress` sends no follow-up.
+- An already registered tool cannot mutate state after DCP becomes disabled.
+- Manual compression uses Pi’s hidden follow-up API and does not append durable state.
+- Focused tests, full checks, schema regeneration, package dry-run, and source-roadmap immutability pass.
 
-## Final Handoff
+## Phase 5 Handoff to Phase 6
 
-The reliability roadmap is complete when:
-
-- all five phase statuses are `complete`;
-- each phase’s acceptance criteria and full checks passed on its release commit;
-- no legacy sidecar is used for runtime restoration;
-- no runtime dependency was added;
-- provenance rules remain satisfied;
-- benchmark output and release verification are retained with the release record.
+- Effective config loading and stable-object mutation are fixed.
+- `compressCommand(pi, state, config, args)` and its exact follow-up contract are fixed.
+- Phase 4 snapshot persistence remains the only durable state mechanism.
+- Phase 6 owns benchmark fixtures, benchmark output, final release documentation, and roadmap completion.
 
 ## Release Record
 
-- Status: not started
+- Status: complete
 - Release commit or tag: not recorded
-- Verification date: not recorded
+- Verification date: 2026-07-29 (Node 24.15.0)

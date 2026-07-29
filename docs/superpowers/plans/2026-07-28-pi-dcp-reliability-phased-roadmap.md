@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deliver the Pi DCP reliability roadmap as five ordered, independently releasable phases.
+**Goal:** Deliver the Pi DCP reliability roadmap as six ordered, independently releasable phases.
 
 **Architecture:** Preserve the original reliability roadmap as the requirement source and use this document only as the phase index. Each linked phase plan owns one coherent behavior slice, its documentation, acceptance criteria, verification, and handoff interfaces.
 
@@ -32,7 +32,8 @@ Expected: exit code 0 and no output.
 | 2. Turn and Pair Safety           | complete    | Phase 1 complete | Fresh user turns are protected consistently and DCP preserves Pi tool-pair invariants                  | [Phase 2](2026-07-28-pi-dcp-phase-2-turn-and-pair-safety.md)           |
 | 3. Compression Correctness        | complete    | Phase 2 complete | In-session compression has correct ownership, accounting, batching, nesting, and timing                | [Phase 3](2026-07-28-pi-dcp-phase-3-compression-correctness.md)        |
 | 4. Native Session State           | complete    | Phase 3 complete | Reliability state survives resume, fork, tree navigation, and compaction without cross-session leakage | [Phase 4](2026-07-28-pi-dcp-phase-4-native-session-state.md)           |
-| 5. Operator and Release Hardening | not started | Phase 4 complete | Trusted project config, manual compression, benchmarks, and final release documentation are available  | [Phase 5](2026-07-28-pi-dcp-phase-5-operator-and-release-hardening.md) |
+| 5. Trusted Operator Controls      | complete    | Phase 4 complete | Trusted project config, trust-safe prompts, live commands, and manual compression are available        | [Phase 5](2026-07-28-pi-dcp-phase-5-operator-and-release-hardening.md) |
+| 6. Benchmark and Release Evidence | not started | Phase 5 complete | Deterministic benchmark evidence and final release verification are available                          | [Phase 6](2026-07-29-pi-dcp-phase-6-benchmark-and-release-evidence.md) |
 
 Allowed status values are `not started`, `in progress`, `blocked`, and `complete`.
 
@@ -47,7 +48,9 @@ Phase 3: compression correctness
     ↓
 Phase 4: native lifecycle persistence
     ↓
-Phase 5: operator controls and release hardening
+Phase 5: trusted operator controls
+    ↓
+Phase 6: benchmark and release evidence
 ```
 
 Later phases may depend only on stable interfaces explicitly handed off by completed earlier phases. Earlier phases must not contain shims, branches, or dormant code for unfinished later phases.
@@ -89,8 +92,8 @@ If implementation reveals a requirement that crosses phase boundaries, stop and 
 | Trusted project configuration                     | Phase 5       |
 | Live command configuration                        | Phase 5       |
 | `/dcp:compress [focus]`                           | Phase 5       |
-| Deterministic informational benchmarks            | Phase 5       |
-| Final README, schema, package, and release checks | Phase 5       |
+| Deterministic informational benchmarks            | Phase 6       |
+| Final README, schema, package, and release checks | Phase 6       |
 
 Every original requirement has one primary owner. A later phase may integrate an earlier interface but must not redefine its semantics.
 
@@ -100,7 +103,8 @@ Every original requirement has one primary owner. A later phase may integrate an
 - **Phase 2 → Phase 3:** `ToolParameterEntry.userTurn`, `DcpConfig.turnProtection`, and the protected-window helper are stable.
 - **Phase 3 → Phase 4:** `CompressionBlock.compressToolCallId`, nested relationships, stable boundaries, token accounting, and batch timing are stable.
 - **Phase 4 → Phase 5:** `DcpSnapshotV1`, native snapshot append/restore, mutation persistence callbacks, and session-stat aggregation are stable.
-- **Phase 5:** produces the final operator-facing and release-ready package; no later reliability phase is assumed.
+- **Phase 5 → Phase 6:** trusted effective configuration, trust-safe project prompts, live command behavior, disabled-state gating, and the manual compression follow-up contract are stable.
+- **Phase 6:** produces deterministic benchmark evidence and the final operator-facing release verification; no later reliability phase is assumed.
 
 ## Global Verification
 

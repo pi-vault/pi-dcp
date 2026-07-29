@@ -12,11 +12,7 @@ import {
   buildCompressNotificationMinimal,
   buildCompressNotificationDetailed,
 } from "./ui/notification.ts";
-import {
-  handleCompress,
-  type CompressArgs,
-  type CompressResult,
-} from "./compress/handler.ts";
+import { handleCompress, type CompressArgs, type CompressResult } from "./compress/handler.ts";
 import { stripHallucinationsFromString } from "./messages/strip.ts";
 import { mapText } from "./utils/message-content.ts";
 import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
@@ -148,7 +144,9 @@ export default function createExtension(pi: ExtensionAPI): void {
         skippedInvalidSnapshot = true;
         continue;
       }
-      const restored = restoreDcpSnapshot(snapshot, state, currentSessionId, (message) => logger.warn("dcp", message));
+      const restored = restoreDcpSnapshot(snapshot, state, currentSessionId, (message) =>
+        logger.warn("dcp", message),
+      );
       const inheritedOwner = snapshot.ownerSessionId !== currentSessionId;
       if (restored && !inheritedOwner && !skippedInvalidSnapshot) {
         lastPersistedFingerprint = durableStateFingerprint(state);
@@ -159,8 +157,11 @@ export default function createExtension(pi: ExtensionAPI): void {
     return true;
   }
 
-  function reloadConfig(logDir?: string): void {
-    const result = loadConfig(configFilePath);
+  function reloadConfig(ctx: ExtensionContext, logDir?: string): void {
+    const projectConfigPath = ctx.isProjectTrusted?.()
+      ? path.join(ctx.cwd, ".pi", "dcp.json")
+      : undefined;
+    const result = loadConfig(configFilePath, projectConfigPath);
     Object.assign(config, result.config);
     logger = new Logger(config.debug, logDir);
     for (const w of result.warnings) {
@@ -168,78 +169,91 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   }
 
-  if (!config.enabled) return;
-
   registerDcpCommands(pi, state, config, persistIfChanged);
 
-  if (config.compress.mode === "message") {
-    pi.registerTool({
-      name: "compress",
-      label: "Compress",
-      description: COMPRESS_MESSAGE_PROMPT,
-      parameters: Type.Object({
-        topic: Type.String({
-          description: "Short label (3-5 words) for display",
+  function executeCompressTool(
+    mode: CompressArgs["mode"],
+    toolCallId: string,
+    params: Record<string, unknown>,
+    ctx: ExtensionContext,
+  ) {
+    if (!config.enabled) {
+      return {
+        content: [{ type: "text" as const, text: "Compression is disabled by configuration." }],
+        details: {},
+        isError: true,
+      };
+    }
+    const result = handleCompress(state, config, latestMessages, toolCallId, {
+      ...params,
+      mode,
+    } as CompressArgs);
+    sendCompressNotification(result, state, config, ctx);
+    return {
+      content: [{ type: "text" as const, text: result.text }],
+      details: {},
+    };
+  }
+
+  function registerCompressTool(): void {
+    if (config.compress.mode === "message") {
+      pi.registerTool({
+        name: "compress",
+        label: "Compress",
+        description: COMPRESS_MESSAGE_PROMPT,
+        parameters: Type.Object({
+          topic: Type.String({
+            description: "Short label (3-5 words) for display",
+          }),
+          targets: Type.Array(
+            Type.Object({
+              messageId: Type.String({
+                description: "Message ID to compress (e.g. m0001)",
+              }),
+              summary: Type.String({
+                description: "Complete technical summary replacing message content",
+              }),
+            }),
+            { description: "Messages to compress" },
+          ),
         }),
-        targets: Type.Array(
-          Type.Object({
-            messageId: Type.String({
-              description: "Message ID to compress (e.g. m0001)",
+        async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+          return executeCompressTool(
+            "message",
+            _toolCallId,
+            params as Record<string, unknown>,
+            ctx,
+          );
+        },
+      });
+    } else {
+      pi.registerTool({
+        name: "compress",
+        label: "Compress",
+        description:
+          "Compress conversation ranges into summaries. Use message IDs (m0001, m0002...) visible in context as boundaries.",
+        parameters: Type.Object({
+          topic: Type.String({ description: "Short label (3-5 words) for display" }),
+          content: Type.Array(
+            Type.Object({
+              startId: Type.String({
+                description: "Message or block ID marking range start (e.g. m0001, b2)",
+              }),
+              endId: Type.String({
+                description: "Message or block ID marking range end (e.g. m0012, b5)",
+              }),
+              summary: Type.String({
+                description: "Complete technical summary replacing all content in range",
+              }),
             }),
-            summary: Type.String({
-              description: "Complete technical summary replacing message content",
-            }),
-          }),
-          { description: "Messages to compress" },
-        ),
-      }),
-      async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-        const result = handleCompress(state, config, latestMessages, _toolCallId, {
-          ...(params as Record<string, unknown>),
-          mode: "message",
-        } as CompressArgs);
-        sendCompressNotification(result, state, config, ctx);
-        return {
-          content: [{ type: "text" as const, text: result.text }],
-          details: {},
-        };
-      },
-    });
-  } else {
-    pi.registerTool({
-      name: "compress",
-      label: "Compress",
-      description:
-        "Compress conversation ranges into summaries. Use message IDs (m0001, m0002...) visible in context as boundaries.",
-      parameters: Type.Object({
-        topic: Type.String({ description: "Short label (3-5 words) for display" }),
-        content: Type.Array(
-          Type.Object({
-            startId: Type.String({
-              description: "Message or block ID marking range start (e.g. m0001, b2)",
-            }),
-            endId: Type.String({
-              description: "Message or block ID marking range end (e.g. m0012, b5)",
-            }),
-            summary: Type.String({
-              description: "Complete technical summary replacing all content in range",
-            }),
-          }),
-          { description: "Ranges to compress, each with start/end boundaries and summary" },
-        ),
-      }),
-      async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-        const result = handleCompress(state, config, latestMessages, _toolCallId, {
-          ...(params as Record<string, unknown>),
-          mode: "range",
-        } as CompressArgs);
-        sendCompressNotification(result, state, config, ctx);
-        return {
-          content: [{ type: "text" as const, text: result.text }],
-          details: {},
-        };
-      },
-    });
+            { description: "Ranges to compress, each with start/end boundaries and summary" },
+          ),
+        }),
+        async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+          return executeCompressTool("range", _toolCallId, params as Record<string, unknown>, ctx);
+        },
+      });
+    }
   }
 
   pi.on("before_agent_start", async (event, _ctx) => {
@@ -255,8 +269,9 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", async (event, ctx) => {
     const logDir = path.join(ctx.sessionManager.getSessionDir(), "dcp", "logs");
-    reloadConfig(logDir);
+    reloadConfig(ctx, logDir);
     if (!config.enabled) return;
+    registerCompressTool();
 
     resetSessionState(state);
     lastPersistedFingerprint = undefined;
@@ -264,29 +279,16 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.compressPermission = config.compress.permission;
 
     if (config.experimental.customPrompts) {
-      const projectOverrideDir = path.join(
-        process.cwd(),
-        ".pi",
-        "dcp-prompts",
-        "overrides",
-      );
-      const globalOverrideDir = path.join(
-        agentDir,
-        "extensions",
-        "dcp-prompts",
-        "overrides",
-      );
+      const projectOverrideDir = ctx.isProjectTrusted?.()
+        ? path.join(ctx.cwd, ".pi", "dcp-prompts", "overrides")
+        : undefined;
+      const globalOverrideDir = path.join(agentDir, "extensions", "dcp-prompts", "overrides");
       promptStore = new PromptStore({ projectOverrideDir, globalOverrideDir });
       promptStore.reload();
       runtimePrompts = promptStore.getRuntimePrompts();
 
       // Write defaults for reference on first run
-      const defaultsDir = path.join(
-        agentDir,
-        "extensions",
-        "dcp-prompts",
-        "defaults",
-      );
+      const defaultsDir = path.join(agentDir, "extensions", "dcp-prompts", "defaults");
       writeDefaultPrompts(defaultsDir);
     } else {
       promptStore = undefined;
@@ -379,9 +381,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
     // Sub-agent result caching (Phase 9)
     if (event.toolName === "subagent" && !event.isError) {
-      const details = event.result?.details as
-        | Record<string, unknown>
-        | undefined;
+      const details = event.result?.details as Record<string, unknown> | undefined;
       const childSessionPath = details?.childSessionPath;
       if (typeof childSessionPath === "string") {
         const resultText = await parseChildSessionResults(childSessionPath);
