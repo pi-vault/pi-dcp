@@ -34,7 +34,7 @@
 - Modify: `src/config.ts`, `src/prompts/store.ts`
 - Test: `tests/config.test.ts`, `tests/prompt-store.test.ts`
 
-- [ ] **Step 1: Add failing layered-config tests**
+- [x] **Step 1: Add failing layered-config tests**
 
   Add tests that create temporary files and call the loader with explicit absolute paths:
 
@@ -82,7 +82,7 @@
 
   Also assert arrays replace rather than concatenate and that the returned config is a fresh clone on every call.
 
-- [ ] **Step 2: Run the focused tests and confirm the current API fails**
+- [x] **Step 2: Run the focused tests and confirm the current API fails**
 
   Run:
 
@@ -92,7 +92,7 @@
 
   Expected: FAIL because `loadConfig()` currently accepts one path, does not parse a second layer, and does not report malformed JSON.
 
-- [ ] **Step 3: Implement the two-layer loader**
+- [x] **Step 3: Implement the two-layer loader**
 
   Change the exported signature to:
 
@@ -105,7 +105,7 @@
 
   Make `parseConfigFile()` return `{ value?: Record<string, unknown>; warning?: string }`. Treat `ENOENT` as an absent file with no warning; report malformed JSON, non-object JSON, and read failures as `Unable to parse config file: <path>`. Start from `structuredClone(DEFAULT_CONFIG)`, merge the parsed global value, then the parsed project value. Reuse the existing `deepMerge`, `Value.Clean`, validation, semantic range checks, and default replacement logic. Do not add a merge dependency.
 
-- [ ] **Step 4: Add trust-safe prompt-store tests**
+- [x] **Step 4: Add trust-safe prompt-store tests**
 
   Extend `PromptStore` tests with:
 
@@ -121,7 +121,7 @@
 
   Keep the existing project-over-global test for trusted projects.
 
-- [ ] **Step 5: Make project prompt overrides optional**
+- [x] **Step 5: Make project prompt overrides optional**
 
   Change the options interface and loader path:
 
@@ -142,7 +142,7 @@
 
   Store `projectDir` as `options.projectOverrideDir ?? ""` so existing filesystem error handling remains unchanged.
 
-- [ ] **Step 6: Run config and prompt tests**
+- [x] **Step 6: Run config and prompt tests**
 
   ```bash
   pnpm vitest run tests/config.test.ts tests/prompt-store.test.ts
@@ -164,7 +164,7 @@
 - Modify: `src/index.ts`
 - Test: `tests/integration.test.ts`, `tests/commands-register.test.ts`
 
-- [ ] **Step 1: Add failing lifecycle tests**
+- [x] **Step 1: Add failing lifecycle tests**
 
   Extend the mock context with `cwd` and `isProjectTrusted()` and add these cases:
 
@@ -206,7 +206,7 @@
 
   Add a regression that changes the global file between two `session_start` events and confirms existing command handlers observe the updated stable config object.
 
-- [ ] **Step 2: Run the lifecycle tests and confirm the current startup order fails**
+- [x] **Step 2: Run the lifecycle tests and confirm the current startup order fails**
 
   ```bash
   pnpm vitest run tests/integration.test.ts tests/commands-register.test.ts -t "trusted|untrusted|stable config"
@@ -214,11 +214,11 @@
 
   Expected: FAIL because the factory returns before registering handlers when global config is disabled and `session_start` loads only the global path.
 
-- [ ] **Step 3: Register handlers before configuration is known**
+- [x] **Step 3: Register handlers before configuration is known**
 
   In `createExtension`, initialize the stable object from the global file only, remove the factory-level `if (!config.enabled) return`, and register commands/lifecycle handlers unconditionally. Keep existing Phase 4 snapshot and mutation persistence closures unchanged.
 
-- [ ] **Step 4: Resolve trusted project config from the Pi context**
+- [x] **Step 4: Resolve trusted project config from the Pi context**
 
   Change `reloadConfig` to accept the session context:
 
@@ -236,7 +236,7 @@
 
   Call it before `if (!config.enabled)` inside `session_start`. Use `ctx.cwd` and trust for `PromptStore`; never use `process.cwd()` for project-local prompt overrides.
 
-- [ ] **Step 5: Register the mode-specific tool after effective config load**
+- [x] **Step 5: Register the mode-specific tool after effective config load**
 
   Move the existing two `pi.registerTool()` definitions into a local `registerCompressTool()` function. Call it from `session_start` after `reloadConfig(ctx, logDir)` only when `config.enabled` is true. Re-registering the same `name: "compress"` replaces the extension map entry and Pi refreshes the active registry.
 
@@ -256,7 +256,7 @@
 
   Keep the `tool_call` handler’s disabled guard and permission block so a stale registration cannot mutate state after a later session disables DCP. Do not call `setActiveTools()`; it would modify the user’s tool selection.
 
-- [ ] **Step 6: Run lifecycle and full integration tests**
+- [x] **Step 6: Run lifecycle and full integration tests**
 
   ```bash
   pnpm vitest run tests/integration.test.ts tests/commands-register.test.ts tests/index.test.ts
@@ -279,7 +279,7 @@
 - Modify: `src/commands/register.ts`
 - Test: `tests/commands-compress.test.ts`, `tests/commands-register.test.ts`, `tests/integration.test.ts`
 
-- [ ] **Step 1: Add failing command tests**
+- [x] **Step 1: Add failing command tests**
 
   Use a fake `ExtensionAPI` that records `sendMessage` calls and assert the exact contract:
 
@@ -344,7 +344,7 @@
 
   Add integration assertions for command delivery while idle and while streaming; both must use `{ triggerTurn: true, deliverAs: "followUp" }`. Assert the command does not call `appendEntry`.
 
-- [ ] **Step 2: Run the command tests and confirm the module is absent**
+- [x] **Step 2: Run the command tests and confirm the module is absent**
 
   ```bash
   pnpm vitest run tests/commands-compress.test.ts tests/commands-register.test.ts -t "compress"
@@ -352,7 +352,7 @@
 
   Expected: FAIL because `src/commands/compress.ts` and the `dcp:compress` registration do not exist.
 
-- [ ] **Step 3: Implement the command with an explicit current-config gate**
+- [x] **Step 3: Implement the command with an explicit current-config gate**
 
   Create:
 
@@ -387,7 +387,7 @@
   }
   ```
 
-- [ ] **Step 4: Register the command against the stable config object**
+- [x] **Step 4: Register the command against the stable config object**
 
   Add to `registerDcpCommands`:
 
@@ -402,7 +402,7 @@
 
   Keep the existing four-argument `registerDcpCommands(pi, state, config, onStateChange)` signature so every handler shares the Phase 4 stable config object. Do not call `onStateChange()` for this command.
 
-- [ ] **Step 5: Run command and integration tests**
+- [x] **Step 5: Run command and integration tests**
 
   ```bash
   pnpm vitest run tests/commands-compress.test.ts tests/commands-register.test.ts tests/integration.test.ts
@@ -424,7 +424,7 @@
 - Modify: `README.md`, `CHANGELOG.md`
 - Test/verification: all Phase 5 tests and release checks
 
-- [ ] **Step 1: Document the operator contract**
+- [x] **Step 1: Document the operator contract**
 
   Add README sections covering:
   - global path `<agentDir>/extensions/dcp.json`;
@@ -437,7 +437,7 @@
 
   Add matching Unreleased changelog entries without changing the package version.
 
-- [ ] **Step 2: Run focused Phase 5 verification**
+- [x] **Step 2: Run focused Phase 5 verification**
 
   ```bash
   pnpm vitest run tests/config.test.ts tests/prompt-store.test.ts tests/commands-register.test.ts tests/commands-compress.test.ts tests/integration.test.ts tests/index.test.ts
@@ -447,7 +447,7 @@
 
   Expected: all focused tests pass and schema regeneration produces no diff because Phase 5 adds no configuration fields.
 
-- [ ] **Step 3: Run the Phase 5 release checks**
+- [x] **Step 3: Run the Phase 5 release checks**
 
   ```bash
   pnpm test
@@ -460,7 +460,7 @@
 
   Expected: 421 existing tests plus Phase 5 tests pass, typecheck succeeds, lint does not exceed the Phase 5 entry baseline of 58 warnings and 1 info, packaging succeeds, and the source roadmap is unchanged. Run the release gate on Node 24.15+; the local Node 23.11 result is supplemental.
 
-- [ ] **Step 4: Record Phase 5 completion**
+- [x] **Step 4: Record Phase 5 completion**
 
   Update only the Phase 5 status and this plan’s release record after all acceptance criteria pass. Do not mark Phase 6 complete.
 
@@ -489,6 +489,6 @@
 
 ## Release Record
 
-- Status: not started
+- Status: complete
 - Release commit or tag: not recorded
-- Verification date: not recorded
+- Verification date: 2026-07-29 (Node 24.15.0)

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Trusted project configuration from `<ctx.cwd>/.pi/dcp.json`, layered over global configuration at session start.
+- `dcp:compress [focus]` to send Pi a hidden manual-compression follow-up.
+
+### Changed
+
+- Project prompt overrides now load only for trusted projects; global overrides remain available everywhere.
+
 ### Fixed
 
 - Top-level user-turn protection now consistently preserves recent raw user turns and complete tool pairs across pruning and compression.
