@@ -1,4 +1,3 @@
-import * as crypto from "node:crypto";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -26,7 +25,12 @@ import { DCP_SYSTEM_PROMPT } from "./prompts/system.ts";
 import { createSessionState, resetSessionState } from "./state/state.ts";
 import type { SessionState } from "./state/types.ts";
 import { registerDcpCommands } from "./commands/register.ts";
-import { saveSessionState, loadSessionState } from "./state/persistence.ts";
+import {
+  parseDcpSnapshot,
+  restoreDcpSnapshot,
+  serializeDcpSnapshot,
+  durableStateFingerprint,
+} from "./state/persistence.ts";
 import { runPipeline } from "./pipeline.ts";
 import { parseChildSessionResults } from "./subagents/subagent-results.ts";
 
@@ -106,6 +110,47 @@ export default function createExtension(pi: ExtensionAPI): void {
   let sessionDir: string = "";
   let promptStore: PromptStore | undefined;
   let runtimePrompts: RuntimePrompts | undefined;
+  let lastPersistedFingerprint: string | undefined;
+
+  function persistIfChanged(force = false): void {
+    const snapshot = serializeDcpSnapshot(state);
+    if (!snapshot) return;
+    const fingerprint = durableStateFingerprint(state);
+    if (!fingerprint) return;
+    if (!force && fingerprint === lastPersistedFingerprint) return;
+    try {
+      pi.appendEntry("pi-dcp-state", snapshot);
+      lastPersistedFingerprint = fingerprint;
+    } catch (error) {
+      logger.warn("dcp", "failed to persist native session state", { error: String(error) });
+    }
+  }
+
+  function getSessionId(ctx: ExtensionContext): string {
+    const manager = ctx.sessionManager as unknown as {
+      getSessionId?: () => string;
+      getSessionDir: () => string;
+    };
+    return manager.getSessionId?.() ?? manager.getSessionDir();
+  }
+
+  function restoreActiveBranch(ctx: ExtensionContext): boolean {
+    const manager = ctx.sessionManager as unknown as {
+      getBranch?: () => unknown[];
+    };
+    const branch = manager.getBranch?.() ?? [];
+    const currentSessionId = getSessionId(ctx);
+    for (let index = branch.length - 1; index >= 0; index--) {
+      const entry = branch[index] as Record<string, unknown>;
+      if (entry?.type !== "custom" || entry.customType !== "pi-dcp-state") continue;
+      const snapshot = parseDcpSnapshot(entry.data, (message) => logger.warn("dcp", message));
+      if (!snapshot) continue;
+      const restored = restoreDcpSnapshot(snapshot, state, currentSessionId, (message) => logger.warn("dcp", message));
+      return restored && snapshot.ownerSessionId !== currentSessionId;
+    }
+    state.sessionId = currentSessionId;
+    return false;
+  }
 
   function reloadConfig(logDir?: string): void {
     const result = loadConfig(configFilePath);
@@ -118,7 +163,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   if (!config.enabled) return;
 
-  registerDcpCommands(pi, state, config);
+  registerDcpCommands(pi, state, config, persistIfChanged);
 
   if (config.compress.mode === "message") {
     pi.registerTool({
@@ -208,7 +253,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (!config.enabled) return;
 
     resetSessionState(state);
-    state.sessionId = `pi-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+    lastPersistedFingerprint = undefined;
     state.manualMode = config.manualMode.default;
     state.compressPermission = config.compress.permission;
     state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
@@ -243,26 +288,7 @@ export default function createExtension(pi: ExtensionAPI): void {
       runtimePrompts = undefined;
     }
 
-    // Load persisted state if resuming
-    if (event.reason === "resume") {
-      const persisted = loadSessionState(sessionDir);
-      if (persisted) {
-        state.stats = persisted.stats;
-        state.lastCompaction = persisted.lastCompaction;
-        if (persisted.messageIds) {
-          state.messageIds.byRawId = persisted.messageIds.byRawId;
-          state.messageIds.byRef = persisted.messageIds.byRef;
-          state.messageIds.nextRefIndex = persisted.messageIds.nextRefIndex;
-          // byIndex is rebuilt by assignMessageRefs on first pipeline pass
-        }
-        if (persisted.nudges) {
-          state.nudges.contextLimitAnchors = persisted.nudges.contextLimitAnchors;
-          state.nudges.turnAnchors = persisted.nudges.turnAnchors;
-          state.nudges.iterationAnchors = persisted.nudges.iterationAnchors;
-        }
-        logger.info("dcp", "resumed persisted state");
-      }
-    }
+    const inheritedOwner = restoreActiveBranch(ctx);
 
     const usage = ctx.getContextUsage();
     if (usage) {
@@ -274,6 +300,16 @@ export default function createExtension(pi: ExtensionAPI): void {
       reason: event.reason,
       mode: config.compress.mode,
     });
+    persistIfChanged(inheritedOwner);
+  });
+
+  pi.on("session_tree", async (_event, ctx) => {
+    resetSessionState(state);
+    state.manualMode = config.manualMode.default;
+    state.compressPermission = config.compress.permission;
+    state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
+    const inheritedOwner = restoreActiveBranch(ctx);
+    persistIfChanged(inheritedOwner);
   });
 
   pi.on("session_compact", async (_event, _ctx) => {
@@ -290,19 +326,12 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.subAgentResultCache.clear();
     state.lastCompaction = Date.now();
     logger.info("dcp", "compaction detected, pruning state reset");
+    persistIfChanged();
   });
 
   pi.on("session_shutdown", async (_event, _ctx) => {
-    if (sessionDir) {
-      try {
-        saveSessionState(state, sessionDir);
-        logger.info("dcp", "session shutdown, state saved");
-      } catch (err) {
-        logger.info("dcp", "session shutdown, failed to save state", { error: String(err) });
-      }
-    } else {
-      logger.info("dcp", "session shutdown");
-    }
+    persistIfChanged();
+    logger.info("dcp", "session shutdown");
   });
 
   pi.on("message_end", async (event, _ctx) => {
@@ -338,6 +367,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     // Compression timing (Phase 2)
     if (event.toolName === "compress") {
       applyCompressionTiming(state, event);
+      persistIfChanged();
       return;
     }
 
@@ -393,6 +423,8 @@ export default function createExtension(pi: ExtensionAPI): void {
         tokens: result.strategyResult.tokensSaved,
       });
     }
+
+    persistIfChanged();
 
     if (ctx.hasUI && config.nudgeNotification !== "off") {
       if (config.nudgeNotificationType === "toast") {
