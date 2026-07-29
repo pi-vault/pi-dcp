@@ -144,6 +144,18 @@ describe("config loading", () => {
     expect(loadConfig(configPath).config.compress.protectedTools).toEqual(["compress"]);
   });
 
+  it("does not merge prototype mutation keys", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, '{"__proto__":{"dcpPolluted":true}}');
+
+    try {
+      loadConfig(configPath);
+      expect(({} as Record<string, unknown>).dcpPolluted).toBeUndefined();
+    } finally {
+      delete (Object.prototype as Record<string, unknown>).dcpPolluted;
+    }
+  });
+
   it("deep merges nested config without losing sibling defaults", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(

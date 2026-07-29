@@ -132,11 +132,9 @@ function parseConfigFile(filePath: string): { value?: Record<string, unknown>; w
  * Recursively merge source into target.
  * Objects merge recursively. Primitives and arrays in source overwrite target.
  */
-function deepMerge(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>,
-): Record<string, unknown> {
+function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const key of Object.keys(source)) {
+    if (key === "__proto__" || key === "prototype" || key === "constructor") continue;
     const srcVal = source[key];
     const tgtVal = target[key];
     if (
@@ -147,12 +145,11 @@ function deepMerge(
       typeof tgtVal === "object" &&
       !Array.isArray(tgtVal)
     ) {
-      target[key] = deepMerge(tgtVal as Record<string, unknown>, srcVal as Record<string, unknown>);
+      deepMerge(tgtVal as Record<string, unknown>, srcVal as Record<string, unknown>);
     } else {
       target[key] = srcVal;
     }
   }
-  return target;
 }
 
 /**
