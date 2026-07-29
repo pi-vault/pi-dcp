@@ -409,6 +409,6 @@ Phase 4 may serialize `compressToolCallId`, `startKey`, `endKey`, `anchorKey`, d
 
 ## Release Record
 
-- Status: not started
-- Release commit or tag: not recorded
-- Verification date: not recorded
+- Status: complete
+- Release commit or tag: b2936da
+- Verification date: 2026-07-28

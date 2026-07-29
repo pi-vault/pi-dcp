@@ -42,6 +42,12 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
 - **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
+## Unreleased
+
+- Compression batches validate completely before state changes, then commit atomically. Selection expands tool-call/result pairs and active blocks to a fixed point.
+- Nested compression blocks restore coherent visibility when decompressed or recompressed; savings count only visible context, without nested double-counting.
+- Every block created by a successful batch receives the batch duration. Resume, fork, tree, and compaction restoration begin in Phase 4.
+
 ## Commands
 
 All commands are also discoverable in-session via `dcp:help`.
