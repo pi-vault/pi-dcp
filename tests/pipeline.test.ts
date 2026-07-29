@@ -267,6 +267,59 @@ describe("runPipeline", () => {
     expect(owner && extractMessageText(owner)).not.toContain("<dcp-system-reminder>");
   });
 
+  it("ignores pruned nudge anchors when enforcing frequency", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 5 });
+    const messages = [
+      makeUserMessage("covered anchor", 1),
+      makeAssistantMessage("covered assistant", 2),
+      {
+        ...makeAssistantMessage("", 3),
+        content: [
+          {
+            type: "toolCall",
+            id: "compress-owner",
+            name: "compress",
+            arguments: {},
+          },
+        ],
+      } as AgentMessage,
+      makeUserMessage("visible target", 4),
+    ];
+    runPipeline(state, config, messages, undefined);
+    applyCompressionState(state, {
+      blockId: allocateBlockId(state),
+      runId: allocateRunId(state),
+      topic: "earlier context",
+      mode: "range",
+      startIndex: 0,
+      endIndex: 1,
+      anchorIndex: 0,
+      compressToolCallId: "compress-owner",
+      startKey: "user:1:0",
+      endKey: "assistant:2:0",
+      anchorKey: "user:1:0",
+      summary: "compressed summary",
+      summaryTokens: 2,
+      consumedBlockIds: [],
+    });
+    state.nudges.turnAnchors.add("user:1:0");
+
+    const result = runPipeline(state, config, messages, {
+      tokens: 60,
+      contextWindow: 100,
+      percent: 60,
+    });
+    const target = result.messages.find(
+      (message) =>
+        message.role === "user" &&
+        extractMessageText(message).includes("visible target"),
+    );
+
+    expect(state.nudges.turnAnchors.has("user:4:0")).toBe(true);
+    expect(target && extractMessageText(target)).toContain("<dcp-system-reminder>");
+  });
+
   it("syncs compression blocks before processing", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
