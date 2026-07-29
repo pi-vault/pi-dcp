@@ -9,13 +9,20 @@ import {
   makeToolResultMessage,
 } from "./helpers.ts";
 
+function assignRefs(state: ReturnType<typeof createSessionState>, count: number): void {
+  for (let index = 0; index < count; index++) {
+    const ref = `m${String(index + 1).padStart(4, "0")}`;
+    state.messageIds.byIndex.set(index, ref);
+    state.messageIds.byRef.set(ref, `message:${index}`);
+  }
+}
+
 describe("handleCompress with protected content", () => {
   it("enriches summary with protected user messages when enabled", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ protectUserMessages: true });
 
-    state.messageIds.byIndex.set(0, "m0001");
-    state.messageIds.byIndex.set(1, "m0002");
+    assignRefs(state, 2);
     state.messageIds.nextRefIndex = 3;
 
     const messages: AgentMessage[] = [
@@ -44,8 +51,7 @@ describe("handleCompress with protected content", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ protectTags: true });
 
-    state.messageIds.byIndex.set(0, "m0001");
-    state.messageIds.byIndex.set(1, "m0002");
+    assignRefs(state, 2);
     state.messageIds.nextRefIndex = 3;
 
     const messages: AgentMessage[] = [
@@ -55,9 +61,7 @@ describe("handleCompress with protected content", () => {
 
     handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
-      content: [
-        { startId: "m0001", endId: "m0002", summary: "Exchange summary" },
-      ],
+      content: [{ startId: "m0001", endId: "m0002", summary: "Exchange summary" }],
       mode: "range",
     });
 
@@ -70,9 +74,7 @@ describe("handleCompress with protected content", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ protectedTools: ["read"] });
 
-    state.messageIds.byIndex.set(0, "m0001");
-    state.messageIds.byIndex.set(1, "m0002");
-    state.messageIds.byIndex.set(2, "m0003");
+    assignRefs(state, 3);
     state.messageIds.nextRefIndex = 4;
 
     const messages: AgentMessage[] = [
@@ -83,9 +85,7 @@ describe("handleCompress with protected content", () => {
 
     handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
-      content: [
-        { startId: "m0001", endId: "m0003", summary: "Read file" },
-      ],
+      content: [{ startId: "m0001", endId: "m0003", summary: "Read file" }],
       mode: "range",
     });
 
@@ -98,8 +98,7 @@ describe("handleCompress with protected content", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
 
-    state.messageIds.byIndex.set(0, "m0001");
-    state.messageIds.byIndex.set(1, "m0002");
+    assignRefs(state, 2);
     state.messageIds.nextRefIndex = 3;
 
     const messages: AgentMessage[] = [
@@ -109,9 +108,7 @@ describe("handleCompress with protected content", () => {
 
     handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
-      content: [
-        { startId: "m0001", endId: "m0002", summary: "Basic summary" },
-      ],
+      content: [{ startId: "m0001", endId: "m0002", summary: "Basic summary" }],
       mode: "range",
     });
 

@@ -75,6 +75,49 @@ describe("compress/search", () => {
       const messages = [makeUserMessage("hello")];
       expect(() => resolveSelection(messages, 2, 1)).toThrow();
     });
+
+    it("closes a multi-tool result selection over its assistant and sibling result", () => {
+      const messages: AgentMessage[] = [
+        makeUserMessage("do both"),
+        {
+          role: "assistant",
+          content: [
+            { type: "toolCall", id: "a", name: "read", arguments: {} },
+            { type: "toolCall", id: "b", name: "write", arguments: {} },
+          ],
+          stopReason: "toolUse",
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            totalTokens: 0,
+          },
+          timestamp: 0,
+        } as unknown as AgentMessage,
+        {
+          role: "toolResult",
+          toolCallId: "a",
+          toolName: "read",
+          content: [],
+          isError: false,
+          timestamp: 0,
+        } as AgentMessage,
+        {
+          role: "toolResult",
+          toolCallId: "b",
+          toolName: "write",
+          content: [],
+          isError: false,
+          timestamp: 0,
+        } as AgentMessage,
+      ];
+
+      const selection = resolveSelection(messages, 3, 3);
+
+      expect(selection.messageIndices).toEqual([1, 2, 3]);
+      expect(selection.toolIds).toEqual(["a", "b"]);
+    });
   });
 });
 
@@ -84,7 +127,13 @@ describe("expandRangeForToolChains", () => {
       role: "assistant",
       content: [{ type: "toolCall", id: callId, name, arguments: {} }],
       stopReason: "toolUse",
-      usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        totalTokens: 0,
+      },
       timestamp: Date.now(),
     } as unknown as AgentMessage;
   }
@@ -102,10 +151,18 @@ describe("expandRangeForToolChains", () => {
 
   it("expands endIndex to include orphaned toolResult", () => {
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
-      makeAssistantToolCall("c1", "read"),    // index 1
-      makeToolResultMsg("c1"),                 // index 2
-      { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "do it" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      makeAssistantToolCall("c1", "read"), // index 1
+      makeToolResultMsg("c1"), // index 2
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     // Range [0,1] includes the assistant toolCall but not its toolResult at index 2
@@ -115,10 +172,18 @@ describe("expandRangeForToolChains", () => {
 
   it("expands startIndex to include orphaned assistant toolCall", () => {
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
-      makeAssistantToolCall("c1", "read"),    // index 1
-      makeToolResultMsg("c1"),                 // index 2
-      { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "do it" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      makeAssistantToolCall("c1", "read"), // index 1
+      makeToolResultMsg("c1"), // index 2
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     // Range [2,3] includes the toolResult but not its assistant at index 1
@@ -128,10 +193,18 @@ describe("expandRangeForToolChains", () => {
 
   it("does not expand when range already contains both halves", () => {
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
-      makeAssistantToolCall("c1", "read"),    // index 1
-      makeToolResultMsg("c1"),                 // index 2
-      { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "do it" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      makeAssistantToolCall("c1", "read"), // index 1
+      makeToolResultMsg("c1"), // index 2
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     // Range [1,2] already contains both
@@ -148,16 +221,30 @@ describe("expandRangeForToolChains", () => {
         { type: "toolCall", id: "c2", name: "write", arguments: {} },
       ],
       stopReason: "toolUse",
-      usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        totalTokens: 0,
+      },
       timestamp: Date.now(),
     } as unknown as AgentMessage;
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "do both" }], timestamp: Date.now() } as AgentMessage,
-      multiCallAssistant,           // index 1
-      makeToolResultMsg("c1"),      // index 2
-      makeToolResultMsg("c2"),      // index 3
-      { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "do both" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      multiCallAssistant, // index 1
+      makeToolResultMsg("c1"), // index 2
+      makeToolResultMsg("c2"), // index 3
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     // Range [0,1] - includes the assistant with two tool calls, must expand to include both results
@@ -177,28 +264,50 @@ describe("expandRangeForToolChains", () => {
         { type: "toolCall", id: "c2", name: "write", arguments: {} },
       ],
       stopReason: "toolUse",
-      usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        totalTokens: 0,
+      },
       timestamp: Date.now(),
     } as unknown as AgentMessage;
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "start" }], timestamp: Date.now() } as AgentMessage,
-      multiCallAssistant,           // index 1
-      makeToolResultMsg("c1"),      // index 2
-      makeToolResultMsg("c2"),      // index 3
-      { role: "user", content: [{ type: "text", text: "end" }], timestamp: Date.now() } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "start" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      multiCallAssistant, // index 1
+      makeToolResultMsg("c1"), // index 2
+      makeToolResultMsg("c2"), // index 3
+      {
+        role: "user",
+        content: [{ type: "text", text: "end" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
     ];
 
     // Range [2,4] — only includes toolResult(c1), not the assistant or toolResult(c2)
     const result = expandRangeForToolChains(messages, 2, 4);
     expect(result.startIndex).toBe(1); // pulled in assistant
-    expect(result.endIndex).toBe(4);   // toolResult(c2)@3 already within [1,4]
+    expect(result.endIndex).toBe(4); // toolResult(c2)@3 already within [1,4]
   });
 
   it("returns unchanged range when no tool calls present", () => {
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() } as AgentMessage,
-      { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "hi" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     const result = expandRangeForToolChains(messages, 0, 1);
@@ -213,7 +322,13 @@ describe("expandRangeForToolChains with cached indices", () => {
       role: "assistant",
       content: [{ type: "toolCall", id: callId, name, arguments: {} }],
       stopReason: "toolUse",
-      usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        totalTokens: 0,
+      },
       timestamp: Date.now(),
     } as unknown as AgentMessage;
   }
@@ -234,10 +349,18 @@ describe("expandRangeForToolChains with cached indices", () => {
     state.currentUserTurn = 1;
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "do it" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
       makeAssistantToolCall("c1", "read"),
       makeToolResultMsg("c1"),
-      { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     syncToolCache(state, messages);
@@ -252,10 +375,18 @@ describe("expandRangeForToolChains with cached indices", () => {
     state.currentUserTurn = 1;
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "do it" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
       makeAssistantToolCall("c1", "read"),
       makeToolResultMsg("c1"),
-      { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: Date.now() } as unknown as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage,
     ];
 
     syncToolCache(state, messages);
@@ -269,7 +400,11 @@ describe("expandRangeForToolChains with cached indices", () => {
     const state = createSessionState();
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "do it" }], timestamp: Date.now() } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "do it" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
       makeAssistantToolCall("c1", "read"),
       makeToolResultMsg("c1"),
     ];
@@ -290,16 +425,30 @@ describe("expandRangeForToolChains with cached indices", () => {
         { type: "toolCall", id: "c2", name: "write", arguments: {} },
       ],
       stopReason: "toolUse",
-      usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        totalTokens: 0,
+      },
       timestamp: Date.now(),
     } as unknown as AgentMessage;
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "start" }], timestamp: Date.now() } as AgentMessage,
-      multiCallAssistant,           // index 1
-      makeToolResultMsg("c1"),      // index 2
-      makeToolResultMsg("c2"),      // index 3
-      { role: "user", content: [{ type: "text", text: "end" }], timestamp: Date.now() } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "start" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
+      multiCallAssistant, // index 1
+      makeToolResultMsg("c1"), // index 2
+      makeToolResultMsg("c2"), // index 3
+      {
+        role: "user",
+        content: [{ type: "text", text: "end" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
     ];
 
     syncToolCache(state, messages);
@@ -324,12 +473,16 @@ describe("expandRangeForToolChains with cached indices", () => {
       error: undefined,
       userTurn: 1,
       tokenCount: 100,
-      assistantIndex: 10,  // beyond messages length
+      assistantIndex: 10, // beyond messages length
       resultIndex: 11,
     });
 
     const messages: AgentMessage[] = [
-      { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: Date.now(),
+      } as AgentMessage,
       makeAssistantToolCall("c1", "read"),
       makeToolResultMsg("c1"),
     ];
