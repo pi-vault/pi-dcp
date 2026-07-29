@@ -4,6 +4,10 @@ import { createSessionState } from "../src/state/state.ts";
 import { makeDefaultConfig } from "./helpers.ts";
 
 describe("registerDcpCommands", () => {
+  it("requires the Phase 4 state-change callback", () => {
+    expect(registerDcpCommands).toHaveLength(4);
+  });
+
   it("registers all expected commands", () => {
     const registered: string[] = [];
     const mockPi = {
@@ -14,7 +18,7 @@ describe("registerDcpCommands", () => {
 
     const state = createSessionState();
     const config = makeDefaultConfig();
-    registerDcpCommands(mockPi as any, state, config);
+    registerDcpCommands(mockPi as any, state, config, () => {});
 
     expect(registered).toContain("dcp:help");
     expect(registered).toContain("dcp:context");

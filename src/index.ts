@@ -107,7 +107,6 @@ export default function createExtension(pi: ExtensionAPI): void {
   let logger: Logger = new Logger(config.debug);
   const state: SessionState = createSessionState();
   let latestMessages: AgentMessage[] = [];
-  let sessionDir: string = "";
   let promptStore: PromptStore | undefined;
   let runtimePrompts: RuntimePrompts | undefined;
   let lastPersistedFingerprint: string | undefined;
@@ -140,16 +139,24 @@ export default function createExtension(pi: ExtensionAPI): void {
     };
     const branch = manager.getBranch?.() ?? [];
     const currentSessionId = getSessionId(ctx);
+    let skippedInvalidSnapshot = false;
     for (let index = branch.length - 1; index >= 0; index--) {
       const entry = branch[index] as Record<string, unknown>;
       if (entry?.type !== "custom" || entry.customType !== "pi-dcp-state") continue;
       const snapshot = parseDcpSnapshot(entry.data, (message) => logger.warn("dcp", message));
-      if (!snapshot) continue;
+      if (!snapshot) {
+        skippedInvalidSnapshot = true;
+        continue;
+      }
       const restored = restoreDcpSnapshot(snapshot, state, currentSessionId, (message) => logger.warn("dcp", message));
-      return restored && snapshot.ownerSessionId !== currentSessionId;
+      const inheritedOwner = snapshot.ownerSessionId !== currentSessionId;
+      if (restored && !inheritedOwner && !skippedInvalidSnapshot) {
+        lastPersistedFingerprint = durableStateFingerprint(state);
+      }
+      return !restored || inheritedOwner || skippedInvalidSnapshot;
     }
     state.sessionId = currentSessionId;
-    return false;
+    return true;
   }
 
   function reloadConfig(logDir?: string): void {
@@ -237,7 +244,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", async (event, _ctx) => {
     if (!config.enabled) return;
-    if (config.compress.permission === "deny") return;
+    if ((state.compressPermission ?? config.compress.permission) === "deny") return;
     if (state.isSubAgent && !config.experimental.allowSubAgents) return;
 
     const systemPromptText = runtimePrompts?.system ?? DCP_SYSTEM_PROMPT;
@@ -247,8 +254,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (event, ctx) => {
-    sessionDir = ctx.sessionManager.getSessionDir();
-    const logDir = path.join(sessionDir, "dcp", "logs");
+    const logDir = path.join(ctx.sessionManager.getSessionDir(), "dcp", "logs");
     reloadConfig(logDir);
     if (!config.enabled) return;
 
@@ -256,7 +262,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     lastPersistedFingerprint = undefined;
     state.manualMode = config.manualMode.default;
     state.compressPermission = config.compress.permission;
-    state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
 
     if (config.experimental.customPrompts) {
       const projectOverrideDir = path.join(
@@ -288,7 +293,8 @@ export default function createExtension(pi: ExtensionAPI): void {
       runtimePrompts = undefined;
     }
 
-    const inheritedOwner = restoreActiveBranch(ctx);
+    const forcePersist = restoreActiveBranch(ctx);
+    state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
 
     const usage = ctx.getContextUsage();
     if (usage) {
@@ -300,16 +306,16 @@ export default function createExtension(pi: ExtensionAPI): void {
       reason: event.reason,
       mode: config.compress.mode,
     });
-    persistIfChanged(inheritedOwner);
+    persistIfChanged(forcePersist);
   });
 
   pi.on("session_tree", async (_event, ctx) => {
     resetSessionState(state);
     state.manualMode = config.manualMode.default;
     state.compressPermission = config.compress.permission;
+    const forcePersist = restoreActiveBranch(ctx);
     state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
-    const inheritedOwner = restoreActiveBranch(ctx);
-    persistIfChanged(inheritedOwner);
+    persistIfChanged(forcePersist);
   });
 
   pi.on("session_compact", async (_event, _ctx) => {

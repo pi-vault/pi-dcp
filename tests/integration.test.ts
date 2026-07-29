@@ -38,6 +38,7 @@ function createMockApi() {
     registerCommand(name: string, def: unknown) {
       commands.set(name, def);
     },
+    appendEntry() {},
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
 
   return { api, handlers, tools, commands };

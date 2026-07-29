@@ -22,19 +22,25 @@ type Handler = (...args: never[]) => unknown;
 function createMockApi() {
   const handlers = new Map<string, Handler[]>();
   const entries: Array<{ customType: string; data: unknown }> = [];
+  const commands = new Map<string, unknown>();
+  const tools = new Map<string, unknown>();
   const api = {
     on(event: string, handler: Handler) {
       const list = handlers.get(event) ?? [];
       list.push(handler);
       handlers.set(event, list);
     },
-    registerTool() {},
-    registerCommand() {},
+    registerTool(tool: { name: string }) {
+      tools.set(tool.name, tool);
+    },
+    registerCommand(name: string, command: unknown) {
+      commands.set(name, command);
+    },
     appendEntry(customType: string, data: unknown) {
       entries.push({ customType, data });
     },
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
-  return { api, handlers, entries };
+  return { api, handlers, entries, commands, tools };
 }
 
 describe("dcp extension", () => {
@@ -91,6 +97,39 @@ describe("dcp extension", () => {
     expect(result).toHaveProperty("systemPrompt");
     const sp = (result as { systemPrompt: string }).systemPrompt;
     expect(sp).toContain("compress");
+  });
+
+  it("before_agent_start honors restored compression permission", async () => {
+    const { api, handlers } = createMockApi();
+    const saved = createSessionState();
+    saved.sessionId = "session";
+    saved.compressPermission = "deny";
+    const snapshot = serializeDcpSnapshot(saved);
+    if (!snapshot) throw new Error("expected snapshot");
+    createExtension(api);
+
+    const start = handlers.get("session_start")?.[0];
+    await (start as (...args: unknown[]) => Promise<void>)(
+      { reason: "resume" },
+      {
+        sessionManager: {
+          getSessionDir: () => "/tmp/test-session-dir",
+          getSessionId: () => "session",
+          getBranch: () => [
+            { type: "custom", customType: "pi-dcp-state", data: snapshot },
+          ],
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+    const beforeAgentStart = handlers.get("before_agent_start")?.[0];
+
+    await expect(
+      (beforeAgentStart as (...args: unknown[]) => Promise<unknown>)(
+        { systemPrompt: "Original prompt.", prompt: "user input" },
+        {},
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("context handler tags messages with dcp-message-id", async () => {
@@ -330,6 +369,204 @@ describe("dcp extension", () => {
       data: { ownerSessionId: "child", stats: { totalPruneTokens: 0 } },
     });
   });
+
+  it("does not append an unchanged snapshot on clean resume", async () => {
+    const { api, handlers, entries } = createMockApi();
+    const saved = createSessionState();
+    saved.sessionId = "session";
+    const snapshot = serializeDcpSnapshot(saved);
+    if (!snapshot) throw new Error("expected snapshot");
+    createExtension(api);
+
+    const start = handlers.get("session_start")?.[0];
+    await (start as (...args: unknown[]) => Promise<void>)(
+      { reason: "resume" },
+      {
+        sessionManager: {
+          getSessionDir: () => "/tmp/test-session-dir",
+          getSessionId: () => "session",
+          getBranch: () => [
+            { type: "custom", customType: "pi-dcp-state", data: snapshot },
+          ],
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    expect(entries).toHaveLength(0);
+  });
+
+  it("appends a repair snapshot after falling back past malformed branch state", async () => {
+    const { api, handlers, entries } = createMockApi();
+    const saved = createSessionState();
+    saved.sessionId = "session";
+    const snapshot = serializeDcpSnapshot(saved);
+    if (!snapshot) throw new Error("expected snapshot");
+    createExtension(api);
+
+    const start = handlers.get("session_start")?.[0];
+    const ctx = {
+      sessionManager: {
+        getSessionDir: () => "/tmp/test-session-dir",
+        getSessionId: () => "session",
+        getBranch: () => [] as unknown[],
+      },
+      getContextUsage: () => undefined,
+    };
+    await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
+    entries.length = 0;
+    ctx.sessionManager.getBranch = () => [
+      { type: "custom", customType: "pi-dcp-state", data: snapshot },
+      { type: "custom", customType: "pi-dcp-state", data: { invalid: true } },
+    ];
+
+    const tree = handlers.get("session_tree")?.[0];
+    await (tree as (...args: unknown[]) => Promise<void>)({}, ctx);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.data).toMatchObject({ ownerSessionId: "session" });
+  });
+
+  it("appends a baseline snapshot when tree navigation has no native state", async () => {
+    const { api, handlers, entries } = createMockApi();
+    createExtension(api);
+    const ctx = {
+      sessionManager: {
+        getSessionDir: () => "/tmp/test-session-dir",
+        getSessionId: () => "session",
+        getBranch: () => [] as unknown[],
+      },
+      getContextUsage: () => undefined,
+    };
+    const start = handlers.get("session_start")?.[0];
+    await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
+    entries.length = 0;
+
+    const tree = handlers.get("session_tree")?.[0];
+    await (tree as (...args: unknown[]) => Promise<void>)({}, ctx);
+
+    expect(entries).toHaveLength(1);
+  });
+
+  it("persists command mutations once and skips command no-ops", async () => {
+    const { api, handlers, entries, commands } = createMockApi();
+    createExtension(api);
+    const ctx = {
+      sessionManager: {
+        getSessionDir: () => "/tmp/test-session-dir",
+        getSessionId: () => "session",
+        getBranch: () => [] as unknown[],
+      },
+      getContextUsage: () => undefined,
+      ui: { notify: vi.fn() },
+    };
+    const start = handlers.get("session_start")?.[0];
+    await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
+    entries.length = 0;
+
+    const manual = commands.get("dcp:manual") as {
+      handler: (args: string, commandCtx: typeof ctx) => Promise<void>;
+    };
+    await manual.handler("on", ctx);
+    await manual.handler("on", ctx);
+    await manual.handler("invalid", ctx);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.data).toMatchObject({ manualMode: "active" });
+
+    const permission = commands.get("dcp:permission") as {
+      handler: (args: string, commandCtx: typeof ctx) => Promise<void>;
+    };
+    await permission.handler("", ctx);
+    expect(entries).toHaveLength(2);
+    expect(entries[1]?.data).toMatchObject({ compressPermission: "deny" });
+  });
+
+  it("persists one context mutation and skips an unchanged repeated pass", async () => {
+    const { api, handlers, entries } = createMockApi();
+    createExtension(api);
+    const ctx = {
+      sessionManager: {
+        getSessionDir: () => "/tmp/test-session-dir",
+        getSessionId: () => "session",
+        getBranch: () => [] as unknown[],
+      },
+      getContextUsage: () => ({ tokens: 200_000, contextWindow: 1_000_000, percent: 20 }),
+      hasUI: false,
+    };
+    const start = handlers.get("session_start")?.[0];
+    await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
+    entries.length = 0;
+    const event = {
+      messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 }],
+    };
+    const context = handlers.get("context")?.[0];
+
+    await (context as (...args: unknown[]) => Promise<unknown>)(event, ctx);
+    await (context as (...args: unknown[]) => Promise<unknown>)(event, ctx);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.data).toMatchObject({
+      messageIds: { byRawId: [["user:1:0", "m0001"]] },
+      nudges: { contextLimitAnchors: ["user:1:0"] },
+    });
+  });
+
+  it("persists compression once after final duration is available", async () => {
+    vi.useFakeTimers();
+    try {
+      const { api, handlers, entries, tools } = createMockApi();
+      createExtension(api);
+      const ctx = {
+        sessionManager: {
+          getSessionDir: () => "/tmp/test-session-dir",
+          getSessionId: () => "session",
+          getBranch: () => [] as unknown[],
+        },
+        getContextUsage: () => undefined,
+        hasUI: false,
+      };
+      const start = handlers.get("session_start")?.[0];
+      await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
+      const messages = [
+        { role: "user", content: [{ type: "text", text: "one" }], timestamp: 1 },
+        { role: "assistant", content: [{ type: "text", text: "two" }], timestamp: 2 },
+      ];
+      const context = handlers.get("context")?.[0];
+      await (context as (...args: unknown[]) => Promise<unknown>)({ messages }, ctx);
+      entries.length = 0;
+
+      vi.setSystemTime(1_000);
+      const toolStart = handlers.get("tool_execution_start")?.[0];
+      await (toolStart as (...args: unknown[]) => Promise<void>)(
+        { toolName: "compress", toolCallId: "compress-call" },
+        ctx,
+      );
+      const compress = tools.get("compress") as {
+        execute: (...args: unknown[]) => Promise<unknown>;
+      };
+      await compress.execute(
+        "compress-call",
+        { topic: "topic", content: [{ startId: "m0001", endId: "m0002", summary: "summary" }] },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(entries).toHaveLength(0);
+
+      vi.setSystemTime(2_500);
+      const toolEnd = handlers.get("tool_execution_end")?.[0];
+      await (toolEnd as (...args: unknown[]) => Promise<void>)(
+        { toolName: "compress", toolCallId: "compress-call", isError: false },
+        ctx,
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.data).toMatchObject({ blocks: [{ durationMs: 1_500 }] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("permission gating (tool_call handler)", () => {
@@ -439,6 +676,44 @@ describe("permission gating (tool_call handler)", () => {
 });
 
 describe("sub-agent support", () => {
+  it("keeps sub-agent processing disabled after restoring a snapshot", async () => {
+    const originalEnv = process.env.PI_SUBAGENT_CHILD;
+    process.env.PI_SUBAGENT_CHILD = "1";
+    try {
+      const saved = createSessionState();
+      saved.sessionId = "child";
+      const snapshot = serializeDcpSnapshot(saved);
+      if (!snapshot) throw new Error("expected snapshot");
+      const { api, handlers } = createMockApi();
+      createExtension(api);
+
+      const start = handlers.get("session_start")?.[0];
+      await (start as (...args: unknown[]) => Promise<void>)(
+        { reason: "resume" },
+        {
+          sessionManager: {
+            getSessionDir: () => "/tmp/test-session",
+            getSessionId: () => "child",
+            getBranch: () => [
+              { type: "custom", customType: "pi-dcp-state", data: snapshot },
+            ],
+          },
+          getContextUsage: () => undefined,
+        },
+      );
+
+      const context = handlers.get("context")?.[0];
+      const result = await (context as (...args: unknown[]) => Promise<unknown>)(
+        { messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 }] },
+        { getContextUsage: () => undefined },
+      );
+      expect(result).toBeUndefined();
+    } finally {
+      if (originalEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
+      else process.env.PI_SUBAGENT_CHILD = originalEnv;
+    }
+  });
+
   it("context handler returns early when PI_SUBAGENT_CHILD=1", async () => {
     const originalEnv = process.env.PI_SUBAGENT_CHILD;
     process.env.PI_SUBAGENT_CHILD = "1";

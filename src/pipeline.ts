@@ -69,11 +69,11 @@ export function runPipeline(
   // Step 5: Inject message IDs (with priority attrs if message mode)
   result = injectMessageIds(state, result, priorityMap);
 
-  // Step 6: Apply pruning (compressed ranges removed, tool outputs pruned)
-  result = applyPruning(state, result);
-
-  // Step 7: Inject nudges based on context usage
+  // Step 6: Inject nudges while message indices still match the raw refs
   result = injectCompressNudges(state, config, result, contextUsage, runtimePrompts);
+
+  // Step 7: Apply pruning (compressed ranges removed, tool outputs pruned)
+  result = applyPruning(state, result);
 
   return { messages: result, strategyResult };
 }

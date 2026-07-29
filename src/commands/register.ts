@@ -16,7 +16,7 @@ export function registerDcpCommands(
   pi: ExtensionAPI,
   state: SessionState,
   config: DcpConfig,
-  onStateChange: () => void = () => {},
+  onStateChange: () => void,
 ): void {
   pi.registerCommand("dcp:help", {
     description: "Show DCP command help",
