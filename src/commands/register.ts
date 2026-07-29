@@ -16,6 +16,7 @@ export function registerDcpCommands(
   pi: ExtensionAPI,
   state: SessionState,
   config: DcpConfig,
+  onStateChange: () => void = () => {},
 ): void {
   pi.registerCommand("dcp:help", {
     description: "Show DCP command help",
@@ -45,28 +46,36 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:sweep", {
     description: "Force-prune all eligible tool outputs",
     handler: async (_args, ctx) => {
-      ctx.ui.notify(sweepCommand(state, config), "info");
+      const message = sweepCommand(state, config);
+      onStateChange();
+      ctx.ui.notify(message, "info");
     },
   });
 
   pi.registerCommand("dcp:manual", {
     description: "Toggle manual compression mode",
     handler: async (args, ctx) => {
-      ctx.ui.notify(manualCommand(state, args), "info");
+      const message = manualCommand(state, args);
+      onStateChange();
+      ctx.ui.notify(message, "info");
     },
   });
 
   pi.registerCommand("dcp:decompress", {
     description: "Deactivate a compression block",
     handler: async (args, ctx) => {
-      ctx.ui.notify(decompressCommand(state, args), "info");
+      const message = decompressCommand(state, args);
+      onStateChange();
+      ctx.ui.notify(message, "info");
     },
   });
 
   pi.registerCommand("dcp:recompress", {
     description: "Reactivate a deactivated compression block",
     handler: async (args, ctx) => {
-      ctx.ui.notify(recompressCommand(state, args), "info");
+      const message = recompressCommand(state, args);
+      onStateChange();
+      ctx.ui.notify(message, "info");
     },
   });
 
@@ -74,14 +83,16 @@ export function registerDcpCommands(
     description: "Show aggregate statistics across all sessions",
     handler: async (_args, ctx) => {
       const parentDir = path.resolve(ctx.sessionManager.getSessionDir(), "..");
-      ctx.ui.notify(lifetimeCommand(parentDir), "info");
+      ctx.ui.notify(await lifetimeCommand(parentDir), "info");
     },
   });
 
   pi.registerCommand("dcp:permission", {
     description: "Toggle compress permission (allow/deny)",
     handler: async (_args, ctx) => {
-      ctx.ui.notify(permissionCommand(state), "info");
+      const message = permissionCommand(state);
+      onStateChange();
+      ctx.ui.notify(message, "info");
     },
   });
 }
