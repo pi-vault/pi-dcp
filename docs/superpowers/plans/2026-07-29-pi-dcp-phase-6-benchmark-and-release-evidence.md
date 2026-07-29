@@ -12,7 +12,7 @@
 
 ## Readiness Audit and Boundaries
 
-- The current branch is clean at `0dc5ec7`; Node 24.15.0 currently passes 442 tests, typecheck, package dry-run, and the established lint baseline of 58 warnings plus 1 info.
+- Phase 6 started from clean commit `0dc5ec7`; its final Node 24.15.0 gate passes 446 tests, typecheck, package dry-run, and the established lint baseline of 58 warnings plus 1 info.
 - The previous version of this plan was not implementation-ready: it referenced test-only `makeDefaultConfig()`, seeded state before `restoreDcpSnapshot()` cleared it, repeated Phase 5/roadmap work already completed, used a stale test count, and did not define an evidence artifact path.
 - Use production `DEFAULT_CONFIG`; let real `compress` call/result messages rebuild `toolParameters` through `runPipeline()` after restoration. Do not manually seed runtime caches.
 - Phase 6 changes no runtime behavior, schema fields, lifetime aggregation, package version, dependency, tag, or publish workflow. Benchmark output is informational; no timing or token-reduction release threshold is added.
@@ -34,11 +34,11 @@
 - Create: `tests/benchmark.test.ts`
 - Test imports: `scripts/benchmark.ts`
 
-- [ ] **Step 1: Define the report and workload imports in the test**
+- [x] **Step 1: Define the report and workload imports in the test**
 
   Import `buildCleanWorkload`, `buildRepeatedToolWorkload`, `buildRestoredNestedWorkload`, `runBenchmarkSuite`, and `BenchmarkReport` from `../scripts/benchmark.ts`.
 
-- [ ] **Step 2: Add clean and repeated-tool correctness tests**
+- [x] **Step 2: Add clean and repeated-tool correctness tests**
 
   Assert that the clean workload returns exactly 2,000 messages and every output role is `user` or `assistant`.
 
@@ -50,7 +50,7 @@
 
   The projection must describe the transformed production messages; it must not implement a second pruning algorithm.
 
-- [ ] **Step 3: Add the restored-nesting correctness test**
+- [x] **Step 3: Add the restored-nesting correctness test**
 
   Assert that the restored workload has 100 blocks, 10 active blocks, active outer IDs `10, 20, 30, 40, 50, 60, 70, 80, 90, 100`, and complete bidirectional relationships:
 
@@ -64,7 +64,7 @@
   }
   ```
 
-- [ ] **Step 4: Add the report-shape test**
+- [x] **Step 4: Add the report-shape test**
 
   Call `runBenchmarkSuite(1)` and assert the exact workload names:
 
@@ -82,7 +82,7 @@
   reductionEstimatedTokens === inputEstimatedTokens - outputEstimatedTokens;
   ```
 
-- [ ] **Step 5: Confirm the red state**
+- [x] **Step 5: Confirm the red state**
 
   Run `pnpm vitest run tests/benchmark.test.ts`.
 
@@ -95,7 +95,7 @@
 - Create: `scripts/benchmark.ts`
 - Modify: `tests/benchmark.test.ts` only if the finalized projection type requires narrower assertions.
 
-- [ ] **Step 1: Add the report and internal run contracts**
+- [x] **Step 1: Add the report and internal run contracts**
 
   Export:
 
@@ -118,11 +118,11 @@
 
   Keep projection, run-result, and workload interfaces internal except for the named builders and `runBenchmarkSuite` used by Vitest.
 
-- [ ] **Step 2: Implement the clean workload**
+- [x] **Step 2: Implement the clean workload**
 
   Build exactly 2,000 alternating user/assistant messages with timestamps `1_000 + index` and text `clean message ${index}`. Each `run()` must clone the fixture, create a fresh `createSessionState()`, use a cloned `DEFAULT_CONFIG`, call `runPipeline(state, config, messages, undefined)`, and count input/output with `countMessageTokens()`.
 
-- [ ] **Step 3: Implement the repeated-tool workload**
+- [x] **Step 3: Implement the repeated-tool workload**
 
   Build exactly 2,000 assistant/tool-result pairs. Insert one user message before every 20-pair group. For pair index `i`:
   - `i % 25 === 0`: use protected `write` with unique arguments and output;
@@ -131,7 +131,7 @@
 
   Configure enabled deduplication and purge-errors with top-level `turnProtection: 0`; use the production `runPipeline`. Return transformed messages, state, token counts, and a projection containing tool name, error flag, result text, and owner presence.
 
-- [ ] **Step 4: Implement the restored nested workload**
+- [x] **Step 4: Implement the restored nested workload**
 
   Build ten chains of ten blocks. For each chain, create ten user messages followed by real completed `compress` assistant/tool-result pairs. For block IDs `chain * 10 + level + 1`:
   - use stable message keys for the chain’s first user, the current user, and the owner call;
@@ -141,21 +141,21 @@
 
   Create a valid `DcpSnapshotV1` with `nextBlockId` and `nextRunId` set to 101, restore it into a fresh state with `restoreDcpSnapshot()`, then call `runPipeline()` so production cache and relationship rebuilding are exercised.
 
-- [ ] **Step 5: Add standard-library statistics and suite execution**
+- [x] **Step 5: Add standard-library statistics and suite execution**
 
   Implement median and nearest-rank p95 using sorted copies of duration arrays. For each workload, run one untimed warm-up, then exactly `iterations` timed calls with `performance.now()` immediately before and after `workload.run()`. Use the first timed result for token counts; do not average token counts.
 
-- [ ] **Step 6: Add the import-safe CLI**
+- [x] **Step 6: Add the import-safe CLI**
 
   Use `pathToFileURL(process.argv[1])` to detect the entry point. When invoked directly, write exactly one serialized `BenchmarkReport` plus a newline to stdout. Imports from Vitest must not execute any benchmark.
 
-- [ ] **Step 7: Run focused verification**
+- [x] **Step 7: Run focused verification**
 
   Run `mise exec node@24.15.0 -- pnpm vitest run tests/benchmark.test.ts` and `mise exec node@24.15.0 -- pnpm typecheck`.
 
   Expected: all benchmark tests pass and typecheck reports no errors.
 
-- [ ] **Step 8: Commit the harness**
+- [x] **Step 8: Commit the harness**
 
   ```bash
   git add scripts/benchmark.ts tests/benchmark.test.ts
@@ -169,7 +169,7 @@
 - Modify: `package.json`, `README.md`, `CHANGELOG.md`
 - Create: `benchmarks/result.json`
 
-- [ ] **Step 1: Add the maintainer command**
+- [x] **Step 1: Add the maintainer command**
 
   Add exactly:
 
@@ -179,13 +179,13 @@
 
   Do not add a runtime dependency or change the existing package `files` list.
 
-- [ ] **Step 2: Document interpretation and artifact retention**
+- [x] **Step 2: Document interpretation and artifact retention**
 
   In README development documentation, state that fixtures are deterministic but whole-workload timings vary by machine and Node version; comparisons must use the same machine and Node version. Document all three workload names, all report fields, and `benchmarks/result.json`.
 
   Add only a benchmark evidence entry to the Unreleased changelog. Do not duplicate the existing Phase 4 native-state or Phase 5 operator-control entries.
 
-- [ ] **Step 3: Generate the retained report**
+- [x] **Step 3: Generate the retained report**
 
   Run:
 
@@ -195,13 +195,13 @@
 
   Parse the file as one JSON object and confirm it has Node `v24.15.0`, 30 iterations, and the three required workload names.
 
-- [ ] **Step 4: Verify package exclusion**
+- [x] **Step 4: Verify package exclusion**
 
   Run `mise exec node@24.15.0 -- pnpm pack --dry-run`.
 
   Expected: runtime sources and user-facing docs are listed; `scripts/benchmark.ts`, `tests/`, and `benchmarks/result.json` are absent.
 
-- [ ] **Step 5: Commit command and docs**
+- [x] **Step 5: Commit command and docs**
 
   ```bash
   git add package.json README.md CHANGELOG.md benchmarks/result.json
@@ -220,7 +220,7 @@
 
   The Phase 5 release record now contains commit `0dc5ec7`, status `complete`, and its existing verification date. No Phase 6 work is marked complete.
 
-- [ ] **Step 2: Run the full Node 24.15.0 release gate**
+- [x] **Step 2: Run the full Node 24.15.0 release gate**
 
   ```bash
   mise exec node@24.15.0 -- pnpm test
@@ -234,13 +234,13 @@
   git diff --exit-code 0dc5ec7 -- docs/superpowers/plans/2026-07-28-pi-dcp-reliability-roadmap.md
   ```
 
-  Expected: 442 baseline tests plus benchmark tests pass; typecheck succeeds; lint remains at or below 58 warnings and 1 info; schema is unchanged; temporary benchmark JSON parses; package contents exclude maintainer artifacts; and the original roadmap matches the base commit.
+  Observed: 446 tests pass; typecheck succeeds; lint remains at 58 warnings and 1 info; schema is unchanged; temporary benchmark JSON parses; package contents exclude maintainer artifacts; and the original roadmap matches the base commit.
 
-- [ ] **Step 3: Run the existing automated operator substitute**
+- [x] **Step 3: Run the existing automated operator substitute**
 
   Run the Phase 5 configuration, command, integration, lifecycle, and persistence tests. Do not require a live TUI or paid model call because Phase 6 adds no runtime behavior.
 
-- [ ] **Step 4: Record Phase 6 completion**
+- [x] **Step 4: Record Phase 6 completion**
 
   After every acceptance criterion passes, set Phase 6 to `complete`, record the verification date, Node version, release commit, and `benchmarks/result.json` path in this plan, then update the phased index’s completion section. Do not modify the original reliability roadmap.
 
@@ -271,7 +271,7 @@
 
 ## Release Record
 
-- Status: not started
-- Release commit or tag: not recorded
-- Verification date: not recorded
+- Status: complete
+- Release commit or tag: `9b29f8b`
+- Verification date: 2026-07-29 (Node 24.15.0)
 - Benchmark artifact: `benchmarks/result.json`

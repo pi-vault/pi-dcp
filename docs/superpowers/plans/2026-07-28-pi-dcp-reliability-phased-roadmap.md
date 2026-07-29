@@ -33,7 +33,7 @@ Expected: exit code 0 and no output.
 | 3. Compression Correctness        | complete    | Phase 2 complete | In-session compression has correct ownership, accounting, batching, nesting, and timing                | [Phase 3](2026-07-28-pi-dcp-phase-3-compression-correctness.md)        |
 | 4. Native Session State           | complete    | Phase 3 complete | Reliability state survives resume, fork, tree navigation, and compaction without cross-session leakage | [Phase 4](2026-07-28-pi-dcp-phase-4-native-session-state.md)           |
 | 5. Trusted Operator Controls      | complete    | Phase 4 complete | Trusted project config, trust-safe prompts, live commands, and manual compression are available        | [Phase 5](2026-07-28-pi-dcp-phase-5-operator-and-release-hardening.md) |
-| 6. Benchmark and Release Evidence | not started | Phase 5 complete | Deterministic benchmark evidence and final release verification are available                          | [Phase 6](2026-07-29-pi-dcp-phase-6-benchmark-and-release-evidence.md) |
+| 6. Benchmark and Release Evidence | complete    | Phase 5 complete | Deterministic benchmark evidence and final release verification are available                          | [Phase 6](2026-07-29-pi-dcp-phase-6-benchmark-and-release-evidence.md) |
 
 Allowed status values are `not started`, `in progress`, `blocked`, and `complete`.
 
