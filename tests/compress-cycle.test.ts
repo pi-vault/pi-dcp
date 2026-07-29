@@ -169,4 +169,45 @@ describe("full compression cycle", () => {
     // Can use b1 as a boundary for the next compression
     expect(resolveBoundaryIndex(state, "b1")).toBe(0);
   });
+
+  it("records child and grandchild parent relationships for nested compressions", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const rawMessages = [makeUser("msg0"), makeAssistant("msg1")];
+
+    runContextPipeline(state, rawMessages);
+    handleCompress(state, config, rawMessages, "compress-call-1", {
+      topic: "child",
+      content: [{ startId: "m0001", endId: "m0001", summary: "child summary" }],
+      mode: "range",
+    });
+
+    const withChildOwner = [
+      ...rawMessages,
+      { role: "assistant", content: [{ type: "toolCall", id: "compress-call-1" }] },
+    ] as unknown as AgentMessage[];
+    runContextPipeline(state, withChildOwner);
+    handleCompress(state, config, withChildOwner, "compress-call-2", {
+      topic: "parent",
+      content: [{ startId: "b1", endId: "b1", summary: "parent summary" }],
+      mode: "range",
+    });
+
+    const withParentOwner = [
+      ...withChildOwner,
+      { role: "assistant", content: [{ type: "toolCall", id: "compress-call-2" }] },
+    ] as unknown as AgentMessage[];
+    runContextPipeline(state, withParentOwner);
+    handleCompress(state, config, withParentOwner, "compress-call-3", {
+      topic: "grandparent",
+      content: [{ startId: "b2", endId: "b2", summary: "grandparent summary" }],
+      mode: "range",
+    });
+
+    expect(state.prune.messages.blocksById.get(1)?.parentBlockIds).toEqual([2]);
+    expect(state.prune.messages.blocksById.get(2)?.parentBlockIds).toEqual([3]);
+    expect(state.prune.messages.blocksById.get(3)?.consumedBlockIds).toEqual([2]);
+    expect(state.prune.messages.blocksById.get(1)?.deactivatedByBlockId).toBe(3);
+    expect(state.prune.messages.blocksById.get(3)?.active).toBe(true);
+  });
 });

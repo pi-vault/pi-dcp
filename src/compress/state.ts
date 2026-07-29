@@ -54,6 +54,16 @@ export function applyCompressionState(
   state: SessionState,
   params: ApplyCompressionParams,
 ): { messageIndices: number[] } {
+  const result = storeCompressionState(state, params);
+  rebuildCompressionState(state, getEligibleCompressionBlockIds(state));
+  return result;
+}
+
+/** Store a block and its stable memberships; rebuild derived visibility separately. */
+export function storeCompressionState(
+  state: SessionState,
+  params: ApplyCompressionParams,
+): { messageIndices: number[] } {
   const now = Date.now();
   const messageIndices: number[] = [];
 
@@ -106,10 +116,6 @@ export function applyCompressionState(
     if (!entry.blockIds.includes(params.blockId)) {
       entry.blockIds.push(params.blockId);
     }
-    if (!entry.activeBlockIds.includes(params.blockId)) {
-      entry.activeBlockIds.push(params.blockId);
-    }
-
     totalTokens += entry.tokenCount;
   }
 
@@ -117,30 +123,87 @@ export function applyCompressionState(
   block.directMessageIndices = messageIndices;
   block.effectiveMessageIndices = messageIndices;
 
-  // Deactivate consumed blocks
+  // Store the parent before associating it with consumed children.
+  state.prune.messages.blocksById.set(params.blockId, block);
+
   for (const consumedId of params.consumedBlockIds) {
     const consumed = state.prune.messages.blocksById.get(consumedId);
-    if (consumed) {
-      consumed.active = false;
-      consumed.deactivatedAt = now;
-      consumed.deactivatedByBlockId = params.blockId;
-      state.prune.messages.activeBlockIds.delete(consumedId);
-
-      // Find and remove anchor mapping
-      for (const [anchorIdx, bId] of state.prune.messages.activeByAnchorIndex) {
-        if (bId === consumedId) {
-          state.prune.messages.activeByAnchorIndex.delete(anchorIdx);
-        }
-      }
+    if (consumed && !consumed.parentBlockIds.includes(params.blockId)) {
+      consumed.parentBlockIds.push(params.blockId);
     }
   }
 
-  // Store the block
-  state.prune.messages.blocksById.set(params.blockId, block);
-  state.prune.messages.activeBlockIds.add(params.blockId);
-  state.prune.messages.activeByAnchorIndex.set(params.anchorIndex, params.blockId);
-
   return { messageIndices };
+}
+
+/** Candidates retained across rebuilds, including blocks hidden by a parent. */
+export function getEligibleCompressionBlockIds(state: SessionState): Set<number> {
+  return new Set(
+    [...state.prune.messages.blocksById.values()]
+      .filter((block) => block.active || block.deactivatedByBlockId !== undefined)
+      .map((block) => block.blockId),
+  );
+}
+
+/** Recompute all derived compression visibility from ownership eligibility. */
+export function rebuildCompressionState(
+  state: SessionState,
+  eligibleBlockIds: ReadonlySet<number>,
+): void {
+  const messagesState = state.prune.messages;
+  const blocks = [...messagesState.blocksById.values()].sort(
+    (a, b) => a.createdAt - b.createdAt || a.blockId - b.blockId,
+  );
+  const candidates = new Set(
+    blocks
+      .filter((block) => eligibleBlockIds.has(block.blockId) && !block.deactivatedByUser)
+      .map((block) => block.blockId),
+  );
+  const byId = messagesState.blocksById;
+  const now = Date.now();
+
+  const findActiveAncestor = (block: CompressionBlock, seen = new Set<number>()): CompressionBlock | undefined => {
+    for (const parentId of block.parentBlockIds) {
+      if (seen.has(parentId)) continue;
+      const parent = byId.get(parentId);
+      if (!parent) continue;
+      seen.add(parentId);
+      const ancestor = findActiveAncestor(parent, seen);
+      if (ancestor) return ancestor;
+      if (candidates.has(parentId)) return parent;
+    }
+    return undefined;
+  };
+
+  for (const block of blocks) {
+    const parent = candidates.has(block.blockId) ? findActiveAncestor(block) : undefined;
+    block.active = candidates.has(block.blockId) && parent === undefined;
+    block.deactivatedByBlockId = parent?.blockId;
+    block.deactivatedAt = block.active ? undefined : (block.deactivatedAt ?? now);
+  }
+
+  messagesState.activeBlockIds.clear();
+  messagesState.activeByAnchorIndex.clear();
+  for (const entry of messagesState.byMessageIndex.values()) {
+    entry.blockIds = [];
+    entry.activeBlockIds = [];
+  }
+
+  for (const block of blocks) {
+    if (block.active) {
+      messagesState.activeBlockIds.add(block.blockId);
+      messagesState.activeByAnchorIndex.set(block.anchorIndex, block.blockId);
+    }
+    for (const index of block.effectiveMessageIndices) {
+      let entry = messagesState.byMessageIndex.get(index);
+      if (!entry) {
+        entry = { tokenCount: 0, blockIds: [], activeBlockIds: [] };
+        messagesState.byMessageIndex.set(index, entry);
+      }
+      entry.blockIds.push(block.blockId);
+      if (block.active) entry.activeBlockIds.push(block.blockId);
+    }
+  }
 }
 
 /**

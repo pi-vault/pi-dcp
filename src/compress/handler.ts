@@ -5,7 +5,9 @@ import { getProtectedTurnStart, resolveBoundaryIndex, resolveSelection } from ".
 import {
   allocateBlockId,
   allocateRunId,
-  applyCompressionState,
+  getEligibleCompressionBlockIds,
+  rebuildCompressionState,
+  storeCompressionState,
   wrapCompressedSummary,
   COMPRESSED_BLOCK_HEADER,
 } from "./state.ts";
@@ -87,11 +89,12 @@ export function handleCompress(
   let totalCompressedTokens = 0;
   let totalSummaryTokens = 0;
   const blockIds: number[] = [];
+  const eligibleBlockIds = getEligibleCompressionBlockIds(state);
 
   for (const entry of entries) {
     const blockId = allocateBlockId(state);
     blockIds.push(blockId);
-    applyCompressionState(state, {
+    storeCompressionState(state, {
       blockId,
       runId,
       topic: args.topic,
@@ -108,6 +111,7 @@ export function handleCompress(
       summaryTokens: entry.summaryTokens,
       consumedBlockIds: entry.consumedBlockIds,
     });
+    eligibleBlockIds.add(blockId);
 
     totalCompressed += entry.effectiveMessageIndices.length;
 
@@ -123,6 +127,8 @@ export function handleCompress(
       totalSummaryTokens += entry.summaryTokens;
     }
   }
+
+  rebuildCompressionState(state, eligibleBlockIds);
 
   // Fix: messagesCompressed stat was defined but never incremented
   state.stats.messagesCompressed += totalCompressed;

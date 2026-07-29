@@ -3,6 +3,7 @@ import { decompressCommand } from "../src/commands/decompress.ts";
 import { recompressCommand } from "../src/commands/recompress.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { CompressionBlock } from "../src/state/types.ts";
+import { applyCompressionState, allocateBlockId } from "../src/compress/state.ts";
 
 function makeBlock(id: number, active: boolean): CompressionBlock {
   return {
@@ -76,6 +77,31 @@ describe("decompress command", () => {
     const result = decompressCommand(state, "1");
     expect(result).toContain("already inactive");
   });
+
+  it("restores an eligible child when its parent is deactivated", () => {
+    const state = createSessionState();
+    const childId = allocateBlockId(state);
+    applyCompressionState(state, makeApplyParams(childId, []));
+    const parentId = allocateBlockId(state);
+    applyCompressionState(state, makeApplyParams(parentId, [childId]));
+
+    decompressCommand(state, String(parentId));
+
+    expect(state.prune.messages.blocksById.get(childId)?.active).toBe(true);
+  });
+
+  it("keeps a user-deactivated child inactive when its parent is deactivated", () => {
+    const state = createSessionState();
+    const childId = allocateBlockId(state);
+    applyCompressionState(state, makeApplyParams(childId, []));
+    decompressCommand(state, String(childId));
+    const parentId = allocateBlockId(state);
+    applyCompressionState(state, makeApplyParams(parentId, [childId]));
+
+    decompressCommand(state, String(parentId));
+
+    expect(state.prune.messages.blocksById.get(childId)?.active).toBe(false);
+  });
 });
 
 describe("recompress command", () => {
@@ -108,3 +134,22 @@ describe("recompress command", () => {
     expect(result).toContain("Invalid block ID");
   });
 });
+
+function makeApplyParams(blockId: number, consumedBlockIds: number[]) {
+  return {
+    blockId,
+    runId: 1,
+    topic: "test",
+    mode: "range" as const,
+    startIndex: 0,
+    endIndex: 0,
+    anchorIndex: blockId,
+    compressToolCallId: `compress-call-${blockId}`,
+    startKey: "user:1000:0",
+    endKey: "user:1000:0",
+    anchorKey: "user:1000:0",
+    summary: "summary",
+    summaryTokens: 1,
+    consumedBlockIds,
+  };
+}
