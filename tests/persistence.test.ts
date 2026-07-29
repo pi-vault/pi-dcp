@@ -33,11 +33,11 @@ describe("persistence", () => {
     fs.mkdirSync(stateDir, { recursive: true });
     saveSessionState(state, stateDir);
 
-    const loaded = loadSessionState(stateDir);
+    const loaded = loadSessionState(stateDir, "test-session");
     expect(loaded).toBeDefined();
     expect(loaded).not.toHaveProperty("currentUserTurn");
     const saved = JSON.parse(
-      fs.readFileSync(path.join(stateDir, "dcp", "state.json"), "utf-8"),
+      fs.readFileSync(path.join(stateDir, "dcp", "sessions", "test-session.json"), "utf-8"),
     );
     expect(saved).not.toHaveProperty("currentTurn");
     expect(loaded!.stats.toolsPruned).toBe(3);
@@ -46,17 +46,33 @@ describe("persistence", () => {
     expect(loaded!.lastCompaction).toBe(0);
   });
 
+  it("isolates state for concurrent sessions in the same directory", () => {
+    const first = createSessionState();
+    first.sessionId = "session-one";
+    first.stats.totalPruneTokens = 100;
+
+    const second = createSessionState();
+    second.sessionId = "session-two";
+    second.stats.totalPruneTokens = 200;
+
+    saveSessionState(first, tempDir);
+    saveSessionState(second, tempDir);
+
+    expect(loadSessionState(tempDir, "session-one")!.stats.totalPruneTokens).toBe(100);
+    expect(loadSessionState(tempDir, "session-two")!.stats.totalPruneTokens).toBe(200);
+  });
+
   it("returns undefined when no state file exists", () => {
-    const loaded = loadSessionState(tempDir);
+    const loaded = loadSessionState(tempDir, "test-session");
     expect(loaded).toBeUndefined();
   });
 
   it("handles corrupt JSON gracefully", () => {
     const dcpDir = path.join(tempDir, "dcp");
-    fs.mkdirSync(dcpDir, { recursive: true });
-    fs.writeFileSync(path.join(dcpDir, "state.json"), "not json");
+    fs.mkdirSync(path.join(dcpDir, "sessions"), { recursive: true });
+    fs.writeFileSync(path.join(dcpDir, "sessions", "test-session.json"), "not json");
 
-    const loaded = loadSessionState(tempDir);
+    const loaded = loadSessionState(tempDir, "test-session");
     expect(loaded).toBeUndefined();
   });
 
@@ -67,7 +83,7 @@ describe("persistence", () => {
     saveSessionState(state, tempDir);
 
     const dcpDir = path.join(tempDir, "dcp");
-    expect(fs.existsSync(path.join(dcpDir, "state.json"))).toBe(false);
+    expect(fs.existsSync(path.join(dcpDir, "sessions", "test-session.json"))).toBe(false);
   });
 
   it("saves and loads messageIds state", () => {
@@ -83,7 +99,7 @@ describe("persistence", () => {
     fs.mkdirSync(stateDir, { recursive: true });
     saveSessionState(state, stateDir);
 
-    const loaded = loadSessionState(stateDir);
+    const loaded = loadSessionState(stateDir, "test-session");
     expect(loaded).toBeDefined();
     expect(loaded!.messageIds).toBeDefined();
     expect(loaded!.messageIds!.byRawId.get("user:1000:0")).toBe("m0001");
@@ -106,7 +122,7 @@ describe("persistence", () => {
     fs.mkdirSync(stateDir, { recursive: true });
     saveSessionState(state, stateDir);
 
-    const loaded = loadSessionState(stateDir);
+    const loaded = loadSessionState(stateDir, "test-session");
     expect(loaded).toBeDefined();
     expect(loaded!.nudges).toBeDefined();
     expect(loaded!.nudges!.contextLimitAnchors).toEqual(
@@ -120,9 +136,9 @@ describe("persistence", () => {
 
   it("handles legacy state files without nudges", () => {
     const dcpDir = path.join(tempDir, "dcp");
-    fs.mkdirSync(dcpDir, { recursive: true });
+    fs.mkdirSync(path.join(dcpDir, "sessions"), { recursive: true });
     fs.writeFileSync(
-      path.join(dcpDir, "state.json"),
+      path.join(dcpDir, "sessions", "test-session.json"),
       JSON.stringify({
         currentTurn: 7,
         stats: { pruneTokenCounter: 0, totalPruneTokens: 0, toolsPruned: 0, messagesCompressed: 0 },
@@ -130,16 +146,16 @@ describe("persistence", () => {
       }),
     );
 
-    const loaded = loadSessionState(tempDir);
+    const loaded = loadSessionState(tempDir, "test-session");
     expect(loaded).toBeDefined();
     expect(loaded!.nudges).toBeUndefined();
   });
 
   it("handles legacy state files without messageIds", () => {
     const dcpDir = path.join(tempDir, "dcp");
-    fs.mkdirSync(dcpDir, { recursive: true });
+    fs.mkdirSync(path.join(dcpDir, "sessions"), { recursive: true });
     fs.writeFileSync(
-      path.join(dcpDir, "state.json"),
+      path.join(dcpDir, "sessions", "test-session.json"),
       JSON.stringify({
         currentTurn: 3,
         stats: { pruneTokenCounter: 0, totalPruneTokens: 100, toolsPruned: 1, messagesCompressed: 0 },
@@ -147,7 +163,7 @@ describe("persistence", () => {
       }),
     );
 
-    const loaded = loadSessionState(tempDir);
+    const loaded = loadSessionState(tempDir, "test-session");
     expect(loaded).toBeDefined();
     expect(loaded!.messageIds).toBeUndefined(); // gracefully absent
   });
@@ -172,6 +188,23 @@ describe("persistence", () => {
           stats: { totalPruneTokens: 700, toolsPruned: 5, messagesCompressed: 3, pruneTokenCounter: 0 },
         }),
       );
+
+      const result = loadAllSessionStats(tempDir);
+      expect(result.totalTokensSaved).toBe(1000);
+      expect(result.totalToolsPruned).toBe(7);
+      expect(result.totalMessagesCompressed).toBe(4);
+      expect(result.sessionCount).toBe(2);
+    });
+
+    it("aggregates per-session state files", () => {
+      const sessionsDir = path.join(tempDir, "project", "dcp", "sessions");
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionsDir, "session-one.json"), JSON.stringify({
+        stats: { totalPruneTokens: 300, toolsPruned: 2, messagesCompressed: 1, pruneTokenCounter: 0 },
+      }));
+      fs.writeFileSync(path.join(sessionsDir, "session-two.json"), JSON.stringify({
+        stats: { totalPruneTokens: 700, toolsPruned: 5, messagesCompressed: 3, pruneTokenCounter: 0 },
+      }));
 
       const result = loadAllSessionStats(tempDir);
       expect(result.totalTokensSaved).toBe(1000);

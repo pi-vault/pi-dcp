@@ -57,7 +57,7 @@ describe("integration", () => {
 
     // Simulate session start
     const mockCtx = {
-      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session", getSessionId: () => "test-session-id" },
       getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
       hasUI: false,
       ui: { setStatus: () => {}, notify: () => {} },
@@ -164,7 +164,7 @@ describe("integration", () => {
     const { api, handlers } = createMockApi();
     createExtension(api);
     const mockCtx = {
-      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session", getSessionId: () => "test-session-id" },
       getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
       hasUI: false,
       ui: { setStatus: () => {}, notify: () => {} },
@@ -258,7 +258,7 @@ describe("integration", () => {
 
     const notify = vi.fn();
     const mockCtx = {
-      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session", getSessionId: () => "test-session-id" },
       getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
       hasUI: false,
       ui: { setStatus: () => {}, notify },
@@ -320,7 +320,7 @@ describe("integration", () => {
     createExtension(api);
 
     const mockCtx = {
-      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session", getSessionId: () => "test-session-id" },
       // 200K tokens at only 20% of 1M window — proves absolute limit fires, not percentage
       getContextUsage: () => ({ tokens: 200000, contextWindow: 1000000, percent: 20 }),
       hasUI: false,

@@ -22,13 +22,13 @@ interface SerializedState {
 }
 
 /**
- * Save session state to {sessionDir}/dcp/state.json.
+ * Save session state to {sessionDir}/dcp/sessions/{sessionId}.json.
  * No-op if state.sessionId is null.
  */
 export function saveSessionState(state: SessionState, sessionDir: string): void {
   if (!state.sessionId) return;
 
-  const dcpDir = path.join(sessionDir, "dcp");
+  const dcpDir = path.join(sessionDir, "dcp", "sessions");
   fs.mkdirSync(dcpDir, { recursive: true });
 
   const serialized: SerializedState = {
@@ -48,23 +48,24 @@ export function saveSessionState(state: SessionState, sessionDir: string): void 
   };
 
   fs.writeFileSync(
-    path.join(dcpDir, "state.json"),
+    path.join(dcpDir, `${state.sessionId}.json`),
     JSON.stringify(serialized, null, 2),
   );
 }
 
 /**
- * Load session state from {sessionDir}/dcp/state.json.
+ * Load session state from {sessionDir}/dcp/sessions/{sessionId}.json.
  * Returns undefined if the file doesn't exist or is corrupt.
  * messageIds is optional — legacy state files without it are handled gracefully.
  */
 export function loadSessionState(
   sessionDir: string,
+  sessionId: string,
 ): (Pick<SessionState, "stats" | "lastCompaction"> & {
   messageIds?: SessionState["messageIds"];
   nudges?: SessionState["nudges"];
 }) | undefined {
-  const filePath = path.join(sessionDir, "dcp", "state.json");
+  const filePath = path.join(sessionDir, "dcp", "sessions", `${sessionId}.json`);
 
   try {
     if (!fs.existsSync(filePath)) return undefined;
@@ -123,7 +124,7 @@ export function loadSessionState(
 
 /**
  * Load aggregate stats from all saved sessions under a parent directory.
- * Expects structure: {parentDir}/{sessionName}/dcp/state.json
+ * Reads per-session files and legacy cwd-level state files.
  * Used by dcp:lifetime command.
  */
 export function loadAllSessionStats(parentDir: string): {
@@ -145,19 +146,32 @@ export function loadAllSessionStats(parentDir: string): {
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const stateFile = path.join(parentDir, entry.name, "dcp", "state.json");
-      try {
-        if (!fs.existsSync(stateFile)) continue;
-        const content = fs.readFileSync(stateFile, "utf-8");
-        const parsed = JSON.parse(content) as SerializedState;
-        if (parsed.stats) {
-          result.totalTokensSaved += parsed.stats.totalPruneTokens ?? 0;
-          result.totalToolsPruned += parsed.stats.toolsPruned ?? 0;
-          result.totalMessagesCompressed += parsed.stats.messagesCompressed ?? 0;
-          result.sessionCount++;
+      const dcpDir = path.join(parentDir, entry.name, "dcp");
+      const sessionsDir = path.join(dcpDir, "sessions");
+      const stateFiles = [path.join(dcpDir, "state.json")];
+
+      if (fs.existsSync(sessionsDir)) {
+        for (const sessionEntry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+          if (sessionEntry.isFile() && sessionEntry.name.endsWith(".json")) {
+            stateFiles.push(path.join(sessionsDir, sessionEntry.name));
+          }
         }
-      } catch {
-        // Skip corrupt files
+      }
+
+      for (const stateFile of stateFiles) {
+        try {
+          if (!fs.existsSync(stateFile)) continue;
+          const content = fs.readFileSync(stateFile, "utf-8");
+          const parsed = JSON.parse(content) as SerializedState;
+          if (parsed.stats) {
+            result.totalTokensSaved += parsed.stats.totalPruneTokens ?? 0;
+            result.totalToolsPruned += parsed.stats.toolsPruned ?? 0;
+            result.totalMessagesCompressed += parsed.stats.messagesCompressed ?? 0;
+            result.sessionCount++;
+          }
+        } catch {
+          // Skip corrupt files
+        }
       }
     }
   } catch {

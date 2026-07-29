@@ -1,4 +1,3 @@
-import * as crypto from "node:crypto";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -208,7 +207,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (!config.enabled) return;
 
     resetSessionState(state);
-    state.sessionId = `pi-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+    state.sessionId = ctx.sessionManager.getSessionId();
     state.manualMode = config.manualMode.default;
     state.compressPermission = config.compress.permission;
     state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
@@ -245,7 +244,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
     // Load persisted state if resuming
     if (event.reason === "resume") {
-      const persisted = loadSessionState(sessionDir);
+      const persisted = loadSessionState(sessionDir, state.sessionId);
       if (persisted) {
         state.stats = persisted.stats;
         state.lastCompaction = persisted.lastCompaction;

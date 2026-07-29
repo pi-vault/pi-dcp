@@ -272,6 +272,7 @@ describe("dcp extension", () => {
     const mockCtx = {
       sessionManager: {
         getSessionDir: () => "/tmp/test-session-dir",
+        getSessionId: () => "test-session-id",
       },
       getContextUsage: () => ({
         tokens: 100,
@@ -305,7 +306,7 @@ describe("permission gating (tool_call handler)", () => {
     await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
       { reason: "new" },
       {
-        sessionManager: { getSessionDir: () => "/tmp/test-session" },
+        sessionManager: { getSessionDir: () => "/tmp/test-session", getSessionId: () => "test-session-id" },
         getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
       },
     );
@@ -329,7 +330,7 @@ describe("permission gating (tool_call handler)", () => {
     await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
       { reason: "new" },
       {
-        sessionManager: { getSessionDir: () => "/tmp/test-session" },
+        sessionManager: { getSessionDir: () => "/tmp/test-session", getSessionId: () => "test-session-id" },
         getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
       },
     );
@@ -357,7 +358,7 @@ describe("permission gating (tool_call handler)", () => {
       await (sessionStart2 as (...args: unknown[]) => Promise<void>)(
         { reason: "new" },
         {
-          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          sessionManager: { getSessionDir: () => "/tmp/test-session", getSessionId: () => "test-session-id" },
           getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
         },
       );
@@ -381,7 +382,7 @@ describe("permission gating (tool_call handler)", () => {
     await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
       { reason: "new" },
       {
-        sessionManager: { getSessionDir: () => "/tmp/test-session" },
+        sessionManager: { getSessionDir: () => "/tmp/test-session", getSessionId: () => "test-session-id" },
         getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
       },
     );
@@ -409,7 +410,7 @@ describe("sub-agent support", () => {
       await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
         { reason: "new" },
         {
-          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          sessionManager: { getSessionDir: () => "/tmp/test-session", getSessionId: () => "test-session-id" },
           getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
         },
       );
@@ -447,7 +448,7 @@ describe("sub-agent support", () => {
       await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
         { reason: "new" },
         {
-          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          sessionManager: { getSessionDir: () => "/tmp/test-session", getSessionId: () => "test-session-id" },
           getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
         },
       );
@@ -489,7 +490,7 @@ describe("sub-agent support", () => {
       await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
         { reason: "new" },
         {
-          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          sessionManager: { getSessionDir: () => "/tmp/test-session", getSessionId: () => "test-session-id" },
           getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
         },
       );
@@ -540,7 +541,7 @@ describe("sub-agent support", () => {
       await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
         { reason: "new" },
         {
-          sessionManager: { getSessionDir: () => "/tmp/test-session" },
+          sessionManager: { getSessionDir: () => "/tmp/test-session", getSessionId: () => "test-session-id" },
           getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }),
         },
       );
