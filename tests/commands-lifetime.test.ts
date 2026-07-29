@@ -15,39 +15,41 @@ describe("lifetime command", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("shows aggregate stats from multiple sessions", () => {
-    const dir1 = path.join(tempDir, "session-1", "dcp");
-    const dir2 = path.join(tempDir, "session-2", "dcp");
+  it("shows aggregate stats from multiple sessions", async () => {
+    const dir1 = path.join(tempDir, "session-1");
+    const dir2 = path.join(tempDir, "session-2");
     fs.mkdirSync(dir1, { recursive: true });
     fs.mkdirSync(dir2, { recursive: true });
 
     fs.writeFileSync(
-      path.join(dir1, "state.json"),
-      JSON.stringify({
-        stats: { totalPruneTokens: 500, toolsPruned: 3, messagesCompressed: 1, pruneTokenCounter: 0 },
-      }),
+      path.join(dir1, "session.jsonl"),
+      `${JSON.stringify({ type: "session" })}\n${JSON.stringify({
+        type: "custom", customType: "pi-dcp-state", timestamp: 1,
+        data: { version: 1, ownerSessionId: "one", manualMode: false, compressPermission: "allow", stats: { totalPruneTokens: 500, toolsPruned: 3, messagesCompressed: 1, pruneTokenCounter: 0 }, lastCompaction: 0, pruneTools: [], blocks: [], nextBlockId: 1, nextRunId: 1, messageIds: { byRawId: [], nextRefIndex: 1 }, nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] } },
+      })}`,
     );
     fs.writeFileSync(
-      path.join(dir2, "state.json"),
-      JSON.stringify({
-        stats: { totalPruneTokens: 1500, toolsPruned: 7, messagesCompressed: 4, pruneTokenCounter: 0 },
-      }),
+      path.join(dir2, "session.jsonl"),
+      `${JSON.stringify({ type: "session" })}\n${JSON.stringify({
+        type: "custom", customType: "pi-dcp-state", timestamp: 1,
+        data: { version: 1, ownerSessionId: "two", manualMode: false, compressPermission: "allow", stats: { totalPruneTokens: 1500, toolsPruned: 7, messagesCompressed: 4, pruneTokenCounter: 0 }, lastCompaction: 0, pruneTools: [], blocks: [], nextBlockId: 1, nextRunId: 1, messageIds: { byRawId: [], nextRefIndex: 1 }, nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] } },
+      })}`,
     );
 
-    const result = lifetimeCommand(tempDir);
+    const result = await lifetimeCommand(tempDir);
     expect(result).toContain("2000");
     expect(result).toContain("10");
     expect(result).toContain("5");
     expect(result).toContain("2 sessions");
   });
 
-  it("handles empty directory gracefully", () => {
-    const result = lifetimeCommand(tempDir);
+  it("handles empty directory gracefully", async () => {
+    const result = await lifetimeCommand(tempDir);
     expect(result).toContain("0 sessions");
   });
 
-  it("handles non-existent directory", () => {
-    const result = lifetimeCommand("/tmp/nonexistent-dcp-dir-xyz");
+  it("handles non-existent directory", async () => {
+    const result = await lifetimeCommand("/tmp/nonexistent-dcp-dir-xyz");
     expect(result).toContain("0 sessions");
   });
 });

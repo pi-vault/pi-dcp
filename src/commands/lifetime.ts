@@ -1,7 +1,7 @@
 import { loadAllSessionStats } from "../state/persistence.ts";
 
-export function lifetimeCommand(sessionsParentDir: string): string {
-  const stats = loadAllSessionStats(sessionsParentDir);
+export async function lifetimeCommand(sessionsParentDir: string): Promise<string> {
+  const stats = await loadAllSessionStats(sessionsParentDir);
 
   return [
     "DCP Lifetime Statistics:",
