@@ -13,7 +13,6 @@ import {
 } from "./messages/inject.ts";
 import { buildPriorityMap, type PriorityMap } from "./messages/priority.ts";
 import { applyPruning } from "./messages/prune.ts";
-import { applyPendingCompressionDurations } from "./compress/state.ts";
 
 export interface PipelineResult {
   messages: AgentMessage[];
@@ -32,17 +31,14 @@ export function runPipeline(
   contextUsage: ContextUsage | undefined,
   runtimePrompts?: RuntimePrompts,
 ): PipelineResult {
-  // Step 0: Apply any pending compression durations from completed tool calls
-  applyPendingCompressionDurations(state);
-
-  // Step 0.5: Sync compression blocks (handle stale anchors)
-  syncCompressionBlocks(state, messages.length);
+  // Step 0: Reconcile real tool-call ownership before compression state.
+  syncToolCache(state, messages);
+  syncCompressionBlocks(state, messages);
 
   // Step 1: Strip hallucinated DCP tags from assistant messages
   let result = stripHallucinations(messages);
 
-  // Step 2: Sync tool parameter cache and rebuild ordered tool ID list
-  syncToolCache(state, result);
+  // Step 2: Rebuild ordered tool ID list
   buildToolIdList(state, result);
 
   // Step 3: Run strategies (deduplication + purge errors)

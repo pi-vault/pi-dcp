@@ -94,8 +94,10 @@ export interface CompressionBlock {
   startIndex: number;
   endIndex: number;
   anchorIndex: number;
-  compressMessageIndex: number;
-  includedBlockIds: number[];
+  compressToolCallId: string;
+  startKey: string;
+  endKey: string;
+  anchorKey: string;
   consumedBlockIds: number[];
   parentBlockIds: number[];
   directMessageIndices: number[];
@@ -150,10 +152,6 @@ export interface MessageIdState {
 export interface CompressionTimingState {
   /** Start timestamps for in-flight compress calls. Keyed by toolCallId. */
   startTimes: Map<string, number>;
-  /** Maps toolCallId to the blockId created by that call. */
-  callIdToBlockId: Map<string, number>;
-  /** Computed durations awaiting application to blocks. Keyed by toolCallId. */
-  pendingDurations: Map<string, number>;
 }
 
 /**

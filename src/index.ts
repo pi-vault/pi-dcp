@@ -124,7 +124,7 @@ export default function createExtension(pi: ExtensionAPI): void {
         ),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-        const result = handleCompress(state, config, latestMessages, {
+        const result = handleCompress(state, config, latestMessages, _toolCallId, {
           ...(params as Record<string, unknown>),
           mode: "message",
         } as CompressArgs);
@@ -159,7 +159,7 @@ export default function createExtension(pi: ExtensionAPI): void {
         ),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-        const result = handleCompress(state, config, latestMessages, {
+        const result = handleCompress(state, config, latestMessages, _toolCallId, {
           ...(params as Record<string, unknown>),
           mode: "range",
         } as CompressArgs);
@@ -269,8 +269,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     // Only clear index cache (rebuilt each pipeline pass).
     // Do NOT reset nextRefIndex — new messages continue the sequence.
     state.compressionTiming.startTimes.clear();
-    state.compressionTiming.callIdToBlockId.clear();
-    state.compressionTiming.pendingDurations.clear();
     state.subAgentResultCache.clear();
     state.lastCompaction = Date.now();
     logger.info("dcp", "compaction detected, pruning state reset");
@@ -324,27 +322,7 @@ export default function createExtension(pi: ExtensionAPI): void {
       const startTime = state.compressionTiming.startTimes.get(event.toolCallId);
       if (startTime === undefined) return;
 
-      const durationMs = Date.now() - startTime;
       state.compressionTiming.startTimes.delete(event.toolCallId);
-
-      if (event.isError) return;
-
-      // Find the block created by this call. Compression is serial, so the most
-      // recently created block corresponds to this call. If the call created
-      // multiple blocks (batch), the duration is attached to the last one.
-      let latestBlockId: number | undefined;
-      let latestCreatedAt = 0;
-      for (const [blockId, block] of state.prune.messages.blocksById) {
-        if (block.createdAt > latestCreatedAt) {
-          latestCreatedAt = block.createdAt;
-          latestBlockId = blockId;
-        }
-      }
-
-      if (latestBlockId !== undefined) {
-        state.compressionTiming.callIdToBlockId.set(event.toolCallId, latestBlockId);
-      }
-      state.compressionTiming.pendingDurations.set(event.toolCallId, durationMs);
       return;
     }
 

@@ -23,7 +23,7 @@ describe("handleCompress with protected content", () => {
       makeAssistantMessage("Got it"),
     ];
 
-    handleCompress(state, config, messages, {
+    handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
       content: [
         {
@@ -53,7 +53,7 @@ describe("handleCompress with protected content", () => {
       makeAssistantMessage("Noted"),
     ];
 
-    handleCompress(state, config, messages, {
+    handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
       content: [
         { startId: "m0001", endId: "m0002", summary: "Exchange summary" },
@@ -81,7 +81,7 @@ describe("handleCompress with protected content", () => {
       makeAssistantMessage("Here is the content"),
     ];
 
-    handleCompress(state, config, messages, {
+    handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
       content: [
         { startId: "m0001", endId: "m0003", summary: "Read file" },
@@ -107,7 +107,7 @@ describe("handleCompress with protected content", () => {
       makeAssistantMessage("Reply"),
     ];
 
-    handleCompress(state, config, messages, {
+    handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
       content: [
         { startId: "m0001", endId: "m0002", summary: "Basic summary" },

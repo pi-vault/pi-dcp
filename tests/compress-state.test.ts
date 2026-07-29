@@ -48,7 +48,10 @@ describe("compress/state", () => {
         startIndex: 2,
         endIndex: 8,
         anchorIndex: 2,
-        compressMessageIndex: 10,
+        compressToolCallId: "compress-call-1",
+        startKey: "user:1000:0",
+        endKey: "assistant:1001:0",
+        anchorKey: "user:1000:0",
         summary: "Summary text",
         summaryTokens: 50,
         consumedBlockIds: [],
@@ -59,6 +62,10 @@ describe("compress/state", () => {
       expect(block!.active).toBe(true);
       expect(block!.startIndex).toBe(2);
       expect(block!.endIndex).toBe(8);
+      expect(block!.compressToolCallId).toBe("compress-call-1");
+      expect(block!.startKey).toBe("user:1000:0");
+      expect(block!.endKey).toBe("assistant:1001:0");
+      expect(block!.anchorKey).toBe("user:1000:0");
       expect(block!.summary).toBe("Summary text");
 
       expect(state.prune.messages.activeBlockIds.has(blockId)).toBe(true);

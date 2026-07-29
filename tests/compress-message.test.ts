@@ -20,7 +20,7 @@ describe("handleCompress (message mode)", () => {
     ];
     assignMessageRefs(state, messages);
 
-    const result = handleCompress(state, config, messages, {
+    const result = handleCompress(state, config, messages, "compress-call-1", {
       topic: "Greeting",
       targets: [
         { messageId: "m0001", summary: "User greeted" },
@@ -46,7 +46,7 @@ describe("handleCompress (message mode)", () => {
     assignMessageRefs(state, messages);
 
     expect(() =>
-      handleCompress(state, config, messages, {
+      handleCompress(state, config, messages, "compress-call-1", {
         topic: "test",
         targets: [{ messageId: "m9999", summary: "text" }],
         mode: "message",
@@ -59,7 +59,7 @@ describe("handleCompress (message mode)", () => {
     const config = makeDefaultConfig({ mode: "message" });
 
     expect(() =>
-      handleCompress(state, config, [], {
+      handleCompress(state, config, [], "compress-call-1", {
         topic: "test",
         targets: [],
         mode: "message",
@@ -73,7 +73,7 @@ describe("handleCompress (message mode)", () => {
     const messages = [makeUserMessage("hello"), makeAssistantMessage("world")];
     assignMessageRefs(state, messages);
 
-    handleCompress(state, config, messages, {
+    handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
       targets: [{ messageId: "m0001", summary: "User said hello" }],
       mode: "message",
@@ -93,7 +93,7 @@ describe("handleCompress (message mode)", () => {
     // Pre-populate token count for the target message
     state.prune.messages.byMessageIndex.set(0, { tokenCount: 120, blockIds: [], activeBlockIds: [] });
 
-    const result = handleCompress(state, config, messages, {
+    const result = handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
       targets: [{ messageId: "m0001", summary: "greeting" }],
       mode: "message",
@@ -126,7 +126,7 @@ describe("handleCompress (message mode)", () => {
     ];
     assignMessageRefs(state, messages);
 
-    const result = handleCompress(state, config, messages, {
+    const result = handleCompress(state, config, messages, "compress-call-1", {
       topic: "tool result",
       mode: "message",
       targets: [{ messageId: "m0003", summary: "read file" }],
@@ -162,7 +162,7 @@ describe("handleCompress (message mode)", () => {
     assignMessageRefs(state, messages);
 
     expect(() =>
-      handleCompress(state, config, messages, {
+      handleCompress(state, config, messages, "compress-call-1", {
         topic: "tool pair",
         mode: "message",
         targets: [
@@ -190,7 +190,7 @@ describe("handleCompress (message mode)", () => {
     assignMessageRefs(state, messages);
 
     expect(() =>
-      handleCompress(state, config, messages, {
+      handleCompress(state, config, messages, "compress-call-1", {
         topic: "test",
         mode: "message",
         targets: [{ messageId: "m0003", summary: "protected" }],

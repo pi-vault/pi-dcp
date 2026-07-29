@@ -60,6 +60,7 @@ export function handleCompress(
   state: SessionState,
   config: DcpConfig,
   messages: AgentMessage[],
+  compressToolCallId: string,
   args: CompressArgs,
 ): CompressResult {
   const protectedStart = getProtectedTurnStart(messages, config.turnProtection);
@@ -96,7 +97,12 @@ export function handleCompress(
     );
     const wrappedSummary = wrapCompressedSummary(blockId, enrichedSummary);
     const summaryTokens = countTokens(wrappedSummary);
-    const compressMessageIndex = messages.length - 1;
+    const startKey = state.messageIds.byRef.get(
+      state.messageIds.byIndex.get(entry.startIndex) ?? "",
+    ) ?? "";
+    const endKey = state.messageIds.byRef.get(
+      state.messageIds.byIndex.get(entry.endIndex) ?? "",
+    ) ?? "";
 
     applyCompressionState(state, {
       blockId,
@@ -107,7 +113,10 @@ export function handleCompress(
       startIndex: entry.startIndex,
       endIndex: entry.endIndex,
       anchorIndex: entry.startIndex,
-      compressMessageIndex,
+      compressToolCallId,
+      startKey,
+      endKey,
+      anchorKey: startKey,
       summary: wrappedSummary,
       summaryTokens,
       consumedBlockIds: [],

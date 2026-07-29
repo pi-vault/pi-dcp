@@ -39,7 +39,7 @@ describe("handleCompress (range mode)", () => {
       } as unknown as AgentMessage,
     ];
 
-    const result = handleCompress(state, config, messages, {
+    const result = handleCompress(state, config, messages, "compress-call-1", {
       topic: "Initial greeting",
       content: [
         {
@@ -62,7 +62,7 @@ describe("handleCompress (range mode)", () => {
     const messages: AgentMessage[] = [];
 
     expect(() =>
-      handleCompress(state, config, messages, {
+      handleCompress(state, config, messages, "compress-call-1", {
         topic: "test",
         content: [{ startId: "invalid", endId: "m0001", summary: "text" }],
         mode: "range",
@@ -76,7 +76,7 @@ describe("handleCompress (range mode)", () => {
     const messages: AgentMessage[] = [];
 
     expect(() =>
-      handleCompress(state, config, messages, {
+      handleCompress(state, config, messages, "compress-call-1", {
         topic: "test",
         content: [],
         mode: "range",
@@ -107,7 +107,7 @@ describe("handleCompress (range mode)", () => {
     ];
 
     expect(() =>
-      handleCompress(state, config, messages, {
+      handleCompress(state, config, messages, "compress-call-1", {
         topic: "test",
         mode: "range",
         content: [
@@ -164,7 +164,7 @@ describe("handleCompress tool chain protection", () => {
 
     const config = makeDefaultConfig();
     // Compress range m0001..m0002 = indices 0..1 (assistant toolCall without its result)
-    const result = handleCompress(state, config, messages, {
+    const result = handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
       mode: "range",
       content: [{ startId: "m0001", endId: "m0002", summary: "read a file" }],
@@ -191,7 +191,7 @@ describe("handleCompress protected range safety", () => {
     });
 
     expect(() =>
-      handleCompress(state, config, messages, {
+      handleCompress(state, config, messages, "compress-call-1", {
         topic: "test",
         mode: "range",
         content: [{ startId: "m0001", endId: "m0003", summary: "mixed turns" }],
@@ -213,7 +213,7 @@ describe("handleCompress protected range safety", () => {
     });
 
     expect(() =>
-      handleCompress(state, config, messages, {
+      handleCompress(state, config, messages, "compress-call-1", {
         topic: "test",
         mode: "range",
         content: [
@@ -249,7 +249,7 @@ describe("CompressResult struct", () => {
       } as unknown as AgentMessage,
     ];
 
-    const result = handleCompress(state, makeDefaultConfig(), messages, {
+    const result = handleCompress(state, makeDefaultConfig(), messages, "compress-call-1", {
       topic: "Setup",
       mode: "range",
       content: [{ startId: "m0001", endId: "m0002", summary: "greeting" }],
@@ -305,7 +305,7 @@ describe("handleCompress token reporting", () => {
     ];
 
     const config = makeDefaultConfig();
-    const result = handleCompress(state, config, messages, {
+    const result = handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
       mode: "range",
       content: [{ startId: "m0001", endId: "m0003", summary: "short summary" }],
@@ -336,7 +336,7 @@ describe("handleCompress token reporting", () => {
     ];
 
     const config = makeDefaultConfig();
-    const result = handleCompress(state, config, messages, {
+    const result = handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
       mode: "range",
       content: [{ startId: "m0001", endId: "m0002", summary: "summary" }],
@@ -398,7 +398,7 @@ describe("handleCompress token reporting", () => {
       } as unknown as AgentMessage,
     ];
 
-    const result = handleCompress(state, makeDefaultConfig(), messages, {
+    const result = handleCompress(state, makeDefaultConfig(), messages, "compress-call-1", {
       topic: "test",
       mode: "range",
       content: [
