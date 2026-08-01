@@ -11,7 +11,8 @@ export function recompressCommand(state: SessionState, args: string): string {
   const block = state.prune.messages.blocksById.get(blockId);
   if (!block) return `Block ${blockId} not found.`;
   if (block.active) return `Block ${blockId} is already active.`;
-  if (!block.deactivatedByUser) return `Block ${blockId} was not deactivated by user. Cannot reactivate.`;
+  if (!block.deactivatedByUser)
+    return `Block ${blockId} was not deactivated by user. Cannot reactivate.`;
 
   const eligibleBlockIds = getEligibleCompressionBlockIds(state);
   eligibleBlockIds.add(blockId);

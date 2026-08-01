@@ -71,7 +71,11 @@ describe("buildPriorityMap", () => {
     // Same position and similar token count — role weight should be the tiebreaker
     const messages: AgentMessage[] = [
       makeUserMessage("x".repeat(200)),
-      { role: "toolResult", content: [{ type: "text", text: "y".repeat(200) }], toolCallId: "t1" } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        content: [{ type: "text", text: "y".repeat(200) }],
+        toolCallId: "t1",
+      } as unknown as AgentMessage,
     ];
     assignMessageRefs(state, messages);
 

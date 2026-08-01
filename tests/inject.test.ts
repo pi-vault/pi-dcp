@@ -8,7 +8,13 @@ import type { ContextUsage } from "../src/state/types.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { CONTEXT_LIMIT_NUDGE, TURN_NUDGE, ITERATION_NUDGE } from "../src/prompts/nudges.ts";
-import { makeUserMessage, makeUserMessageString, makeAssistantMessage, makeDefaultConfig, resetTestTimestamp } from "./helpers.ts";
+import {
+  makeUserMessage,
+  makeUserMessageString,
+  makeAssistantMessage,
+  makeDefaultConfig,
+  resetTestTimestamp,
+} from "./helpers.ts";
 import { buildPriorityMap } from "../src/messages/priority.ts";
 
 // ---------------------------------------------------------------------------
@@ -151,9 +157,7 @@ describe("injectMessageIds", () => {
 
   it("strips truncated DCP tags before injecting", () => {
     const state = createSessionState();
-    const messages: AgentMessage[] = [
-      makeAssistantMessage("Response <dcp-message-id>m0050</dcp"),
-    ];
+    const messages: AgentMessage[] = [makeAssistantMessage("Response <dcp-message-id>m0050</dcp")];
 
     assignMessageRefs(state, messages);
     const result = injectMessageIds(state, messages);
@@ -171,24 +175,17 @@ describe("injectMessageIds", () => {
 describe("injectMessageIds with priorityMap", () => {
   it("injects priority attribute when priorityMap is provided", () => {
     const state = createSessionState();
-    const messages = [
-      makeUserMessage("a".repeat(400)),
-      makeAssistantMessage("b".repeat(100)),
-    ];
+    const messages = [makeUserMessage("a".repeat(400)), makeAssistantMessage("b".repeat(100))];
     assignMessageRefs(state, messages);
 
     const priorityMap = buildPriorityMap(state, messages);
     const result = injectMessageIds(state, messages, priorityMap);
 
     const userText = (result[0] as any).content[0].text as string;
-    expect(userText).toMatch(
-      /<dcp-message-id priority="\d">m0001<\/dcp-message-id>/,
-    );
+    expect(userText).toMatch(/<dcp-message-id priority="\d">m0001<\/dcp-message-id>/);
 
     const assistantText = (result[1] as any).content[0].text as string;
-    expect(assistantText).toMatch(
-      /<dcp-message-id priority="\d">m0002<\/dcp-message-id>/,
-    );
+    expect(assistantText).toMatch(/<dcp-message-id priority="\d">m0002<\/dcp-message-id>/);
   });
 
   it("omits priority attribute when priorityMap is undefined", () => {
@@ -352,8 +349,16 @@ describe("injectCompressNudges", () => {
     const messages = [
       makeUserMessage("go"),
       makeAssistantMessage("step 1"),
-      { role: "toolResult", content: [{ type: "text", text: "result" }], toolCallId: "t1" } as unknown as AgentMessage,
-      { role: "toolResult", content: [{ type: "text", text: "result" }], toolCallId: "t2" } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        content: [{ type: "text", text: "result" }],
+        toolCallId: "t1",
+      } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        content: [{ type: "text", text: "result" }],
+        toolCallId: "t2",
+      } as unknown as AgentMessage,
       makeAssistantMessage("step 2"),
     ];
     assignMessageRefs(state, messages);

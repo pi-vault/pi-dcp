@@ -109,11 +109,7 @@ function expandWithCachedIndices(
   return { startIndex: start, endIndex: end };
 }
 
-function expandByScan(
-  messages: AgentMessage[],
-  startIndex: number,
-  endIndex: number,
-) {
+function expandByScan(messages: AgentMessage[], startIndex: number, endIndex: number) {
   let start = startIndex;
   let end = endIndex;
   let changed = true;

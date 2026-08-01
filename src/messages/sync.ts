@@ -5,10 +5,7 @@ import { rebuildCompressionState } from "../compress/state.ts";
 /**
  * Reconcile compression blocks with their owning assistant tool calls.
  */
-export function syncCompressionBlocks(
-  state: SessionState,
-  messages: AgentMessage[],
-): void {
+export function syncCompressionBlocks(state: SessionState, messages: AgentMessage[]): void {
   const messagesState = state.prune.messages;
   if (messagesState.blocksById.size === 0) return;
 

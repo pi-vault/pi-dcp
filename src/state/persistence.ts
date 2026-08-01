@@ -1,12 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import type {
-  CompressionBlock,
-  DcpSnapshotBlockV1,
-  DcpSnapshotV1,
-  SessionState,
-} from "./types.ts";
+import type { CompressionBlock, DcpSnapshotBlockV1, DcpSnapshotV1, SessionState } from "./types.ts";
 import { resetSessionState } from "./state.ts";
 import { parseMessageRef } from "../utils/message-ids.ts";
 
@@ -189,7 +184,12 @@ export function parseDcpSnapshot(
   value: unknown,
   warn: SnapshotWarning = () => {},
 ): DcpSnapshotV1 | undefined {
-  if (!isRecord(value) || value.version !== 1 || !isString(value.ownerSessionId) || !value.ownerSessionId) {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    !isString(value.ownerSessionId) ||
+    !value.ownerSessionId
+  ) {
     return undefined;
   }
   if (value.manualMode !== false && value.manualMode !== "active") return undefined;
@@ -200,7 +200,8 @@ export function parseDcpSnapshot(
     !isNonNegativeInteger(value.stats.totalPruneTokens) ||
     !isNonNegativeInteger(value.stats.toolsPruned) ||
     !isNonNegativeInteger(value.stats.messagesCompressed)
-  ) return undefined;
+  )
+    return undefined;
   if (
     !isNonNegativeInteger(value.lastCompaction) ||
     !isPositiveInteger(value.nextBlockId) ||
@@ -208,7 +209,11 @@ export function parseDcpSnapshot(
   ) {
     return undefined;
   }
-  if (!isRecord(value.messageIds) || !isPositiveInteger(value.messageIds.nextRefIndex) || !isRecord(value.nudges)) {
+  if (
+    !isRecord(value.messageIds) ||
+    !isPositiveInteger(value.messageIds.nextRefIndex) ||
+    !isRecord(value.nudges)
+  ) {
     return undefined;
   }
   if (!Array.isArray(value.blocks)) return undefined;
@@ -355,14 +360,16 @@ export async function loadAllSessionStats(parentDir: string): Promise<{
         if (!hasHeader || entry.type !== "custom" || entry.customType !== "pi-dcp-state") continue;
         const snapshot = parseDcpSnapshot(entry.data);
         if (!snapshot) continue;
-        const timestamp = typeof entry.timestamp === "number"
-          ? entry.timestamp
-          : typeof entry.timestamp === "string"
-            ? Date.parse(entry.timestamp)
-            : Number.NaN;
+        const timestamp =
+          typeof entry.timestamp === "number"
+            ? entry.timestamp
+            : typeof entry.timestamp === "string"
+              ? Date.parse(entry.timestamp)
+              : Number.NaN;
         if (!Number.isFinite(timestamp)) continue;
         const existing = snapshots.get(snapshot.ownerSessionId);
-        if (!existing || timestamp >= existing.timestamp) snapshots.set(snapshot.ownerSessionId, { snapshot, timestamp });
+        if (!existing || timestamp >= existing.timestamp)
+          snapshots.set(snapshot.ownerSessionId, { snapshot, timestamp });
       }
     } catch {
       // Skip inaccessible or malformed streams.

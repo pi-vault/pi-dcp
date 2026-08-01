@@ -86,8 +86,7 @@ export const CompressConfigSchema = Type.Object({
   iterationNudgeThreshold: Type.Number({
     default: 15,
     minimum: 1,
-    description:
-      "Number of assistant iterations without user input before nudging",
+    description: "Number of assistant iterations without user input before nudging",
   }),
   nudgeForce: Type.Union([Type.Literal("strong"), Type.Literal("soft")], {
     default: "soft",
@@ -103,13 +102,11 @@ export const CompressConfigSchema = Type.Object({
   }),
   protectTags: Type.Boolean({
     default: false,
-    description:
-      "Preserve <protect>...</protect> tag content in summaries",
+    description: "Preserve <protect>...</protect> tag content in summaries",
   }),
   summaryBuffer: Type.Boolean({
     default: true,
-    description:
-      "Exclude active summary tokens from threshold comparison to prevent cascading",
+    description: "Exclude active summary tokens from threshold comparison to prevent cascading",
   }),
 });
 
@@ -156,14 +153,10 @@ export const DcpConfigSchema = Type.Object({
       description: "Notification verbosity for pruning events",
     },
   ),
-  nudgeNotificationType: Type.Union(
-    [Type.Literal("toast"), Type.Literal("status")],
-    {
-      default: "status",
-      description:
-        "Notification delivery: toast (ephemeral) or status (persistent)",
-    },
-  ),
+  nudgeNotificationType: Type.Union([Type.Literal("toast"), Type.Literal("status")], {
+    default: "status",
+    description: "Notification delivery: toast (ephemeral) or status (persistent)",
+  }),
   protectedFilePatterns: Type.Array(Type.String(), {
     default: [],
     description: "Glob patterns for file paths to protect from pruning",

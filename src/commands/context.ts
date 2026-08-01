@@ -7,7 +7,9 @@ export function contextCommand(
   const lines: string[] = ["DCP Context Usage:"];
 
   if (contextUsage && contextUsage.tokens != null && contextUsage.percent != null) {
-    lines.push(`  Tokens: ${contextUsage.tokens} / ${contextUsage.contextWindow} (${contextUsage.percent.toFixed(1)}%)`);
+    lines.push(
+      `  Tokens: ${contextUsage.tokens} / ${contextUsage.contextWindow} (${contextUsage.percent.toFixed(1)}%)`,
+    );
   } else if (contextUsage) {
     lines.push(`  Tokens: unavailable (context window: ${contextUsage.contextWindow})`);
   } else {

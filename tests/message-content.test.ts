@@ -1,11 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendText, mapText } from "../src/utils/message-content.ts";
-import {
-  makeUserMessage,
-  makeUserMessageString,
-  makeAssistantMessage,
-} from "./helpers.ts";
+import { makeUserMessage, makeUserMessageString, makeAssistantMessage } from "./helpers.ts";
 
 type WithContent = { content: unknown };
 

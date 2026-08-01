@@ -71,7 +71,11 @@ describe("assignMessageRefs (stable)", () => {
 
   it("preserves refs when messages reorder", () => {
     const state = createSessionState();
-    const msg1 = { role: "user", content: [{ type: "text", text: "first" }], timestamp: 1000 } as AgentMessage;
+    const msg1 = {
+      role: "user",
+      content: [{ type: "text", text: "first" }],
+      timestamp: 1000,
+    } as AgentMessage;
     const msg2 = {
       role: "assistant",
       content: [{ type: "text", text: "second" }],
@@ -93,8 +97,16 @@ describe("assignMessageRefs (stable)", () => {
 
   it("handles new messages added between existing ones", () => {
     const state = createSessionState();
-    const msg1 = { role: "user", content: [{ type: "text", text: "A" }], timestamp: 1000 } as AgentMessage;
-    const msg2 = { role: "user", content: [{ type: "text", text: "B" }], timestamp: 3000 } as AgentMessage;
+    const msg1 = {
+      role: "user",
+      content: [{ type: "text", text: "A" }],
+      timestamp: 1000,
+    } as AgentMessage;
+    const msg2 = {
+      role: "user",
+      content: [{ type: "text", text: "B" }],
+      timestamp: 3000,
+    } as AgentMessage;
 
     assignMessageRefs(state, [msg1, msg2]);
     expect(state.messageIds.nextRefIndex).toBe(3);
@@ -153,7 +165,11 @@ describe("assignMessageRefs (stable)", () => {
 
   it("rebuilds byIndex on every call (runtime cache)", () => {
     const state = createSessionState();
-    const msg = { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1000 } as AgentMessage;
+    const msg = {
+      role: "user",
+      content: [{ type: "text", text: "hi" }],
+      timestamp: 1000,
+    } as AgentMessage;
 
     assignMessageRefs(state, [msg]);
     expect(state.messageIds.byIndex.size).toBe(1);

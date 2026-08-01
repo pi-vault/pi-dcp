@@ -68,9 +68,7 @@ describe("message-ids", () => {
 
   describe("formatMessageIdTag", () => {
     it("formats basic tag", () => {
-      expect(formatMessageIdTag("m0001")).toBe(
-        "<dcp-message-id>m0001</dcp-message-id>",
-      );
+      expect(formatMessageIdTag("m0001")).toBe("<dcp-message-id>m0001</dcp-message-id>");
     });
 
     it("formats tag with priority", () => {

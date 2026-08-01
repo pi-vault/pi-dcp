@@ -77,10 +77,7 @@ const PRUNED_OUTPUT_TEXT =
  * Replace outputs of pruned tool results with placeholder text.
  * Returns a new array (does not mutate input).
  */
-export function pruneToolOutputs(
-  state: SessionState,
-  messages: AgentMessage[],
-): AgentMessage[] {
+export function pruneToolOutputs(state: SessionState, messages: AgentMessage[]): AgentMessage[] {
   if (state.prune.tools.size === 0) return messages;
 
   return messages.map((msg) => {
@@ -96,16 +93,11 @@ export function pruneToolOutputs(
 }
 
 /** Replace arguments of pruned failed tool calls while preserving diagnostics. */
-export function pruneFailedInputs(
-  state: SessionState,
-  messages: AgentMessage[],
-): AgentMessage[] {
+export function pruneFailedInputs(state: SessionState, messages: AgentMessage[]): AgentMessage[] {
   if (state.prune.tools.size === 0) return messages;
 
   const failedIds = new Set(
-    [...state.prune.tools.keys()].filter(
-      (id) => state.toolParameters.get(id)?.status === "error",
-    ),
+    [...state.prune.tools.keys()].filter((id) => state.toolParameters.get(id)?.status === "error"),
   );
   if (failedIds.size === 0) return messages;
 
@@ -129,10 +121,7 @@ export function pruneFailedInputs(
  * Apply all pruning passes to a message array.
  * Returns a new array.
  */
-export function applyPruning(
-  state: SessionState,
-  messages: AgentMessage[],
-): AgentMessage[] {
+export function applyPruning(state: SessionState, messages: AgentMessage[]): AgentMessage[] {
   let result = filterCompressedRanges(state, messages);
   result = pruneToolOutputs(state, result);
   result = pruneFailedInputs(state, result);

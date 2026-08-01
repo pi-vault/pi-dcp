@@ -15,7 +15,10 @@ describe("appendSubAgentResults", () => {
       } as AgentMessage,
     ];
     const cache = new Map([
-      ["call-sub-1", "Child assistant: I refactored the module.\n\nChild assistant: All tests pass."],
+      [
+        "call-sub-1",
+        "Child assistant: I refactored the module.\n\nChild assistant: All tests pass.",
+      ],
     ]);
 
     const result = appendSubAgentResults("Original summary", messages, cache);

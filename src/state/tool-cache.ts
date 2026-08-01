@@ -10,10 +10,7 @@ import { countMessageTokens } from "../utils/tokens.ts";
  * - Tool calls are in `assistant` messages: content[].type === "toolCall"
  * - Tool results are separate `toolResult` messages with toolCallId, isError
  */
-export function syncToolCache(
-  state: SessionState,
-  messages: AgentMessage[],
-): void {
+export function syncToolCache(state: SessionState, messages: AgentMessage[]): void {
   state.toolParameters.clear();
   state.currentUserTurn = 0;
 
@@ -69,10 +66,7 @@ export function syncToolCache(
 /**
  * Build ordered list of tool call IDs from messages.
  */
-export function buildToolIdList(
-  state: SessionState,
-  messages: AgentMessage[],
-): void {
+export function buildToolIdList(state: SessionState, messages: AgentMessage[]): void {
   const ids: string[] = [];
   for (const msg of messages) {
     if (msg.role !== "assistant") continue;
@@ -94,7 +88,11 @@ function extractToolResultText(msg: AgentMessage): string | undefined {
   if (!Array.isArray(msg.content)) return undefined;
   const texts: string[] = [];
   for (const part of msg.content) {
-    if (typeof part === "object" && part !== null && (part as unknown as Record<string, unknown>).type === "text") {
+    if (
+      typeof part === "object" &&
+      part !== null &&
+      (part as unknown as Record<string, unknown>).type === "text"
+    ) {
       texts.push((part as unknown as Record<string, unknown>).text as string);
     }
   }

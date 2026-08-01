@@ -3,11 +3,7 @@ import { handleCompress } from "../src/compress/handler.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { assignMessageRefs } from "../src/messages/inject.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import {
-  makeUserMessage,
-  makeAssistantMessage,
-  makeDefaultConfig,
-} from "./helpers.ts";
+import { makeUserMessage, makeAssistantMessage, makeDefaultConfig } from "./helpers.ts";
 
 describe("handleCompress (message mode)", () => {
   it("compresses targeted messages", () => {
@@ -91,7 +87,11 @@ describe("handleCompress (message mode)", () => {
     assignMessageRefs(state, messages);
 
     // Pre-populate token count for the target message
-    state.prune.messages.byMessageIndex.set(0, { tokenCount: 120, blockIds: [], activeBlockIds: [] });
+    state.prune.messages.byMessageIndex.set(0, {
+      tokenCount: 120,
+      blockIds: [],
+      activeBlockIds: [],
+    });
 
     const result = handleCompress(state, config, messages, "compress-call-1", {
       topic: "test",
@@ -112,7 +112,13 @@ describe("handleCompress (message mode)", () => {
         role: "assistant",
         content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: 0,
       } as unknown as AgentMessage,
       {
@@ -147,7 +153,13 @@ describe("handleCompress (message mode)", () => {
         role: "assistant",
         content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: 0,
       } as unknown as AgentMessage,
       {

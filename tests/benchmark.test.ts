@@ -12,7 +12,9 @@ describe("benchmark workloads", () => {
     const result = buildCleanWorkload().run();
 
     expect(result.messages).toHaveLength(2_000);
-    expect(result.messages.every((message) => message.role === "user" || message.role === "assistant")).toBe(true);
+    expect(
+      result.messages.every((message) => message.role === "user" || message.role === "assistant"),
+    ).toBe(true);
   });
 
   it("prunes repeated tools without orphaning results or changing protected writes and errors", () => {
@@ -24,7 +26,9 @@ describe("benchmark workloads", () => {
         (tool) => tool.name === "write" && tool.text.includes("protected write 0"),
       ),
     ).toBe(true);
-    expect(result.toolResults.some((tool) => tool.isError && tool.text.includes("stale error"))).toBe(true);
+    expect(
+      result.toolResults.some((tool) => tool.isError && tool.text.includes("stale error")),
+    ).toBe(true);
     expect(result.toolResults.every((tool) => tool.ownerPresent)).toBe(true);
   });
 
@@ -37,7 +41,9 @@ describe("benchmark workloads", () => {
     ]);
     for (const block of result.state.prune.messages.blocksById.values()) {
       for (const childId of block.consumedBlockIds) {
-        expect(result.state.prune.messages.blocksById.get(childId)?.parentBlockIds).toContain(block.blockId);
+        expect(result.state.prune.messages.blocksById.get(childId)?.parentBlockIds).toContain(
+          block.blockId,
+        );
       }
     }
   });

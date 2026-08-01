@@ -7,11 +7,7 @@ import { formatMessageRef, formatMessageIdTag, getMessageKey } from "../utils/me
 import type { PriorityMap } from "./priority.ts";
 import { appendText, mapText } from "../utils/message-content.ts";
 import { stripHallucinationsFromString } from "./strip.ts";
-import {
-  CONTEXT_LIMIT_NUDGE,
-  TURN_NUDGE,
-  ITERATION_NUDGE,
-} from "../prompts/nudges.ts";
+import { CONTEXT_LIMIT_NUDGE, TURN_NUDGE, ITERATION_NUDGE } from "../prompts/nudges.ts";
 import type { RuntimePrompts } from "../prompts/store.ts";
 
 /**
@@ -23,10 +19,7 @@ import type { RuntimePrompts } from "../prompts/store.ts";
  * disambiguates them based on their order in the array. ToolResult messages use
  * toolCallId (unique) and bypass the counter.
  */
-export function assignMessageRefs(
-  state: SessionState,
-  messages: AgentMessage[],
-): void {
+export function assignMessageRefs(state: SessionState, messages: AgentMessage[]): void {
   // Clear runtime index cache — rebuilt each pass
   state.messageIds.byIndex.clear();
 
@@ -122,11 +115,7 @@ export function injectCompressNudges(
 
   // Summary buffer adjustment (from Phase 3)
   let effectiveOverMax = overMax;
-  if (
-    effectiveOverMax &&
-    config.compress.summaryBuffer &&
-    contextUsage.tokens != null
-  ) {
+  if (effectiveOverMax && config.compress.summaryBuffer && contextUsage.tokens != null) {
     const summaryTokens = getActiveSummaryTokenUsage(state);
     if (summaryTokens > 0) {
       const effectiveTokens = contextUsage.tokens - summaryTokens;
@@ -252,10 +241,7 @@ function addAnchorIfAllowed(
   for (const existingKey of anchorSet) {
     const existingIndex = keyToIndex.get(existingKey);
     if (existingIndex !== undefined) {
-      closestDistance = Math.min(
-        closestDistance,
-        Math.abs(targetIndex - existingIndex),
-      );
+      closestDistance = Math.min(closestDistance, Math.abs(targetIndex - existingIndex));
     }
     // Anchors not in current messages (stale) are ignored for distance calculation
   }
@@ -311,8 +297,7 @@ function applyAnchoredNudges(
 
 function hasExistingNudge(msg: AgentMessage): boolean {
   if (!("content" in msg)) return false;
-  if (typeof msg.content === "string")
-    return msg.content.includes("<dcp-system-reminder>");
+  if (typeof msg.content === "string") return msg.content.includes("<dcp-system-reminder>");
   if (!Array.isArray(msg.content)) return false;
   return msg.content.some((p) => {
     if (typeof p !== "object" || p === null) return false;

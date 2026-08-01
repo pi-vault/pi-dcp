@@ -10,9 +10,7 @@ function makeAssistantWithToolCall(
 ): AgentMessage {
   return {
     role: "assistant",
-    content: [
-      { type: "toolCall", id: toolCallId, name: toolName, arguments: args },
-    ],
+    content: [{ type: "toolCall", id: toolCallId, name: toolName, arguments: args }],
     api: "messages",
     provider: "test",
     model: "test-model",
@@ -28,11 +26,7 @@ function makeAssistantWithToolCall(
   } as unknown as AgentMessage;
 }
 
-function makeToolResult(
-  toolCallId: string,
-  toolName: string,
-  isError = false,
-): AgentMessage {
+function makeToolResult(toolCallId: string, toolName: string, isError = false): AgentMessage {
   return {
     role: "toolResult",
     toolCallId,
@@ -170,12 +164,7 @@ describe("tool-cache", () => {
       syncToolCache(state, messages);
       // Current raw messages replace stale cache entries.
       expect(
-        (
-          state.toolParameters.get("call1")!.parameters as Record<
-            string,
-            unknown
-          >
-      ).filePath,
+        (state.toolParameters.get("call1")!.parameters as Record<string, unknown>).filePath,
       ).toBe("/new");
     });
 

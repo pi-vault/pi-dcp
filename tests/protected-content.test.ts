@@ -42,9 +42,7 @@ describe("appendProtectedUserMessages", () => {
   });
 
   it("strips <protect> tags from user message text", () => {
-    const messages: AgentMessage[] = [
-      makeUserMessage("Do <protect>important</protect> thing"),
-    ];
+    const messages: AgentMessage[] = [makeUserMessage("Do <protect>important</protect> thing")];
 
     const result = appendProtectedUserMessages("Summary", messages, true);
     expect(result).toContain("Do important thing");
@@ -56,9 +54,7 @@ describe("appendProtectedUserMessages", () => {
 describe("appendProtectedPromptInfo", () => {
   it("extracts content within <protect> tags and appends", () => {
     const messages: AgentMessage[] = [
-      makeUserMessage(
-        "Normal text <protect>Critical data: API_KEY=abc</protect> more text",
-      ),
+      makeUserMessage("Normal text <protect>Critical data: API_KEY=abc</protect> more text"),
     ];
 
     const result = appendProtectedPromptInfo("Base summary", messages, true);
@@ -69,9 +65,7 @@ describe("appendProtectedPromptInfo", () => {
 
   it("handles multiple protect tags in one message", () => {
     const messages: AgentMessage[] = [
-      makeUserMessage(
-        "<protect>Item A</protect> gap <protect>Item B</protect>",
-      ),
+      makeUserMessage("<protect>Item A</protect> gap <protect>Item B</protect>"),
     ];
 
     const result = appendProtectedPromptInfo("Summary", messages, true);
@@ -80,9 +74,7 @@ describe("appendProtectedPromptInfo", () => {
   });
 
   it("returns unchanged when protectTags is false", () => {
-    const messages: AgentMessage[] = [
-      makeUserMessage("<protect>secret</protect>"),
-    ];
+    const messages: AgentMessage[] = [makeUserMessage("<protect>secret</protect>")];
 
     const result = appendProtectedPromptInfo("Summary", messages, false);
     expect(result).toBe("Summary");
@@ -98,9 +90,7 @@ describe("appendProtectedPromptInfo", () => {
 
 describe("appendProtectedToolOutputs", () => {
   it("appends tool output when tool name matches protectedTools", () => {
-    const messages: AgentMessage[] = [
-      makeToolResultMessage("call1", "read", "file content here"),
-    ];
+    const messages: AgentMessage[] = [makeToolResultMessage("call1", "read", "file content here")];
 
     const result = appendProtectedToolOutputs("Summary", messages, ["read"]);
     expect(result).toContain("[Protected Tool Output: read]");
@@ -108,9 +98,7 @@ describe("appendProtectedToolOutputs", () => {
   });
 
   it("does not append when tool name not in protectedTools", () => {
-    const messages: AgentMessage[] = [
-      makeToolResultMessage("call1", "grep", "grep output"),
-    ];
+    const messages: AgentMessage[] = [makeToolResultMessage("call1", "grep", "grep output")];
 
     const result = appendProtectedToolOutputs("Summary", messages, ["read"]);
     expect(result).toBe("Summary");

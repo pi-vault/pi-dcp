@@ -6,7 +6,7 @@ describe("strip", () => {
   describe("stripHallucinationsFromString", () => {
     it("removes paired dcp tags", () => {
       const result = stripHallucinationsFromString(
-        "hello <dcp-message-id>m0001</dcp-message-id> world"
+        "hello <dcp-message-id>m0001</dcp-message-id> world",
       );
       expect(result).toBe("hello  world");
     });
@@ -67,7 +67,13 @@ describe("strip", () => {
           provider: "test",
           model: "test-model",
           stopReason: "stop",
-          usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            totalTokens: 0,
+          },
           timestamp: Date.now(),
         } as unknown as AgentMessage,
       ];
@@ -82,15 +88,15 @@ describe("strip", () => {
       const messages: AgentMessage[] = [
         {
           role: "user",
-          content: [
-            { type: "text", text: "<dcp-message-id>m0001</dcp-message-id>" },
-          ],
+          content: [{ type: "text", text: "<dcp-message-id>m0001</dcp-message-id>" }],
           timestamp: Date.now(),
         } as AgentMessage,
       ];
 
       const result = stripHallucinations(messages);
-      expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toContain("dcp-message-id");
+      expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toContain(
+        "dcp-message-id",
+      );
     });
 
     it("returns same reference when no changes needed", () => {
@@ -102,7 +108,13 @@ describe("strip", () => {
           provider: "test",
           model: "test-model",
           stopReason: "stop",
-          usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            totalTokens: 0,
+          },
           timestamp: Date.now(),
         } as unknown as AgentMessage,
       ];

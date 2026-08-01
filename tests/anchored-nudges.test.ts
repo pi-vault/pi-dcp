@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createSessionState } from "../src/state/state.ts";
-import {
-  assignMessageRefs,
-  injectCompressNudges,
-} from "../src/messages/inject.ts";
+import { assignMessageRefs, injectCompressNudges } from "../src/messages/inject.ts";
 import { makeDefaultConfig, resetTestTimestamp } from "./helpers.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
@@ -133,10 +130,8 @@ describe("anchored nudge system", () => {
     });
 
     // Both anchored messages should have nudge text
-    const text0 = (result[0] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
-    const text2 = (result[2] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text0 = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
+    const text2 = (result[2] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text0).toContain("dcp-system-reminder");
     expect(text2).toContain("dcp-system-reminder");
   });
@@ -177,8 +172,7 @@ describe("anchored nudge system", () => {
     });
 
     // Should not double-inject
-    const text = (result[0] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
     const matches = text.match(/<dcp-system-reminder>/g);
     expect(matches).toHaveLength(1);
   });
@@ -202,8 +196,7 @@ describe("anchored nudge system", () => {
     // Stale anchor should not crash anything; new anchor should be added
     expect(state.nudges.turnAnchors.has("user:1000:0")).toBe(true);
     // The text should have nudge on message at index 0
-    const text = (result[0] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).toContain("dcp-system-reminder");
   });
 
@@ -232,8 +225,7 @@ describe("anchored nudge system", () => {
     // Should anchor at the last user/assistant message (index 1, the assistant message)
     expect(state.nudges.contextLimitAnchors.has("assistant:2000:0")).toBe(true);
     // And inject nudge text there
-    const text = (result[1] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text = (result[1] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).toContain("dcp-system-reminder");
     // toolResult at index 2 should be unchanged
     expect(result[2]).toBe(messages[2]);
@@ -260,8 +252,7 @@ describe("anchored nudge system", () => {
     });
 
     // Pre-existing anchor should still be applied even though no new nudge fires
-    const text = (result[0] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).toContain("dcp-system-reminder");
   });
 
@@ -293,8 +284,7 @@ describe("anchored nudge system", () => {
     });
 
     // msgB (index 1) should still have nudge text from the persisted anchor
-    const textB = (result[1] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const textB = (result[1] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(textB).toContain("dcp-system-reminder");
   });
 });

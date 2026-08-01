@@ -7,9 +7,7 @@ import * as subagentResults from "../src/subagents/subagent-results.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { serializeDcpSnapshot } from "../src/state/persistence.ts";
 
-const agentDir = vi.hoisted(
-  () => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`,
-);
+const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => agentDir,
@@ -115,9 +113,7 @@ describe("dcp extension", () => {
         sessionManager: {
           getSessionDir: () => "/tmp/test-session-dir",
           getSessionId: () => "session",
-          getBranch: () => [
-            { type: "custom", customType: "pi-dcp-state", data: snapshot },
-          ],
+          getBranch: () => [{ type: "custom", customType: "pi-dcp-state", data: snapshot }],
         },
         getContextUsage: () => undefined,
       },
@@ -148,7 +144,13 @@ describe("dcp extension", () => {
         provider: "test",
         model: "test-model",
         stopReason: "stop",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       },
     ];
@@ -220,9 +222,17 @@ describe("dcp extension", () => {
       { role: "user", content: [{ type: "text", text: "read the file" }], timestamp: 1001 },
       {
         role: "assistant",
-        content: [{ type: "toolCall", id: "call-1", name: "search_files", arguments: { query: "foo" } }],
+        content: [
+          { type: "toolCall", id: "call-1", name: "search_files", arguments: { query: "foo" } },
+        ],
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: 1002,
       },
       {
@@ -236,9 +246,17 @@ describe("dcp extension", () => {
       { role: "user", content: [{ type: "text", text: "read it again" }], timestamp: 1004 },
       {
         role: "assistant",
-        content: [{ type: "toolCall", id: "call-2", name: "search_files", arguments: { query: "foo" } }],
+        content: [
+          { type: "toolCall", id: "call-2", name: "search_files", arguments: { query: "foo" } },
+        ],
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: 1005,
       },
       {
@@ -251,10 +269,7 @@ describe("dcp extension", () => {
       },
     ];
 
-    await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)(
-      { messages },
-      mockCtx,
-    );
+    await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)({ messages }, mockCtx);
 
     // setStatus should have been called with the new formatted message
     expect(setStatus).toHaveBeenCalled();
@@ -281,10 +296,7 @@ describe("dcp extension", () => {
     const messages = [
       { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() },
     ];
-    await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)(
-      { messages },
-      mockCtx,
-    );
+    await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)({ messages }, mockCtx);
     expect(setStatus).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
   });
@@ -305,10 +317,7 @@ describe("dcp extension", () => {
     const messages = [
       { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() },
     ];
-    await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)(
-      { messages },
-      mockCtx,
-    );
+    await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)({ messages }, mockCtx);
     expect(setStatus).not.toHaveBeenCalled();
   });
 
@@ -385,9 +394,7 @@ describe("dcp extension", () => {
         sessionManager: {
           getSessionDir: () => "/tmp/test-session-dir",
           getSessionId: () => "session",
-          getBranch: () => [
-            { type: "custom", customType: "pi-dcp-state", data: snapshot },
-          ],
+          getBranch: () => [{ type: "custom", customType: "pi-dcp-state", data: snapshot }],
         },
         getContextUsage: () => undefined,
       },
@@ -694,9 +701,7 @@ describe("sub-agent support", () => {
           sessionManager: {
             getSessionDir: () => "/tmp/test-session",
             getSessionId: () => "child",
-            getBranch: () => [
-              { type: "custom", customType: "pi-dcp-state", data: snapshot },
-            ],
+            getBranch: () => [{ type: "custom", customType: "pi-dcp-state", data: snapshot }],
           },
           getContextUsage: () => undefined,
         },
@@ -735,7 +740,11 @@ describe("sub-agent support", () => {
       // Fire context — should return early (undefined), not { messages: [...] }
       const contextHandler = handlers.get("context")?.[0];
       const result = await (contextHandler as (...args: unknown[]) => Promise<unknown>)(
-        { messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() }] },
+        {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() },
+          ],
+        },
         { getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }) },
       );
 
@@ -773,7 +782,11 @@ describe("sub-agent support", () => {
       // Fire context — should NOT return early because allowSubAgents overrides the skip
       const contextHandler = handlers.get("context")?.[0];
       const result = await (contextHandler as (...args: unknown[]) => Promise<unknown>)(
-        { messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() }] },
+        {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() },
+          ],
+        },
         { getContextUsage: () => ({ tokens: 100, contextWindow: 200000, percent: 0.05 }) },
       );
 
@@ -838,10 +851,7 @@ describe("sub-agent support", () => {
 
     const sessionCompactHandler = handlers.get("session_compact")?.[0];
     await expect(
-      (sessionCompactHandler as (...args: unknown[]) => Promise<void>)(
-        {},
-        {},
-      ),
+      (sessionCompactHandler as (...args: unknown[]) => Promise<void>)({}, {}),
     ).resolves.not.toThrow();
   });
 

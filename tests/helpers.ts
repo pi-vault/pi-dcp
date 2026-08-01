@@ -33,7 +33,13 @@ export function makeAssistantMessage(text: string, timestamp?: number): AgentMes
     role: "assistant",
     content: [{ type: "text", text }],
     stopReason: "stop",
-    usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      totalTokens: 0,
+    },
     timestamp: ts,
   } as unknown as AgentMessage;
 }
