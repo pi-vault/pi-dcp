@@ -42,13 +42,17 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
 - **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
-## Unreleased
+## What's new in 0.5.0
 
-- Compression batches validate completely before state changes, then commit atomically. Selection expands tool-call/result pairs and active blocks to a fixed point.
+- Trusted project configuration loads from `<ctx.cwd>/.pi/dcp.json` and layers over global configuration at session start; untrusted projects fall back to the global config only.
+- `dcp:compress [focus]` sends Pi a hidden manual-compression follow-up so you can trigger a compression pass on demand.
+- Compression batches validate completely before state changes, then commit atomically; selection expands tool-call/result pairs and active blocks to a fixed point.
 - Nested compression blocks restore coherent visibility when decompressed or recompressed; savings count only visible context, without nested double-counting.
-- DCP state now lives in versioned `pi-dcp-state` entries on the active Pi session branch. Resume and tree navigation recover the newest valid entry; forks inherit settings but start with fresh statistics.
-- Compression memberships, message indices, tool caches, and nudge positions are rebuilt from current messages. Corrupt entries are skipped, compaction persists its reset, and legacy `dcp/state.json` files are ignored.
+- DCP state lives in versioned `pi-dcp-state` entries on the active Pi session branch. Resume, fork, and tree navigation recover the newest valid entry; forks inherit settings but start with fresh statistics. Legacy `dcp/state.json` sidecars are ignored.
+- Compression memberships, message indices, tool caches, and nudge positions rebuild from current messages; corrupt entries are skipped and compaction persists its reset.
 - `dcp:lifetime` scans Pi session JSONL files and totals the newest snapshot for each owning session.
+- Top-level user-turn protection preserves recent raw user turns and complete tool pairs across pruning and compression; failed tool diagnostics survive while stale failed inputs are purged.
+- Deterministic benchmark evidence (`pnpm benchmark`) covers clean messages, repeated tool pairs, and restored nested compression blocks.
 
 ## Commands
 
