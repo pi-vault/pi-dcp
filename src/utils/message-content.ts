@@ -19,11 +19,7 @@ function findTextPartIndex(content: unknown[]): number {
  * Handles E9 string content, array content, and missing text parts.
  * Returns the original message by reference if no change was made.
  */
-export function appendText(
-  msg: AgentMessage,
-  text: string,
-  marker?: string,
-): AgentMessage {
+export function appendText(msg: AgentMessage, text: string, marker?: string): AgentMessage {
   if (!("content" in msg)) return msg;
 
   // E9: UserMessage.content can be a plain string
@@ -59,10 +55,7 @@ export function appendText(
  * Transform all text parts in a message via a mapping function.
  * Returns the original message by reference if fn returns identical strings.
  */
-export function mapText(
-  msg: AgentMessage,
-  fn: (text: string) => string,
-): AgentMessage {
+export function mapText(msg: AgentMessage, fn: (text: string) => string): AgentMessage {
   if (!("content" in msg)) return msg;
   if (!Array.isArray(msg.content)) return msg;
 

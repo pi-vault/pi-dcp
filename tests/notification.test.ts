@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  buildMinimalMessage,
-  buildDetailedMessage,
-} from "../src/ui/notification.ts";
+import { buildMinimalMessage, buildDetailedMessage } from "../src/ui/notification.ts";
 
 describe("buildMinimalMessage", () => {
   it("formats token count and prune count", () => {
@@ -38,10 +35,7 @@ describe("buildMinimalMessage", () => {
 
 describe("buildDetailedMessage", () => {
   it("includes pruned tool list", () => {
-    const result = buildDetailedMessage({ tokensSaved: 5000, pruned: 2 }, [
-      "grep",
-      "ls",
-    ]);
+    const result = buildDetailedMessage({ tokensSaved: 5000, pruned: 2 }, ["grep", "ls"]);
     expect(result).toContain("~5.0K tokens saved");
     expect(result).toContain("grep");
     expect(result).toContain("ls");
@@ -54,11 +48,7 @@ describe("buildDetailedMessage", () => {
   });
 
   it("deduplicates tool names", () => {
-    const result = buildDetailedMessage({ tokensSaved: 3000, pruned: 3 }, [
-      "grep",
-      "grep",
-      "ls",
-    ]);
+    const result = buildDetailedMessage({ tokensSaved: 3000, pruned: 3 }, ["grep", "grep", "ls"]);
     expect(result).toContain("Pruned: grep, ls");
   });
 

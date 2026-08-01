@@ -7,7 +7,11 @@ import { syncCompressionBlocks } from "../src/messages/sync.ts";
 import { syncToolCache } from "../src/state/tool-cache.ts";
 import { handleCompress } from "../src/compress/handler.ts";
 import { resolveBoundaryIndex } from "../src/compress/search.ts";
-import { makeUserMessage as makeUser, makeAssistantMessage as makeAssistant, makeDefaultConfig } from "./helpers.ts";
+import {
+  makeUserMessage as makeUser,
+  makeAssistantMessage as makeAssistant,
+  makeDefaultConfig,
+} from "./helpers.ts";
 
 /** Extract first text content from a message (skips TS union narrowing). */
 function textOf(msg: AgentMessage): string {
@@ -24,7 +28,10 @@ function textOf(msg: AgentMessage): string {
  *
  * Returns the filtered messages (as the model would see them).
  */
-function runContextPipeline(state: ReturnType<typeof createSessionState>, rawMessages: AgentMessage[]): AgentMessage[] {
+function runContextPipeline(
+  state: ReturnType<typeof createSessionState>,
+  rawMessages: AgentMessage[],
+): AgentMessage[] {
   assignMessageRefs(state, rawMessages);
   syncToolCache(state, rawMessages);
   syncCompressionBlocks(state, rawMessages);
@@ -99,7 +106,13 @@ describe("full compression cycle", () => {
 
     handleCompress(state, config, rawMessages2, "compress-call-2", {
       topic: "Task A",
-      content: [{ startId: "m0003", endId: "m0004", summary: "User asked for task A, assistant completed it" }],
+      content: [
+        {
+          startId: "m0003",
+          endId: "m0004",
+          summary: "User asked for task A, assistant completed it",
+        },
+      ],
       mode: "range",
     });
 

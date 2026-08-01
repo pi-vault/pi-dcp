@@ -44,10 +44,7 @@ function globToRegex(pattern: string): RegExp {
   return new RegExp(result);
 }
 
-export function isToolNameProtected(
-  toolName: string,
-  protectedPatterns: string[],
-): boolean {
+export function isToolNameProtected(toolName: string, protectedPatterns: string[]): boolean {
   for (const pattern of protectedPatterns) {
     if (pattern === toolName) return true;
     if (pattern.includes("*") || pattern.includes("?")) {
@@ -68,10 +65,7 @@ export function getFilePathsFromParameters(
   return paths;
 }
 
-export function isFilePathProtected(
-  filePaths: string[],
-  patterns: string[],
-): boolean {
+export function isFilePathProtected(filePaths: string[], patterns: string[]): boolean {
   if (filePaths.length === 0 || patterns.length === 0) return false;
   return filePaths.some((fp) => patterns.some((p) => matchesGlob(fp, p)));
 }

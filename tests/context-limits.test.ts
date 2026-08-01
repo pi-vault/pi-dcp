@@ -1,12 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  resolveContextTokenLimit,
-  isContextOverLimits,
-} from "../src/utils/context-limits.ts";
-import {
-  injectCompressNudges,
-  assignMessageRefs,
-} from "../src/messages/inject.ts";
+import { resolveContextTokenLimit, isContextOverLimits } from "../src/utils/context-limits.ts";
+import { injectCompressNudges, assignMessageRefs } from "../src/messages/inject.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { makeDefaultConfig, makeUserMessage, makeAssistantMessage } from "./helpers.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -201,8 +195,7 @@ describe("injectCompressNudges with absolute limits", () => {
       percent: 25,
     });
 
-    const text = (result[0] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).toContain("CRITICAL WARNING");
   });
 
@@ -224,8 +217,7 @@ describe("injectCompressNudges with absolute limits", () => {
       percent: 45,
     });
 
-    const text = (result[0] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).not.toContain("dcp-system-reminder");
   });
 });

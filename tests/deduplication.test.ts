@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createToolSignature,
-  normalizeParams,
-} from "../src/strategies/deduplication.ts";
+import { createToolSignature, normalizeParams } from "../src/strategies/deduplication.ts";
 
 describe("deduplication utilities", () => {
   describe("createToolSignature", () => {

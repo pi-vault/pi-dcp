@@ -18,10 +18,7 @@ export interface StrategyResult {
  * Run all enabled pruning strategies against the current tool cache.
  * Owns: guard checks, protected-tools resolution, eligibility filtering, stat bookkeeping.
  */
-export function runStrategies(
-  state: SessionState,
-  config: DcpConfig,
-): StrategyResult {
+export function runStrategies(state: SessionState, config: DcpConfig): StrategyResult {
   if (state.toolIdList.length === 0) {
     return { pruned: 0, tokensSaved: 0, prunedToolNames: [] };
   }
@@ -44,9 +41,7 @@ export function runStrategies(
       config.strategies.deduplication.turnProtection,
     );
 
-    const unpruned = state.toolIdList.filter(
-      (id) => !state.prune.tools.has(id),
-    );
+    const unpruned = state.toolIdList.filter((id) => !state.prune.tools.has(id));
 
     // Group by signature
     const groups = new Map<string, string[]>();
@@ -59,8 +54,7 @@ export function runStrategies(
         entry.tool,
         entry.parameters as Record<string, unknown>,
       );
-      if (isFilePathProtected(filePaths, config.protectedFilePatterns))
-        continue;
+      if (isFilePathProtected(filePaths, config.protectedFilePatterns)) continue;
 
       const sig = createToolSignature(entry.tool, entry.parameters);
       const group = groups.get(sig) ?? [];
@@ -77,10 +71,7 @@ export function runStrategies(
         if (!entry) continue;
 
         // Turn protection: skip if this entry is too recent
-        if (
-          turnProtection > 0 &&
-          state.currentUserTurn - entry.userTurn < turnProtection
-        ) {
+        if (turnProtection > 0 && state.currentUserTurn - entry.userTurn < turnProtection) {
           continue;
         }
 
@@ -102,13 +93,8 @@ export function runStrategies(
       ...BASE_PROTECTED_TOOLS,
       ...config.strategies.purgeErrors.protectedTools,
     ];
-    const turnThreshold = Math.max(
-      config.turnProtection,
-      config.strategies.purgeErrors.turns,
-    );
-    const unpruned = state.toolIdList.filter(
-      (id) => !state.prune.tools.has(id),
-    );
+    const turnThreshold = Math.max(config.turnProtection, config.strategies.purgeErrors.turns);
+    const unpruned = state.toolIdList.filter((id) => !state.prune.tools.has(id));
 
     for (const callId of unpruned) {
       const entry = state.toolParameters.get(callId);
@@ -120,8 +106,7 @@ export function runStrategies(
         entry.tool,
         entry.parameters as Record<string, unknown>,
       );
-      if (isFilePathProtected(filePaths, config.protectedFilePatterns))
-        continue;
+      if (isFilePathProtected(filePaths, config.protectedFilePatterns)) continue;
 
       const tokens = estimatePurgedInputSavings(entry.parameters);
       state.prune.tools.set(callId, tokens);
@@ -142,14 +127,8 @@ export function runStrategies(
  * Sweep variant: prune all non-protected completed tool outputs.
  * Used by the dcp:sweep command.
  */
-export function sweepAll(
-  state: SessionState,
-  config: DcpConfig,
-): StrategyResult {
-  const protectedTools = new Set([
-    ...BASE_PROTECTED_TOOLS,
-    ...config.compress.protectedTools,
-  ]);
+export function sweepAll(state: SessionState, config: DcpConfig): StrategyResult {
+  const protectedTools = new Set([...BASE_PROTECTED_TOOLS, ...config.compress.protectedTools]);
 
   let pruned = 0;
   let tokensSaved = 0;

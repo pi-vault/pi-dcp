@@ -2,15 +2,8 @@ import { describe, it, expect } from "vitest";
 import { createSessionState } from "../src/state/state.ts";
 import { getActiveSummaryTokenUsage } from "../src/compress/state.ts";
 import type { CompressionBlock } from "../src/state/types.ts";
-import {
-  injectCompressNudges,
-  assignMessageRefs,
-} from "../src/messages/inject.ts";
-import {
-  makeUserMessage,
-  makeAssistantMessage,
-  makeDefaultConfig,
-} from "./helpers.ts";
+import { injectCompressNudges, assignMessageRefs } from "../src/messages/inject.ts";
+import { makeUserMessage, makeAssistantMessage, makeDefaultConfig } from "./helpers.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 function makeBlock(overrides: Partial<CompressionBlock>): CompressionBlock {
@@ -119,8 +112,7 @@ describe("injectCompressNudges with summaryBuffer", () => {
 
     // Should get TURN_NUDGE (not CONTEXT_LIMIT_NUDGE)
     const lastMsg = result[result.length - 1];
-    const text = (lastMsg as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text = (lastMsg as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).toContain("Evaluate the conversation");
     expect(text).not.toContain("CRITICAL WARNING");
   });
@@ -150,8 +142,7 @@ describe("injectCompressNudges with summaryBuffer", () => {
       percent: 85,
     });
 
-    const text = (result[0] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).toContain("CRITICAL WARNING");
   });
 
@@ -179,8 +170,7 @@ describe("injectCompressNudges with summaryBuffer", () => {
       percent: 82,
     });
 
-    const text = (result[0] as unknown as { content: Array<{ text: string }> })
-      .content[0].text;
+    const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).toContain("CRITICAL WARNING");
   });
 });

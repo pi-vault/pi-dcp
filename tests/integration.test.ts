@@ -432,71 +432,71 @@ describe("integration", () => {
     expect(tools.has("compress")).toBe(false);
   });
 
-  it.each([
-    "range",
-    "message",
-  ] as const)("blocks an already registered %s compression tool after DCP is disabled", async (mode) => {
-    const globalConfigPath = path.join(agentDir, "extensions", "dcp.json");
-    fs.mkdirSync(path.dirname(globalConfigPath), { recursive: true });
-    fs.writeFileSync(globalConfigPath, JSON.stringify({ enabled: true, compress: { mode } }));
-    const { api, handlers, tools } = createMockApi();
-    createExtension(api);
-    const ctx = {
-      cwd: agentDir,
-      isProjectTrusted: () => false,
-      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
-      getContextUsage: () => undefined,
-      hasUI: false,
-      ui: { setStatus: () => {}, notify: () => {} },
-    };
+  it.each(["range", "message"] as const)(
+    "blocks an already registered %s compression tool after DCP is disabled",
+    async (mode) => {
+      const globalConfigPath = path.join(agentDir, "extensions", "dcp.json");
+      fs.mkdirSync(path.dirname(globalConfigPath), { recursive: true });
+      fs.writeFileSync(globalConfigPath, JSON.stringify({ enabled: true, compress: { mode } }));
+      const { api, handlers, tools } = createMockApi();
+      createExtension(api);
+      const ctx = {
+        cwd: agentDir,
+        isProjectTrusted: () => false,
+        sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+        getContextUsage: () => undefined,
+        hasUI: false,
+        ui: { setStatus: () => {}, notify: () => {} },
+      };
 
-    for (const handler of handlers.get("session_start") ?? []) {
-      await handler({ reason: "new" }, ctx);
-    }
-    const tool = tools.get("compress") as {
-      execute: (
-        ...args: unknown[]
-      ) => Promise<{ isError?: boolean; content: Array<{ text: string }> }>;
-    };
-    fs.writeFileSync(globalConfigPath, JSON.stringify({ enabled: false }));
-    for (const handler of handlers.get("session_start") ?? []) {
-      await handler({ reason: "resume" }, ctx);
-    }
+      for (const handler of handlers.get("session_start") ?? []) {
+        await handler({ reason: "new" }, ctx);
+      }
+      const tool = tools.get("compress") as {
+        execute: (
+          ...args: unknown[]
+        ) => Promise<{ isError?: boolean; content: Array<{ text: string }> }>;
+      };
+      fs.writeFileSync(globalConfigPath, JSON.stringify({ enabled: false }));
+      for (const handler of handlers.get("session_start") ?? []) {
+        await handler({ reason: "resume" }, ctx);
+      }
 
-    await expect(tool.execute("call", {}, undefined, () => {}, ctx)).resolves.toMatchObject({
-      content: [{ text: "Compression is disabled by configuration." }],
-      isError: true,
-    });
-  });
+      await expect(tool.execute("call", {}, undefined, () => {}, ctx)).resolves.toMatchObject({
+        content: [{ text: "Compression is disabled by configuration." }],
+        isError: true,
+      });
+    },
+  );
 
-  it.each([
-    false,
-    true,
-  ])("delivers manual compression as a follow-up without persisting while streaming=%s", async (isStreaming) => {
-    const { api, commands, sentMessages, entries } = createMockApi();
-    createExtension(api);
-    const command = commands.get("dcp:compress") as
-      | { handler: (args: string, ctx: unknown) => Promise<void> }
-      | undefined;
-    if (!command) throw new Error("dcp:compress command not registered");
-    const entryCount = entries.length;
+  it.each([false, true])(
+    "delivers manual compression as a follow-up without persisting while streaming=%s",
+    async (isStreaming) => {
+      const { api, commands, sentMessages, entries } = createMockApi();
+      createExtension(api);
+      const command = commands.get("dcp:compress") as
+        | { handler: (args: string, ctx: unknown) => Promise<void> }
+        | undefined;
+      if (!command) throw new Error("dcp:compress command not registered");
+      const entryCount = entries.length;
 
-    await command.handler("database migrations", {
-      isStreaming,
-      ui: { notify: () => {} },
-    });
+      await command.handler("database migrations", {
+        isStreaming,
+        ui: { notify: () => {} },
+      });
 
-    expect(sentMessages).toHaveLength(1);
-    expect(sentMessages[0]).toMatchObject({
-      message: {
-        customType: "dcp-compress-trigger",
-        content: expect.stringContaining("Focus especially on: database migrations"),
-        display: false,
-      },
-      options: { triggerTurn: true, deliverAs: "followUp" },
-    });
-    expect(entries).toHaveLength(entryCount);
-  });
+      expect(sentMessages).toHaveLength(1);
+      expect(sentMessages[0]).toMatchObject({
+        message: {
+          customType: "dcp-compress-trigger",
+          content: expect.stringContaining("Focus especially on: database migrations"),
+          display: false,
+        },
+        options: { triggerTurn: true, deliverAs: "followUp" },
+      });
+      expect(entries).toHaveLength(entryCount);
+    },
+  );
 
   it.each([
     ["dcp:sweep", ""],

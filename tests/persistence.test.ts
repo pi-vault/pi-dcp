@@ -34,22 +34,55 @@ describe("persistence", () => {
       fs.mkdirSync(dir1, { recursive: true });
       fs.mkdirSync(dir2, { recursive: true });
       const snapshot = (owner: string, total: number, tools: number, messages: number) => ({
-        version: 1, ownerSessionId: owner, manualMode: false, compressPermission: "allow",
-        stats: { pruneTokenCounter: 0, totalPruneTokens: total, toolsPruned: tools, messagesCompressed: messages },
-        lastCompaction: 0, pruneTools: [], blocks: [], nextBlockId: 1, nextRunId: 1,
+        version: 1,
+        ownerSessionId: owner,
+        manualMode: false,
+        compressPermission: "allow",
+        stats: {
+          pruneTokenCounter: 0,
+          totalPruneTokens: total,
+          toolsPruned: tools,
+          messagesCompressed: messages,
+        },
+        lastCompaction: 0,
+        pruneTools: [],
+        blocks: [],
+        nextBlockId: 1,
+        nextRunId: 1,
         messageIds: { byRawId: [], nextRefIndex: 1 },
         nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
       });
-      fs.writeFileSync(path.join(dir1, "session.jsonl"), [
-        JSON.stringify(sessionHeader("session-1")),
-        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: "2026-07-29T00:00:01.000Z", data: snapshot("one", 300, 2, 1) }),
-        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: "2026-07-29T00:00:02.000Z", data: snapshot("one", 400, 3, 2) }),
-      ].join("\n"));
-      fs.writeFileSync(path.join(dir2, "session.jsonl"), [
-        JSON.stringify(sessionHeader("session-2")),
-        "not json",
-        JSON.stringify({ type: "custom", customType: "pi-dcp-state", timestamp: "2026-07-29T00:00:01.000Z", data: snapshot("two", 700, 5, 3) }),
-      ].join("\n"));
+      fs.writeFileSync(
+        path.join(dir1, "session.jsonl"),
+        [
+          JSON.stringify(sessionHeader("session-1")),
+          JSON.stringify({
+            type: "custom",
+            customType: "pi-dcp-state",
+            timestamp: "2026-07-29T00:00:01.000Z",
+            data: snapshot("one", 300, 2, 1),
+          }),
+          JSON.stringify({
+            type: "custom",
+            customType: "pi-dcp-state",
+            timestamp: "2026-07-29T00:00:02.000Z",
+            data: snapshot("one", 400, 3, 2),
+          }),
+        ].join("\n"),
+      );
+      fs.writeFileSync(
+        path.join(dir2, "session.jsonl"),
+        [
+          JSON.stringify(sessionHeader("session-2")),
+          "not json",
+          JSON.stringify({
+            type: "custom",
+            customType: "pi-dcp-state",
+            timestamp: "2026-07-29T00:00:01.000Z",
+            data: snapshot("two", 700, 5, 3),
+          }),
+        ].join("\n"),
+      );
 
       const result = await loadAllSessionStats(tempDir);
       expect(result.totalTokensSaved).toBe(1100);
@@ -87,15 +120,18 @@ describe("persistence", () => {
       state.stats.totalPruneTokens = 100;
       const snapshot = persistence.serializeDcpSnapshot(state);
       if (!snapshot) throw new Error("expected snapshot");
-      fs.writeFileSync(path.join(tempDir, "fake.jsonl"), [
-        JSON.stringify({ type: "session" }),
-        JSON.stringify({
-          type: "custom",
-          customType: "pi-dcp-state",
-          timestamp: "2026-07-29T00:00:00.000Z",
-          data: snapshot,
-        }),
-      ].join("\n"));
+      fs.writeFileSync(
+        path.join(tempDir, "fake.jsonl"),
+        [
+          JSON.stringify({ type: "session" }),
+          JSON.stringify({
+            type: "custom",
+            customType: "pi-dcp-state",
+            timestamp: "2026-07-29T00:00:00.000Z",
+            data: snapshot,
+          }),
+        ].join("\n"),
+      );
 
       const result = await loadAllSessionStats(tempDir);
 
@@ -109,15 +145,18 @@ describe("persistence", () => {
       state.stats.totalPruneTokens = 100;
       const snapshot = persistence.serializeDcpSnapshot(state);
       if (!snapshot) throw new Error("expected snapshot");
-      fs.writeFileSync(path.join(tempDir, "invalid-timestamp.jsonl"), [
-        JSON.stringify(sessionHeader("session")),
-        JSON.stringify({
-          type: "custom",
-          customType: "pi-dcp-state",
-          timestamp: "not-a-date",
-          data: snapshot,
-        }),
-      ].join("\n"));
+      fs.writeFileSync(
+        path.join(tempDir, "invalid-timestamp.jsonl"),
+        [
+          JSON.stringify(sessionHeader("session")),
+          JSON.stringify({
+            type: "custom",
+            customType: "pi-dcp-state",
+            timestamp: "not-a-date",
+            data: snapshot,
+          }),
+        ].join("\n"),
+      );
 
       const result = await loadAllSessionStats(tempDir);
 
@@ -179,8 +218,16 @@ describe("persistence", () => {
         manualMode: "active",
         compressPermission: "allow",
         stats: { totalPruneTokens: 42 },
-        pruneTools: [["a-tool", 3], ["z-tool", 5]],
-        messageIds: { byRawId: [["a-key", "m0001"], ["z-key", "m0002"]] },
+        pruneTools: [
+          ["a-tool", 3],
+          ["z-tool", 5],
+        ],
+        messageIds: {
+          byRawId: [
+            ["a-key", "m0001"],
+            ["z-key", "m0002"],
+          ],
+        },
         nudges: { contextLimitAnchors: ["a-key", "z-key"] },
       });
       expect(snapshot?.blocks[0]).toEqual({
@@ -223,9 +270,7 @@ describe("persistence", () => {
       restored.messageIds.byIndex.set(3, "stale");
 
       expect(persistence).toHaveProperty("restoreDcpSnapshot");
-      expect(
-        persistence.restoreDcpSnapshot(snapshot, restored, "child"),
-      ).toBe(true);
+      expect(persistence.restoreDcpSnapshot(snapshot, restored, "child")).toBe(true);
       expect(restored.sessionId).toBe("child");
       expect(restored.manualMode).toBe("active");
       expect(restored.compressPermission).toBe("deny");
@@ -246,9 +291,7 @@ describe("persistence", () => {
       const state = createSessionState();
       state.sessionId = "owner";
       const snapshot = persistence.serializeDcpSnapshot(state)!;
-      expect(
-        persistence.parseDcpSnapshot({ ...snapshot, nextBlockId: 0 }),
-      ).toBeUndefined();
+      expect(persistence.parseDcpSnapshot({ ...snapshot, nextBlockId: 0 })).toBeUndefined();
       expect(
         persistence.parseDcpSnapshot({ ...snapshot, stats: { totalPruneTokens: 1 } }),
       ).toBeUndefined();
@@ -314,7 +357,10 @@ describe("persistence", () => {
       state.sessionId = "owner";
       const snapshot = persistence.serializeDcpSnapshot(state);
       if (!snapshot) throw new Error("expected snapshot");
-      snapshot.pruneTools = [["call", 1], ["call", 2]];
+      snapshot.pruneTools = [
+        ["call", 1],
+        ["call", 2],
+      ];
 
       const parsed = persistence.parseDcpSnapshot(snapshot);
 
@@ -333,28 +379,32 @@ describe("persistence", () => {
           stats: { ...snapshot.stats, totalPruneTokens: -1 },
         }),
       ).toBeUndefined();
-      expect(
-        persistence.parseDcpSnapshot({ ...snapshot, nextRunId: 1.5 }),
-      ).toBeUndefined();
+      expect(persistence.parseDcpSnapshot({ ...snapshot, nextRunId: 1.5 })).toBeUndefined();
 
-      snapshot.pruneTools = [["negative", -1], ["fractional", 1.5], ["valid", 0]];
-      snapshot.blocks = [{
-        blockId: 1,
-        runId: 1,
-        deactivatedByUser: false,
-        compressedTokens: -1,
-        summaryTokens: 1,
-        durationMs: 1,
-        mode: "range",
-        topic: "topic",
-        compressToolCallId: "owner",
-        startKey: "start",
-        endKey: "end",
-        anchorKey: "anchor",
-        consumedBlockIds: [],
-        createdAt: 1,
-        summary: "summary",
-      }];
+      snapshot.pruneTools = [
+        ["negative", -1],
+        ["fractional", 1.5],
+        ["valid", 0],
+      ];
+      snapshot.blocks = [
+        {
+          blockId: 1,
+          runId: 1,
+          deactivatedByUser: false,
+          compressedTokens: -1,
+          summaryTokens: 1,
+          durationMs: 1,
+          mode: "range",
+          topic: "topic",
+          compressToolCallId: "owner",
+          startKey: "start",
+          endKey: "end",
+          anchorKey: "anchor",
+          consumedBlockIds: [],
+          createdAt: 1,
+          summary: "summary",
+        },
+      ];
 
       const parsed = persistence.parseDcpSnapshot(snapshot);
       expect(parsed?.pruneTools).toEqual([["valid", 0]]);

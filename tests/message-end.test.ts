@@ -11,14 +11,10 @@ import { makeAssistantMessage } from "./helpers.ts";
  */
 describe("message_end strip logic", () => {
   it("strips complete DCP tags from assistant message content", () => {
-    const msg = makeAssistantMessage(
-      "Here is the answer <dcp-message-id>m0012</dcp-message-id>",
-    );
+    const msg = makeAssistantMessage("Here is the answer <dcp-message-id>m0012</dcp-message-id>");
 
     const stripped = mapText(msg, stripHallucinationsFromString);
-    const textPart = (
-      stripped as unknown as { content: Array<{ text: string }> }
-    ).content[0];
+    const textPart = (stripped as unknown as { content: Array<{ text: string }> }).content[0];
     expect(textPart.text).toBe("Here is the answer ");
   });
 
@@ -26,9 +22,7 @@ describe("message_end strip logic", () => {
     const msg = makeAssistantMessage("Result <dcp-message-id>m0093</dcp");
 
     const stripped = mapText(msg, stripHallucinationsFromString);
-    const textPart = (
-      stripped as unknown as { content: Array<{ text: string }> }
-    ).content[0];
+    const textPart = (stripped as unknown as { content: Array<{ text: string }> }).content[0];
     expect(textPart.text).toBe("Result ");
   });
 
@@ -58,9 +52,8 @@ describe("message_end strip logic", () => {
     } as unknown as AgentMessage;
 
     const stripped = mapText(msg, stripHallucinationsFromString);
-    const parts = (
-      stripped as unknown as { content: Array<{ type: string; text?: string }> }
-    ).content;
+    const parts = (stripped as unknown as { content: Array<{ type: string; text?: string }> })
+      .content;
     expect(parts[0].text).toBe("Before ");
     expect(parts[1].type).toBe("toolCall");
     expect(parts[2].text).toBe("After ");

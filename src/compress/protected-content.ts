@@ -40,9 +40,7 @@ export function appendProtectedUserMessages(
 
   if (userTexts.length === 0) return summary;
 
-  const section = userTexts
-    .map((t) => `[Protected User Message]\n${t}`)
-    .join("\n\n");
+  const section = userTexts.map((t) => `[Protected User Message]\n${t}`).join("\n\n");
 
   return `${summary}\n\n---\n${section}`;
 }
@@ -69,9 +67,7 @@ export function appendProtectedPromptInfo(
 
   if (extracted.length === 0) return summary;
 
-  const section = extracted
-    .map((t) => `[Protected Content]\n${t}`)
-    .join("\n\n");
+  const section = extracted.map((t) => `[Protected Content]\n${t}`).join("\n\n");
 
   return `${summary}\n\n---\n${section}`;
 }
@@ -113,21 +109,9 @@ export function enrichSummaryWithProtectedContent(
   subAgentResultCache?: Map<string, string>,
 ): string {
   let enriched = summary;
-  enriched = appendProtectedUserMessages(
-    enriched,
-    messages,
-    config.compress.protectUserMessages,
-  );
-  enriched = appendProtectedPromptInfo(
-    enriched,
-    messages,
-    config.compress.protectTags,
-  );
-  enriched = appendProtectedToolOutputs(
-    enriched,
-    messages,
-    config.compress.protectedTools,
-  );
+  enriched = appendProtectedUserMessages(enriched, messages, config.compress.protectUserMessages);
+  enriched = appendProtectedPromptInfo(enriched, messages, config.compress.protectTags);
+  enriched = appendProtectedToolOutputs(enriched, messages, config.compress.protectedTools);
   if (subAgentResultCache) {
     enriched = appendSubAgentResults(enriched, messages, subAgentResultCache);
   }

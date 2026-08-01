@@ -1,11 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { runPipeline } from "../src/pipeline.ts";
 import { createSessionState } from "../src/state/state.ts";
-import {
-  makeDefaultConfig,
-  makeUserMessage,
-  makeAssistantMessage,
-} from "./helpers.ts";
+import { makeDefaultConfig, makeUserMessage, makeAssistantMessage } from "./helpers.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ContextUsage } from "../src/state/types.ts";
 import { applyCompressionState, allocateBlockId, allocateRunId } from "../src/compress/state.ts";
@@ -15,10 +11,7 @@ describe("runPipeline", () => {
   it("returns messages unchanged when no pruning applies", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
-    const messages: AgentMessage[] = [
-      makeUserMessage("Hello"),
-      makeAssistantMessage("Hi there"),
-    ];
+    const messages: AgentMessage[] = [makeUserMessage("Hello"), makeAssistantMessage("Hi there")];
 
     const result = runPipeline(state, config, messages, undefined);
 
@@ -31,9 +24,7 @@ describe("runPipeline", () => {
     const config = makeDefaultConfig();
     const messages: AgentMessage[] = [
       makeUserMessage("Hello"),
-      makeAssistantMessage(
-        'Response <dcp-message-id ref="m0001" /> with hallucination',
-      ),
+      makeAssistantMessage('Response <dcp-message-id ref="m0001" /> with hallucination'),
     ];
 
     const result = runPipeline(state, config, messages, undefined);
@@ -77,9 +68,17 @@ describe("runPipeline", () => {
       makeUserMessage("Read the file"),
       {
         role: "assistant",
-        content: [{ type: "toolCall", id: "call-1", name: "read_file", arguments: { path: "/a.ts" } }],
+        content: [
+          { type: "toolCall", id: "call-1", name: "read_file", arguments: { path: "/a.ts" } },
+        ],
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       } as unknown as AgentMessage,
       {
@@ -94,9 +93,17 @@ describe("runPipeline", () => {
       makeUserMessage("Read it again"),
       {
         role: "assistant",
-        content: [{ type: "toolCall", id: "call-2", name: "read_file", arguments: { path: "/a.ts" } }],
+        content: [
+          { type: "toolCall", id: "call-2", name: "read_file", arguments: { path: "/a.ts" } },
+        ],
         stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
         timestamp: Date.now(),
       } as unknown as AgentMessage,
       {
@@ -162,9 +169,7 @@ describe("runPipeline", () => {
       (message): message is Extract<AgentMessage, { role: "assistant" }> =>
         message.role === "assistant",
     );
-    const toolCall = assistant?.content.find(
-      (part) => part.type === "toolCall",
-    );
+    const toolCall = assistant?.content.find((part) => part.type === "toolCall");
     const errorResult = result.messages.find(
       (message): message is Extract<AgentMessage, { role: "toolResult" }> =>
         message.role === "toolResult",
@@ -173,9 +178,7 @@ describe("runPipeline", () => {
     expect(toolCall?.arguments).toEqual({
       __purged: "input removed due to failed tool call",
     });
-    expect(errorResult?.content).toEqual([
-      { type: "text", text: "command not found" },
-    ]);
+    expect(errorResult?.content).toEqual([{ type: "text", text: "command not found" }]);
     expect(result.strategyResult.tokensSaved).toBe(
       countTokens(JSON.stringify(parameters)) -
         countTokens(
@@ -206,8 +209,10 @@ describe("runPipeline", () => {
     const result = runPipeline(state, config, messages, usage);
 
     // Should have injected a nudge into the last user message
-    const lastUser = (result.messages[result.messages.length - 1] as any)
-      .content as Array<{ type: string; text: string }>;
+    const lastUser = (result.messages[result.messages.length - 1] as any).content as Array<{
+      type: string;
+      text: string;
+    }>;
     expect(lastUser[0].text).toContain("<dcp-system-reminder>");
   });
 
@@ -312,8 +317,7 @@ describe("runPipeline", () => {
     });
     const target = result.messages.find(
       (message) =>
-        message.role === "user" &&
-        extractMessageText(message).includes("visible target"),
+        message.role === "user" && extractMessageText(message).includes("visible target"),
     );
 
     expect(state.nudges.turnAnchors.has("user:4:0")).toBe(true);
@@ -357,10 +361,7 @@ describe("runPipeline", () => {
       summary: "[Compressed Block b1]\ntest\n[End Block b1]",
     });
 
-    const messages: AgentMessage[] = [
-      makeUserMessage("Hello"),
-      makeAssistantMessage("Hi"),
-    ];
+    const messages: AgentMessage[] = [makeUserMessage("Hello"), makeAssistantMessage("Hi")];
 
     // Should not throw — sync handles stale blocks gracefully
     const result = runPipeline(state, config, messages, undefined);
@@ -371,10 +372,7 @@ describe("runPipeline", () => {
     const state1 = createSessionState();
     const state2 = createSessionState();
     const config = makeDefaultConfig();
-    const messages: AgentMessage[] = [
-      makeUserMessage("Hello"),
-      makeAssistantMessage("Hi"),
-    ];
+    const messages: AgentMessage[] = [makeUserMessage("Hello"), makeAssistantMessage("Hi")];
 
     const result1 = runPipeline(state1, config, messages, undefined);
     const result2 = runPipeline(state2, config, messages, undefined);

@@ -52,10 +52,7 @@ export function parseBoundaryId(id: string): ParsedBoundaryId | undefined {
   return undefined;
 }
 
-export function formatMessageIdTag(
-  ref: string,
-  attrs?: { priority?: number },
-): string {
+export function formatMessageIdTag(ref: string, attrs?: { priority?: number }): string {
   if (attrs?.priority !== undefined) {
     return `<dcp-message-id priority="${attrs.priority}">${ref}</dcp-message-id>`;
   }

@@ -26,9 +26,7 @@ function formatTokens(tokens: number): string {
  * Build minimal notification message.
  * Returns undefined if nothing to report.
  */
-export function buildMinimalMessage(
-  stats: NotificationStats,
-): string | undefined {
+export function buildMinimalMessage(stats: NotificationStats): string | undefined {
   if (stats.tokensSaved === 0 && stats.pruned === 0) return undefined;
   return `DCP: ${formatTokens(stats.tokensSaved)} tokens saved (${stats.pruned} items pruned)`;
 }
@@ -52,9 +50,7 @@ export function buildDetailedMessage(
  * Build minimal compression notification.
  * Format: "DCP: ~12.4K tokens compressed (~2.1K summary, 5 messages)"
  */
-export function buildCompressNotificationMinimal(
-  params: CompressNotificationParams,
-): string {
+export function buildCompressNotificationMinimal(params: CompressNotificationParams): string {
   const plural = params.messagesCompressed === 1 ? "message" : "messages";
   return `DCP: ${formatTokens(params.compressedTokens)} tokens compressed (${formatTokens(params.summaryTokens)} summary, ${params.messagesCompressed} ${plural})`;
 }
@@ -63,9 +59,7 @@ export function buildCompressNotificationMinimal(
  * Build detailed compression notification with topic and optional summary.
  * Summary text is only included when showCompression is true.
  */
-export function buildCompressNotificationDetailed(
-  params: CompressNotificationParams,
-): string {
+export function buildCompressNotificationDetailed(params: CompressNotificationParams): string {
   let msg = buildCompressNotificationMinimal(params);
   msg += `\nTopic: ${params.topic}`;
   if (params.showCompression && params.summary) {

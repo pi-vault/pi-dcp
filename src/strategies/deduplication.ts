@@ -5,10 +5,7 @@
  * used by the strategy runner to group duplicate calls.
  */
 
-export function createToolSignature(
-  toolName: string,
-  parameters: unknown,
-): string {
+export function createToolSignature(toolName: string, parameters: unknown): string {
   const normalized = normalizeParams(parameters);
   return `${toolName}::${JSON.stringify(normalized)}`;
 }

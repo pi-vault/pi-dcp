@@ -47,9 +47,7 @@ describe("runStrategies", () => {
     // b1 is an old error (turn 1, current turn 10, threshold 4)
     expect(state.prune.tools.has("b1")).toBe(true);
     expect(result.pruned).toBe(2);
-    expect(result.tokensSaved).toBe(
-      100 + estimatePurgedInputSavings(failedParameters),
-    );
+    expect(result.tokensSaved).toBe(100 + estimatePurgedInputSavings(failedParameters));
   });
 
   it("counts removed inputs when deduplicating failed calls", () => {
@@ -173,12 +171,7 @@ describe("runStrategies", () => {
   });
 
   it("protects mutation and orchestration tools by default", () => {
-    expect(BASE_PROTECTED_TOOLS).toEqual([
-      "compress",
-      "write",
-      "edit",
-      "subagent",
-    ]);
+    expect(BASE_PROTECTED_TOOLS).toEqual(["compress", "write", "edit", "subagent"]);
   });
 
   it.each([
@@ -409,9 +402,7 @@ describe("runStrategies", () => {
     // Purge SHOULD prune the error (custom_tool not protected for purge)
     expect(state.prune.tools.has("err1")).toBe(true);
     expect(result.pruned).toBe(1);
-    expect(result.tokensSaved).toBe(
-      estimatePurgedInputSavings({ path: "/c.ts" }),
-    );
+    expect(result.tokensSaved).toBe(estimatePurgedInputSavings({ path: "/c.ts" }));
   });
 
   it("does not re-prune already-pruned tools", () => {

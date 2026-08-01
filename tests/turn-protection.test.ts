@@ -215,7 +215,7 @@ describe("turn protection for deduplication", () => {
     ]);
 
     const result = runStrategies(state, config);
-    expect(state.prune.tools.has("a1")).toBe(true);  // old, pruned
+    expect(state.prune.tools.has("a1")).toBe(true); // old, pruned
     expect(state.prune.tools.has("a2")).toBe(false); // recent, protected
     expect(state.prune.tools.has("a3")).toBe(false); // last in group
     expect(result.pruned).toBe(1);

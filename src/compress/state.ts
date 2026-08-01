@@ -50,10 +50,7 @@ export interface ApplyCompressionParams {
   consumedBlockIds: number[];
 }
 
-export function applyCompressionState(
-  state: SessionState,
-  params: ApplyCompressionParams,
-): void {
+export function applyCompressionState(state: SessionState, params: ApplyCompressionParams): void {
   storeCompressionState(state, params);
   rebuildCompressionState(state, getEligibleCompressionBlockIds(state));
 }
@@ -141,7 +138,10 @@ export function rebuildCompressionState(
   const byId = messagesState.blocksById;
   const now = Date.now();
 
-  const findActiveAncestor = (block: CompressionBlock, seen = new Set<number>()): CompressionBlock | undefined => {
+  const findActiveAncestor = (
+    block: CompressionBlock,
+    seen = new Set<number>(),
+  ): CompressionBlock | undefined => {
     for (const parentId of block.parentBlockIds) {
       if (seen.has(parentId)) continue;
       const parent = byId.get(parentId);

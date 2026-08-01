@@ -23,16 +23,31 @@ describe("syncCompressionBlocks", () => {
     const blockId = allocateBlockId(state);
     const runId = allocateRunId(state);
     applyCompressionState(state, {
-      blockId, runId, topic: "test", mode: "range", startIndex: 0, endIndex: 1, anchorIndex: 1,
-      compressToolCallId: "compress-call-1", startKey: "user:1:0", endKey: "assistant:2:0", anchorKey: "assistant:2:0",
-      summary: "summary", summaryTokens: 1, consumedBlockIds: [],
+      blockId,
+      runId,
+      topic: "test",
+      mode: "range",
+      startIndex: 0,
+      endIndex: 1,
+      anchorIndex: 1,
+      compressToolCallId: "compress-call-1",
+      startKey: "user:1:0",
+      endKey: "assistant:2:0",
+      anchorKey: "assistant:2:0",
+      summary: "summary",
+      summaryTokens: 1,
+      consumedBlockIds: [],
     });
     const block = state.prune.messages.blocksById.get(blockId);
     if (!block) throw new Error("expected block");
     block.startIndex = -1;
     const staleId = allocateBlockId(state);
     state.prune.messages.blocksById.set(staleId, {
-      ...block, blockId: staleId, startKey: "missing", endKey: "missing", anchorKey: "missing",
+      ...block,
+      blockId: staleId,
+      startKey: "missing",
+      endKey: "missing",
+      anchorKey: "missing",
     });
 
     syncCompressionBlocks(state, messages);
@@ -96,7 +111,9 @@ describe("syncCompressionBlocks", () => {
 
     syncCompressionBlocks(state, messages);
 
-    expect(state.prune.messages.blocksById.get(parentId)?.effectiveMessageIndices).toEqual([0, 1, 2]);
+    expect(state.prune.messages.blocksById.get(parentId)?.effectiveMessageIndices).toEqual([
+      0, 1, 2,
+    ]);
     expect(state.prune.messages.blocksById.get(parentId)?.directMessageIndices).toEqual([2]);
     expect(state.prune.messages.blocksById.get(childId)?.parentBlockIds).toEqual([parentId]);
   });

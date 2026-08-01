@@ -19,10 +19,7 @@ export function countTokensBatch(texts: string[]): number {
  * Handles UserMessage (string | TextContent[]), AssistantMessage (TextContent +
  * ToolCallContent), and ToolResultMessage.
  */
-export function extractMessageText(message: {
-  role: string;
-  content?: unknown;
-}): string {
+export function extractMessageText(message: { role: string; content?: unknown }): string {
   const content = message.content;
   if (!content) return "";
   if (typeof content === "string") return content;
@@ -44,9 +41,6 @@ export function extractMessageText(message: {
   return parts.join(" ");
 }
 
-export function countMessageTokens(message: {
-  role: string;
-  content?: unknown;
-}): number {
+export function countMessageTokens(message: { role: string; content?: unknown }): number {
   return countTokens(extractMessageText(message));
 }

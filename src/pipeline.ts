@@ -6,11 +6,7 @@ import { syncCompressionBlocks } from "./messages/sync.ts";
 import { stripHallucinations } from "./messages/strip.ts";
 import { syncToolCache, buildToolIdList } from "./state/tool-cache.ts";
 import { runStrategies, type StrategyResult } from "./strategies/runner.ts";
-import {
-  assignMessageRefs,
-  injectCompressNudges,
-  injectMessageIds,
-} from "./messages/inject.ts";
+import { assignMessageRefs, injectCompressNudges, injectMessageIds } from "./messages/inject.ts";
 import { buildPriorityMap, type PriorityMap } from "./messages/priority.ts";
 import { applyPruning } from "./messages/prune.ts";
 
@@ -49,9 +45,7 @@ export function runPipeline(
   state.messageIds.byRawId = new Map(
     [...state.messageIds.byRawId].filter(([key]) => rawKeys.has(key)),
   );
-  state.messageIds.byRef = new Map(
-    [...state.messageIds.byRawId].map(([key, ref]) => [ref, key]),
-  );
+  state.messageIds.byRef = new Map([...state.messageIds.byRawId].map(([key, ref]) => [ref, key]));
   for (const anchors of Object.values(state.nudges)) {
     for (const key of anchors) if (!rawKeys.has(key)) anchors.delete(key);
   }

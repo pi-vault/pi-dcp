@@ -48,9 +48,7 @@ export function isContextOverLimits(
 
   const tokens = contextUsage.tokens;
   const modelKey =
-    state.modelProvider && state.modelId
-      ? `${state.modelProvider}/${state.modelId}`
-      : undefined;
+    state.modelProvider && state.modelId ? `${state.modelProvider}/${state.modelId}` : undefined;
 
   // Effective window: prefer state (persisted), fall back to contextUsage (current)
   const effectiveWindow =

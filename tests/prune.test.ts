@@ -46,9 +46,7 @@ describe("prune", () => {
       const state = createSessionState();
       state.prune.tools.set("call1", 100);
 
-      const messages: AgentMessage[] = [
-        makeToolResult("call1", "glob", "lots of output here"),
-      ];
+      const messages: AgentMessage[] = [makeToolResult("call1", "glob", "lots of output here")];
 
       const result = pruneToolOutputs(state, messages);
       expect(result).toHaveLength(1);
@@ -59,9 +57,7 @@ describe("prune", () => {
     it("does not modify unpruned tool results", () => {
       const state = createSessionState();
 
-      const messages: AgentMessage[] = [
-        makeToolResult("call1", "glob", "output"),
-      ];
+      const messages: AgentMessage[] = [makeToolResult("call1", "glob", "output")];
 
       const result = pruneToolOutputs(state, messages);
       expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toBe("output");
@@ -71,12 +67,12 @@ describe("prune", () => {
       const state = createSessionState();
       state.prune.tools.set("call1", 100);
 
-      const messages: AgentMessage[] = [
-        makeToolResult("call1", "bash", "Error: not found", true),
-      ];
+      const messages: AgentMessage[] = [makeToolResult("call1", "bash", "Error: not found", true)];
 
       const result = pruneToolOutputs(state, messages);
-      expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toBe("Error: not found");
+      expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toBe(
+        "Error: not found",
+      );
     });
   });
 
@@ -91,7 +87,9 @@ describe("prune", () => {
       ];
 
       const result = applyPruning(state, messages);
-      expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toContain("[Output removed");
+      expect((result[0] as { content: Array<{ text: string }> }).content[0].text).toContain(
+        "[Output removed",
+      );
       expect((result[1] as { content: Array<{ text: string }> }).content[0].text).toBe("untouched");
     });
 
@@ -108,12 +106,7 @@ describe("prune", () => {
         assistantIndex: 0,
         resultIndex: 1,
       });
-      const errorResult = makeToolResult(
-        "failed-1",
-        "custom_tool",
-        "command not found",
-        true,
-      );
+      const errorResult = makeToolResult("failed-1", "custom_tool", "command not found", true);
       const messages = [
         makeAssistantWithToolCall("failed-1", "custom_tool", {
           command: "very long invalid command",
@@ -122,13 +115,8 @@ describe("prune", () => {
       ];
 
       const result = applyPruning(state, messages);
-      const assistant = result[0] as Extract<
-        AgentMessage,
-        { role: "assistant" }
-      >;
-      const toolCall = assistant.content.find(
-        (part) => part.type === "toolCall",
-      );
+      const assistant = result[0] as Extract<AgentMessage, { role: "assistant" }>;
+      const toolCall = assistant.content.find((part) => part.type === "toolCall");
 
       expect(toolCall?.arguments).toEqual({
         __purged: "input removed due to failed tool call",
@@ -146,12 +134,22 @@ describe("prune", () => {
       // Simulate a scenario where compression covers only the assistant (index 1)
       // but leaves its toolResult (index 2) as an orphan
       const messages: AgentMessage[] = [
-        { role: "user", content: [{ type: "text", text: "read it" }], timestamp: Date.now() } as AgentMessage,
+        {
+          role: "user",
+          content: [{ type: "text", text: "read it" }],
+          timestamp: Date.now(),
+        } as AgentMessage,
         {
           role: "assistant",
           content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
           stopReason: "toolUse",
-          usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            totalTokens: 0,
+          },
           timestamp: Date.now(),
         } as unknown as AgentMessage,
         {
@@ -162,7 +160,11 @@ describe("prune", () => {
           isError: false,
           timestamp: Date.now(),
         } as AgentMessage,
-        { role: "user", content: [{ type: "text", text: "thanks" }], timestamp: Date.now() } as AgentMessage,
+        {
+          role: "user",
+          content: [{ type: "text", text: "thanks" }],
+          timestamp: Date.now(),
+        } as AgentMessage,
       ];
 
       // Manually create a block that covers only index 1 (the assistant with toolCall)
@@ -204,7 +206,13 @@ describe("prune", () => {
           role: "assistant",
           content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
           stopReason: "toolUse",
-          usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, totalTokens: 0 },
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            totalTokens: 0,
+          },
           timestamp: Date.now(),
         } as unknown as AgentMessage,
         {
@@ -242,11 +250,31 @@ describe("prune", () => {
       const runId = allocateRunId(state);
 
       const messages: AgentMessage[] = [
-        { role: "user", content: [{ type: "text", text: "start" }], timestamp: Date.now() } as AgentMessage,
-        { role: "assistant", content: [{ type: "text", text: "response 1" }], timestamp: Date.now() } as unknown as AgentMessage,
-        { role: "user", content: [{ type: "text", text: "middle" }], timestamp: Date.now() } as AgentMessage,
-        { role: "assistant", content: [{ type: "text", text: "response 2" }], timestamp: Date.now() } as unknown as AgentMessage,
-        { role: "user", content: [{ type: "text", text: "end" }], timestamp: Date.now() } as AgentMessage,
+        {
+          role: "user",
+          content: [{ type: "text", text: "start" }],
+          timestamp: Date.now(),
+        } as AgentMessage,
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "response 1" }],
+          timestamp: Date.now(),
+        } as unknown as AgentMessage,
+        {
+          role: "user",
+          content: [{ type: "text", text: "middle" }],
+          timestamp: Date.now(),
+        } as AgentMessage,
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "response 2" }],
+          timestamp: Date.now(),
+        } as unknown as AgentMessage,
+        {
+          role: "user",
+          content: [{ type: "text", text: "end" }],
+          timestamp: Date.now(),
+        } as AgentMessage,
       ];
 
       applyCompressionState(state, {
@@ -274,7 +302,10 @@ describe("prune", () => {
         // biome-ignore lint/suspicious/noExplicitAny: test helper
         const content = (m as any).content;
         // biome-ignore lint/suspicious/noExplicitAny: test helper
-        return Array.isArray(content) && content.some((c: any) => c.type === "text" && c.text.includes("Summary of messages 1-3"));
+        return (
+          Array.isArray(content) &&
+          content.some((c: any) => c.type === "text" && c.text.includes("Summary of messages 1-3"))
+        );
       });
       expect(summaryMsg).toBeDefined();
     });
@@ -282,7 +313,11 @@ describe("prune", () => {
     it("passes messages unchanged when no active blocks", () => {
       const state = createSessionState();
       const messages: AgentMessage[] = [
-        { role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() } as AgentMessage,
+        {
+          role: "user",
+          content: [{ type: "text", text: "hello" }],
+          timestamp: Date.now(),
+        } as AgentMessage,
       ];
       const result = applyPruning(state, messages);
       expect(result).toHaveLength(1);

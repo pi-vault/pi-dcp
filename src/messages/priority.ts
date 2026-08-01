@@ -20,10 +20,7 @@ export type PriorityMap = Map<number, MessagePriorityEntry>;
  * - Token count: larger messages get higher priority (compress first)
  * - Role: tool results are resolved content, slightly prioritized for compression
  */
-export function buildPriorityMap(
-  state: SessionState,
-  messages: AgentMessage[],
-): PriorityMap {
+export function buildPriorityMap(state: SessionState, messages: AgentMessage[]): PriorityMap {
   if (messages.length === 0) return new Map();
 
   const entries: Array<{ index: number; score: number; tokens: number }> = [];
