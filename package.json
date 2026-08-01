@@ -24,14 +24,16 @@
   ],
   "scripts": {
     "format": "biome format --write .",
+    "format:check": "biome format .",
     "lint": "biome lint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "benchmark": "tsx scripts/benchmark.ts",
     "generate:schema": "tsx scripts/generate-schema.ts > dcp.schema.json",
-    "check": "biome lint . && tsc --noEmit && vitest run && pnpm run generate:schema",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "pack:verify": "node scripts/verify-pack.mjs",
     "pack:dry-run": "pnpm pack --dry-run",
-    "release:check": "pnpm check && pnpm run pack:dry-run"
+    "release:check": "pnpm check && pnpm run generate:schema && pnpm run pack:verify && pnpm run pack:dry-run"
   },
   "pi": {
     "extensions": [
