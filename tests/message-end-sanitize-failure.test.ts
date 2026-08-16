@@ -44,19 +44,19 @@ function makeSessionStartCtx() {
   };
 }
 
-// Matches the cast pattern used throughout tests/index.test.ts.
-type AnyHandler = (...args: unknown[]) => Promise<unknown>;
-const asHandler = (h: Handler | undefined): AnyHandler => h as AnyHandler;
-
 describe("message_end sanitizer failure handling", () => {
   it("emits info notify when sanitizer strips inline residual metadata", async () => {
     const { api, handlers } = createMockApi();
     createExtension(api);
-    await asHandler(handlers.get("session_start")?.[0])({ reason: "new" }, makeSessionStartCtx());
+    const sessionStart = handlers.get("session_start")?.[0] as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    await sessionStart({ reason: "new" }, makeSessionStartCtx());
 
     const notify = vi.fn();
     const ctx = { hasUI: true, ui: { setStatus: vi.fn(), notify } };
-    const result = await asHandler(handlers.get("message_end")?.[0])(
+    const messageEnd = handlers.get("message_end")?.[0] as (...args: unknown[]) => Promise<unknown>;
+    const result = await messageEnd(
       {
         message: {
           role: "assistant",
@@ -80,10 +80,14 @@ describe("message_end sanitizer failure handling", () => {
   it("emits info notify when sanitizer strips a bare known ref", async () => {
     const { api, handlers } = createMockApi();
     createExtension(api);
-    await asHandler(handlers.get("session_start")?.[0])({ reason: "new" }, makeSessionStartCtx());
+    const sessionStart = handlers.get("session_start")?.[0] as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    await sessionStart({ reason: "new" }, makeSessionStartCtx());
 
     // Drive a context pass so byRawId is populated with m0001.
-    await asHandler(handlers.get("context")?.[0])(
+    const context = handlers.get("context")?.[0] as (...args: unknown[]) => Promise<unknown>;
+    await context(
       {
         messages: [{ role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1 }],
       },
@@ -92,7 +96,8 @@ describe("message_end sanitizer failure handling", () => {
 
     const notify = vi.fn();
     const ctx = { hasUI: true, ui: { setStatus: vi.fn(), notify } };
-    const result = await asHandler(handlers.get("message_end")?.[0])(
+    const messageEnd = handlers.get("message_end")?.[0] as (...args: unknown[]) => Promise<unknown>;
+    const result = await messageEnd(
       {
         message: {
           role: "assistant",
@@ -123,11 +128,15 @@ describe("message_end sanitizer failure handling", () => {
     // warning. Defense-in-depth branch.
     const { api, handlers } = createMockApi();
     createExtension(api);
-    await asHandler(handlers.get("session_start")?.[0])({ reason: "new" }, makeSessionStartCtx());
+    const sessionStart = handlers.get("session_start")?.[0] as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    await sessionStart({ reason: "new" }, makeSessionStartCtx());
 
     const notify = vi.fn();
     const ctx = { hasUI: true, ui: { setStatus: vi.fn(), notify } };
-    const result = await asHandler(handlers.get("message_end")?.[0])(
+    const messageEnd = handlers.get("message_end")?.[0] as (...args: unknown[]) => Promise<unknown>;
+    const result = await messageEnd(
       {
         message: {
           role: "assistant",
@@ -151,11 +160,15 @@ describe("message_end sanitizer failure handling", () => {
   it("does not notify on a clean message with a tool call", async () => {
     const { api, handlers } = createMockApi();
     createExtension(api);
-    await asHandler(handlers.get("session_start")?.[0])({ reason: "new" }, makeSessionStartCtx());
+    const sessionStart = handlers.get("session_start")?.[0] as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    await sessionStart({ reason: "new" }, makeSessionStartCtx());
 
     const notify = vi.fn();
     const ctx = { hasUI: true, ui: { setStatus: vi.fn(), notify } };
-    const result = await asHandler(handlers.get("message_end")?.[0])(
+    const messageEnd = handlers.get("message_end")?.[0] as (...args: unknown[]) => Promise<unknown>;
+    const result = await messageEnd(
       {
         message: {
           role: "assistant",
