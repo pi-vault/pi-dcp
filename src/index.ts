@@ -134,16 +134,16 @@ export default function createExtension(pi: ExtensionAPI): void {
    * not a replacement for provider validation.
    */
   function looksLikeUnproductiveTurn(text: string, msg: AgentMessage): boolean {
-    const stopReason = (msg as { stopReason?: string }).stopReason;
-    if (stopReason !== "stop") return false;
-    const content = (msg as { content?: unknown[] }).content;
+    if (msg.role !== "assistant") return false;
+    if (msg.stopReason !== "stop") return false;
+    const content = msg.content;
     const hasToolCall =
       Array.isArray(content) &&
       content.some(
         (p) => typeof p === "object" && p !== null && (p as { type?: string }).type === "toolCall",
       );
     if (hasToolCall) return false;
-    return /[-]?dcp-(message-id|system-reminder)/.test(text);
+    return /-?dcp-(message-id|system-reminder)/.test(text);
   }
 
   function persistIfChanged(force = false): void {
