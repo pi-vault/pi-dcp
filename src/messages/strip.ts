@@ -10,6 +10,12 @@ const DCP_UNPAIRED_TAG = /<\/?dcp[-\w]*(?:\s[^>]*)?>/gi;
 // 4. Partial tag at end of line/string: <dcp-message-id or </dcp or <dcp-foo priority="3
 // Uses [^\S\n] (non-newline whitespace) so attribute matching doesn't cross lines.
 const DCP_PARTIAL_TAG = /<\/?dcp[-\w]*(?:[^\S\n][^>\n]*)?$/gim;
+// 5. Inline residual: prefix-less dcp-* fragment with closing `>`.
+// Anchored on (^|[^\w-]) so it doesn't match inside identifiers like
+// "m0103-dcp-message-id>". Requires `>` so prose that merely mentions
+// the namespace is not swallowed.
+const DCP_RESIDUAL_INLINE =
+  /(^|[^\w-])-?dcp-(?:message-id|system-reminder)\b[^<>\n]*>/gi;
 
 /**
  * Strip hallucinated DCP tags from a string.
@@ -22,7 +28,8 @@ export function stripHallucinationsFromString(text: string): string {
     .replace(DCP_COMPLETE_PAIR, "")
     .replace(DCP_TRUNCATED_PAIR, "")
     .replace(DCP_UNPAIRED_TAG, "")
-    .replace(DCP_PARTIAL_TAG, "");
+    .replace(DCP_PARTIAL_TAG, "")
+    .replace(DCP_RESIDUAL_INLINE, "");
 }
 
 /**

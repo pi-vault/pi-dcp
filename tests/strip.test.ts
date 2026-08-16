@@ -50,6 +50,62 @@ describe("strip", () => {
       const input = "line1\n<dcp-foo\nline2";
       expect(stripHallucinationsFromString(input)).toBe("line1\n\nline2");
     });
+
+    it("strips inline prefix-less residual opener (line-174 case)", () => {
+      expect(stripHallucinationsFromString("-dcp-message-id>")).toBe("");
+    });
+
+    it("strips inline prefix-less residual without leading hyphen", () => {
+      expect(stripHallucinationsFromString("dcp-message-id>")).toBe("");
+    });
+
+    it("strips inline residual after a complete pair", () => {
+      expect(
+        stripHallucinationsFromString(
+          '<dcp-message-id priority="5"></dcp-message-id>-dcp-message-id>',
+        ),
+      ).toBe("");
+    });
+
+    it("strips inline residual on its own line", () => {
+      expect(stripHallucinationsFromString("hello\n-dcp-message-id>\nworld")).toBe(
+        "hello\nworld",
+      );
+    });
+
+    it("strips inline system-reminder residual", () => {
+      // The inline regex matches `-dcp-system-reminder>` but stops at the
+      // newline (the body class `[^<>\n]*` excludes newlines). The trailing
+      // `\n` remains. This is fine — the message_end handler treats whitespace
+      // as harmless and downstream code joins text parts with `\n` anyway.
+      expect(stripHallucinationsFromString("-dcp-system-reminder>\n")).toBe("\n");
+    });
+
+    it("does not match prose that mentions the namespace without a >", () => {
+      expect(
+        stripHallucinationsFromString("dcp-message-id is generally safe"),
+      ).toBe("dcp-message-id is generally safe");
+      expect(stripHallucinationsFromString("dcp-system-reminder is active")).toBe(
+        "dcp-system-reminder is active",
+      );
+    });
+
+    it("does not match inside identifiers (boundary check)", () => {
+      expect(stripHallucinationsFromString("m0103-dcp-message-id>")).toBe(
+        "m0103-dcp-message-id>",
+      );
+    });
+
+    it("documents the dcp-message-id foo>bar false positive", () => {
+      // Documented false positive — see docs/07 in the investigation chain.
+      // The inline residual requires `>` to be the terminator of the residual
+      // itself; any prose between the tag-name and `>` is consumed because
+      // attribute-bearing canonical tags may contain a space. False positive
+      // is bounded: namespace phrase is rare in English prose, trailing `>`
+      // is unusual, and the user-visible result is a slightly shorter
+      // sentence rather than data loss.
+      expect(stripHallucinationsFromString("dcp-message-id foo>bar")).toBe("bar");
+    });
   });
 
   describe("stripHallucinations", () => {
