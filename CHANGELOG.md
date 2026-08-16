@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Strip residual `<dcp-message-id>` and `<dcp-system-reminder>` fragments and bare `m####` refs that some models (notably `MiniMax-M3`) leak into assistant output. Notify the user when a turn produces no tool call but still contains residual metadata, so silent stops become visible.
+
 ## [0.5.0] - 2026-08-01
 
 ### Added
