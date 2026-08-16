@@ -4,7 +4,7 @@
 
 **Goal:** Strip `MiniMax-M3`'s leaked `<dcp-message-id>` residual fragments and bare `m####` refs from assistant output, and notify the user when the sanitizer runs but leaves a residual shape.
 
-**Architecture:** Extend the existing `stripHallucinationsFromString` pipeline in `src/messages/strip.ts` with two new regex constants (inline residual, end-of-line residual) and a state-aware `stripKnownRefsFromString` helper. Reuse the existing `state.messageIds.byRawId` as the source of truth for which `m####` refs are eligible to strip. Wire the known-refs set into the `message_end` handler in `src/index.ts`, and add a heuristic `looksLikeUnproductiveTurn` check that notifies the user when stripping is a no-op but residual metadata is still present.
+**Architecture:** Extend the existing `stripHallucinationsFromString` pipeline in `src/messages/strip.ts` with one new regex constant (inline residual) and a state-aware `stripKnownRefsFromString` helper. Reuse the existing `state.messageIds.byRawId` as the source of truth for which `m####` refs are eligible to strip. Wire the known-refs set into the `message_end` handler in `src/index.ts`, and add a heuristic `looksLikeUnproductiveTurn` check that notifies the user when stripping is a no-op but residual metadata is still present. (Earlier versions of this plan also added an end-of-line residual regex; that regex was dropped after review confirmed it cannot distinguish truncated residuals from prose that merely mentions the namespace phrase — see `docs/07-addendum-residual-regex.md` "What this regex does NOT fix" §3.)
 
 **Tech Stack:** TypeScript, Vitest, regex (no new dependencies).
 
@@ -16,7 +16,7 @@
 
 - TypeScript strict mode. No `any` in new code.
 - Existing 9 cases in `tests/strip.test.ts` must continue to pass after every change.
-- The sanitizer must never match the namespace phrase `dcp-message-id` / `dcp-system-reminder` when followed by a word character and a `>` somewhere further on the line — one documented false positive exists (`dcp-message-id foo>bar` → `bar`), see spec "Component 1" rationale.
+- The sanitizer must never match the namespace phrase `dcp-message-id` / `dcp-system-reminder` in prose that merely mentions it (e.g. `dcp-message-id is generally safe` must be preserved). One documented false positive exists (`dcp-message-id foo>bar` → `bar`), see spec "Component 1" rationale. The end-of-line residual case (e.g. a line containing just `-dcp-message-id` with no closing `>`) is intentionally NOT addressed by a regex; it surfaces via the `looksLikeUnproductiveTurn` warning in Task 3.
 - `state.messageIds.byRawId` is owned by `src/state/state.ts:resetSessionState`. Do not introduce a new state field.
 - No new dependencies.
 - Notifications use `ctx.ui.notify(message, level)` where level is `"info"` (sanitizer changed text) or `"warning"` (sanitizer unchanged but heuristic fired). Both calls are guarded by `ctx.hasUI`.
@@ -25,10 +25,10 @@
 
 | file                                         | responsibility                                                                                                                             |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/messages/strip.ts`                      | Strip pipeline. Adds 2 regex constants, extends `stripHallucinationsFromString` signature, adds `stripKnownRefsFromString` helper.         |
+| `src/messages/strip.ts`                      | Strip pipeline. Adds 1 regex constant, extends `stripHallucinationsFromString` signature, adds `stripKnownRefsFromString` helper.          |
 | `src/index.ts`                               | `message_end` handler. Wires known-refs snapshot, adds `collectText` and `looksLikeUnproductiveTurn` helpers, sends info/warning notifies. |
-| `tests/strip.test.ts`                        | Appends regression cases for the new residual regexes and the known-refs helper. Existing cases unchanged.                                 |
-| `tests/message-end-sanitize-failure.test.ts` | New file. Mocks `createMockPi` / `createMockContext` (pattern from `tests/index.test.ts`) and exercises the three notify branches.         |
+| `tests/strip.test.ts`                        | Appends regression cases for the new residual regex and the known-refs helper. Existing cases unchanged.                                   |
+| `tests/message-end-sanitize-failure.test.ts` | New file. Uses the existing `createMockApi` pattern from `tests/index.test.ts` to exercise the three notify branches.                      |
 
 ---
 
@@ -72,7 +72,11 @@ it("strips inline residual on its own line", () => {
 });
 
 it("strips inline system-reminder residual", () => {
-  expect(stripHallucinationsFromString("-dcp-system-reminder>\n")).toBe("");
+  // The inline regex matches `-dcp-system-reminder>` but stops at the
+  // newline (the body class `[^<>\n]*` excludes newlines). The trailing
+  // `\n` remains. This is fine — the message_end handler treats whitespace
+  // as harmless and downstream code joins text parts with `\n` anyway.
+  expect(stripHallucinationsFromString("-dcp-system-reminder>\n")).toBe("\n");
 });
 
 it("does not match prose that mentions the namespace without a >", () => {
@@ -147,101 +151,7 @@ git commit -m "feat(strip): add inline residual regex for prefix-less dcp-* frag
 
 ---
 
-### Task 2: Add the end-of-line residual regex and its tests
-
-**Files:**
-
-- Modify: `src/messages/strip.ts` (add `DCP_RESIDUAL_EOL` constant; add it as the 6th step)
-- Modify: `tests/strip.test.ts` (append tests)
-
-**Interfaces:**
-
-- Consumes: text where stripping so far left a residual on its own line, e.g. after `DCP_PARTIAL_TAG` consumed a partial opener at end of line.
-- Produces: text with line-end residuals removed. The `(^|\s)` capture is consumed, so the leading whitespace on the line is also removed.
-
-- [ ] **Step 1: Append the failing tests**
-
-Append to `tests/strip.test.ts`, inside `describe("stripHallucinationsFromString")`, after the inline-residual tests:
-
-```ts
-it("strips end-of-line residual after a partial opener was consumed", () => {
-  expect(
-    stripHallucinationsFromString(
-      'line1\n<dcp-message-id priority="3\n-dcp-message-id>\nline2',
-    ),
-  ).toBe("line1\n\nline2");
-});
-
-it("strips end-of-line residual alone on its own line", () => {
-  expect(stripHallucinationsFromString("hello\n-dcp-message-id>\nworld")).toBe(
-    "hello\nworld",
-  );
-  // (duplicate of inline test for the EOL case; both patterns cover it.)
-});
-
-it("does not match prose that mentions the namespace without > on its own line", () => {
-  // The EOL pattern requires no `>` on the line. Prose like
-  // "dcp-message-id is generally safe" has no `>`, so it WILL match the
-  // EOL pattern. This test documents the consequence: the entire line
-  // gets consumed. We accept this because (a) the namespace phrase is
-  // rare on its own line, (b) when it appears on its own line the model
-  // emission almost certainly leaked it, (c) the user-visible result is
-  // a shorter document, not data loss.
-  expect(
-    stripHallucinationsFromString(
-      "intro paragraph\ndcp-message-id is generally safe\noutro",
-    ),
-  ).toBe("intro paragraph\n\noutro");
-});
-```
-
-- [ ] **Step 2: Run the new tests and verify they fail**
-
-Run: `pnpm vitest run tests/strip.test.ts`
-Expected: 3 new tests fail; the existing 17 pass.
-
-- [ ] **Step 3: Add the EOL residual constant and step**
-
-Edit `src/messages/strip.ts`. Add below `DCP_RESIDUAL_INLINE`:
-
-```ts
-// 6. End-of-line residual: same shape on its own line, no closing `>`.
-// Covers the line-174 mechanism (partial opener truncated mid-attribute,
-// newline, residual opener on next line). Anchored on (^|\s) so the
-// leading whitespace on the line is consumed with the match.
-const DCP_RESIDUAL_EOL =
-  /(^|\s)-?dcp-(?:message-id|system-reminder)\b[^\n]*$/gim;
-```
-
-Add the step to the pipeline:
-
-```ts
-export function stripHallucinationsFromString(text: string): string {
-  return text
-    .replace(DCP_COMPLETE_PAIR, "")
-    .replace(DCP_TRUNCATED_PAIR, "")
-    .replace(DCP_UNPAIRED_TAG, "")
-    .replace(DCP_PARTIAL_TAG, "")
-    .replace(DCP_RESIDUAL_INLINE, "")
-    .replace(DCP_RESIDUAL_EOL, "");
-}
-```
-
-- [ ] **Step 4: Run all strip tests and verify they pass**
-
-Run: `pnpm vitest run tests/strip.test.ts`
-Expected: all 20 cases pass (9 existing + 8 inline + 3 EOL).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/messages/strip.ts tests/strip.test.ts
-git commit -m "feat(strip): add end-of-line residual regex for dcp-* fragments"
-```
-
----
-
-### Task 3: Add the state-aware known-refs strip helper
+### Task 2: Add the state-aware known-refs strip helper
 
 **Files:**
 
@@ -363,12 +273,14 @@ export function stripHallucinationsFromString(
 - [ ] **Step 4: Run all strip tests and verify they pass**
 
 Run: `pnpm vitest run tests/strip.test.ts`
-Expected: all 28 cases pass (9 existing + 8 inline + 3 EOL + 8 known-refs).
+Expected: all 25 cases pass (9 existing + 8 inline + 8 known-refs).
 
 - [ ] **Step 5: Run the full check to catch downstream regressions**
 
 Run: `pnpm check`
 Expected: lint, typecheck, and the full vitest suite pass. The signature change is backward compatible (optional second argument) so no other call sites should break.
+
+Note: the higher-level `stripHallucinations(messages)` function is intentionally NOT extended with a known-refs argument. Pipeline messages (`src/pipeline.ts`) are pre-sanitization and the bare-`m####` leak surfaces only on the assistant's emitted text at `message_end`. Keeping `stripHallucinations` signature-free avoids threading known-refs into the pipeline.
 
 - [ ] **Step 6: Commit**
 
@@ -379,7 +291,7 @@ git commit -m "feat(strip): add state-aware known-refs strip helper"
 
 ---
 
-### Task 4: Wire known-refs and the heuristic notify into message_end
+### Task 3: Wire known-refs and the heuristic notify into message_end
 
 **Files:**
 
@@ -498,23 +410,71 @@ Expected: passes with no errors. If `AgentMessage` is not imported, add it to th
 
 - [ ] **Step 5: Write the integration tests**
 
-Create `tests/message-end-sanitize-failure.test.ts`. The file must import `createMockPi` and `createMockContext` from `./helpers.ts` (same pattern as `tests/index.test.ts`). Read `tests/helpers.ts` first to confirm the exact helper signatures before writing the tests.
+Create `tests/message-end-sanitize-failure.test.ts`. Reuse the `createMockApi` helper from `tests/index.test.ts` (same file is fine, copy verbatim — it's a self-contained local helper, ~30 lines). Pattern: build a mock api with `createMockApi()`, call `createExtension(api)`, fetch the handler via `handlers.get("message_end")?.[0]`, and call it with a real-shape event payload + mock context.
+
+To test the bare-ref branch, the test must inject a known ref into `state.messageIds.byRawId` before firing `message_end`. Since `state` is a closure inside `createExtension`, the cleanest way is to drive a real `context` pass first (which fills `byRawId`) and then fire `message_end`. That mirrors what would happen in production. Alternatively, expose `state` for test purposes via a test-only seam — but adding production surface for tests is not worth it; prefer the realistic flow.
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
-import { createMockContext, createMockPi } from "./helpers.ts";
+
+const agentDir = vi.hoisted(
+  () => `/tmp/dcp-message-end-test-${Date.now()}-${Math.random()}`,
+);
+
+vi.mock("@earendil-works/pi-coding-agent", () => ({
+  getAgentDir: () => agentDir,
+}));
+
+type Handler = (...args: never[]) => unknown;
+
+function createMockApi() {
+  const handlers = new Map<string, Handler[]>();
+  const entries: Array<{ customType: string; data: unknown }> = [];
+  const commands = new Map<string, unknown>();
+  const tools = new Map<string, unknown>();
+  const api = {
+    on(event: string, handler: Handler) {
+      const list = handlers.get(event) ?? [];
+      list.push(handler);
+      handlers.set(event, list);
+    },
+    registerTool(tool: { name: string }) {
+      tools.set(tool.name, tool);
+    },
+    registerCommand(name: string, command: unknown) {
+      commands.set(name, command);
+    },
+    appendEntry(customType: string, data: unknown) {
+      entries.push({ customType, data });
+    },
+  } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
+  return { api, handlers, entries, commands, tools };
+}
+
+function makeSessionStartCtx() {
+  return {
+    sessionManager: {
+      getSessionDir: () => "/tmp/dcp-test-session",
+      getSessionId: () => "test-session",
+      getBranch: () => [] as unknown[],
+    },
+    getContextUsage: () => undefined,
+  };
+}
 
 describe("message_end sanitizer failure handling", () => {
-  it("emits info notify when sanitizer strips residual metadata", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
+  it("emits info notify when sanitizer strips inline residual metadata", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const sessionStart = handlers.get("session_start")?.[0];
+    await sessionStart({ reason: "new" }, makeSessionStartCtx());
 
-    await mock.fireEvent(
-      "message_end",
+    const notify = vi.fn();
+    const ctx = { hasUI: true, ui: { setStatus: vi.fn(), notify } };
+    const messageEnd = handlers.get("message_end")?.[0];
+    const result = await messageEnd(
       {
-        type: "message_end",
         message: {
           role: "assistant",
           content: [
@@ -523,61 +483,94 @@ describe("message_end sanitizer failure handling", () => {
           stopReason: "stop",
           timestamp: Date.now(),
         },
-      } as never,
+      },
       ctx,
     );
 
-    const infos = ctx.notifications.filter((n) => n.type === "info");
-    expect(infos.some((n) => n.message.includes("stripped residual"))).toBe(
-      true,
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringContaining("stripped residual"),
+      "info",
     );
+    // Handler must return the stripped message so the agent sees the
+    // sanitized text on its next pass.
+    expect(result).toHaveProperty("message");
+    const strippedContent = (
+      result as { message: { content: Array<{ text: string }> } }
+    ).message.content;
+    expect(strippedContent[0].text).not.toContain("dcp-message-id");
   });
 
   it("emits info notify when sanitizer strips a bare known ref", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const sessionStart = handlers.get("session_start")?.[0];
+    await sessionStart({ reason: "new" }, makeSessionStartCtx());
 
-    await mock.fireEvent(
-      "message_end",
+    // Drive a context pass so byRawId is populated with m0001.
+    const context = handlers.get("context")?.[0];
+    await context(
       {
-        type: "message_end",
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "hi" }],
+            timestamp: 1,
+          },
+        ],
+      },
+      {
+        ...makeSessionStartCtx(),
+        getContextUsage: () => undefined,
+        hasUI: false,
+      },
+    );
+
+    const notify = vi.fn();
+    const ctx = { hasUI: true, ui: { setStatus: vi.fn(), notify } };
+    const messageEnd = handlers.get("message_end")?.[0];
+    const result = await messageEnd(
+      {
         message: {
           role: "assistant",
           content: [
             {
               type: "text",
-              text: "Sort the selected names alphabetically on enter:\n\n\n\nm0103",
+              text: "Sort the selected names alphabetically on enter:\n\n\n\nm0001",
             },
           ],
           stopReason: "stop",
           timestamp: Date.now(),
         },
-      } as never,
+      },
       ctx,
     );
 
-    const infos = ctx.notifications.filter((n) => n.type === "info");
-    expect(infos.some((n) => n.message.includes("stripped residual"))).toBe(
-      true,
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringContaining("stripped residual"),
+      "info",
     );
+    const strippedText = (
+      result as { message: { content: Array<{ text: string }> } }
+    ).message.content[0].text;
+    expect(strippedText).not.toContain("m0001");
   });
 
   it("emits warning notify when sanitizer is a no-op but residual pattern remains", async () => {
-    // Construct a shape the residual regexes can't catch: dcp-message-id
-    // embedded in a larger identifier. The boundary check in the residual
-    // regexes (^|[^\w-]) prevents matching inside `xdcp-message-idy`, so
-    // the strip pipeline returns the text unchanged. The heuristic still
-    // detects the substring and fires the warning. This is the
-    // defense-in-depth branch.
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
+    // Shape the residual regex can't catch: dcp-message-id embedded in a
+    // larger identifier. The boundary check `(^|[^\w-])` prevents matching
+    // inside `xdcp-message-idy`, so the strip pipeline returns the text
+    // unchanged. The heuristic still detects the substring and fires the
+    // warning. Defense-in-depth branch.
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const sessionStart = handlers.get("session_start")?.[0];
+    await sessionStart({ reason: "new" }, makeSessionStartCtx());
 
-    await mock.fireEvent(
-      "message_end",
+    const notify = vi.fn();
+    const ctx = { hasUI: true, ui: { setStatus: vi.fn(), notify } };
+    const messageEnd = handlers.get("message_end")?.[0];
+    const result = await messageEnd(
       {
-        type: "message_end",
         message: {
           role: "assistant",
           content: [
@@ -586,29 +579,33 @@ describe("message_end sanitizer failure handling", () => {
           stopReason: "stop",
           timestamp: Date.now(),
         },
-      } as never,
+      },
       ctx,
     );
 
-    const warnings = ctx.notifications.filter((n) => n.type === "warning");
-    expect(
-      warnings.some((n) => n.message.includes("model output looked malformed")),
-    ).toBe(true);
-    const infos = ctx.notifications.filter((n) => n.type === "info");
-    expect(infos.some((n) => n.message.includes("stripped residual"))).toBe(
-      false,
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringContaining("model output looked malformed"),
+      "warning",
     );
+    expect(notify).not.toHaveBeenCalledWith(
+      expect.stringContaining("stripped residual"),
+      "info",
+    );
+    // No stripping happened, so no message replacement.
+    expect(result).toBeUndefined();
   });
 
   it("does not notify on a clean message with a tool call", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const sessionStart = handlers.get("session_start")?.[0];
+    await sessionStart({ reason: "new" }, makeSessionStartCtx());
 
-    await mock.fireEvent(
-      "message_end",
+    const notify = vi.fn();
+    const ctx = { hasUI: true, ui: { setStatus: vi.fn(), notify } };
+    const messageEnd = handlers.get("message_end")?.[0];
+    const result = await messageEnd(
       {
-        type: "message_end",
         message: {
           role: "assistant",
           content: [
@@ -623,11 +620,12 @@ describe("message_end sanitizer failure handling", () => {
           stopReason: "stop",
           timestamp: Date.now(),
         },
-      } as never,
+      },
       ctx,
     );
 
-    expect(ctx.notifications).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
   });
 });
 ```
@@ -635,12 +633,12 @@ describe("message_end sanitizer failure handling", () => {
 - [ ] **Step 6: Run the new tests and verify they pass**
 
 Run: `pnpm vitest run tests/message-end-sanitize-failure.test.ts`
-Expected: 4 tests pass. If the `as never` casts on the event payload cause type errors, run `pnpm exec tsc --noEmit` first to see the exact shape `tests/helpers.ts` expects for `fireEvent`'s event argument, and adjust the cast. The mock's `fireEvent` likely takes `unknown` for the event, so the cast is correct as written.
+Expected: 4 tests pass. If a test errors on `getContextUsage` being undefined or on missing `sessionManager` keys, add them to the mock context — the `context` handler is invoked during the bare-ref test to populate `state.messageIds.byRawId`.
 
 - [ ] **Step 7: Run the full check suite**
 
 Run: `pnpm check`
-Expected: biome lint clean, tsc clean, all vitest tests pass (existing 28 strip tests + 4 new message-end tests + everything else).
+Expected: biome lint clean, tsc clean, all vitest tests pass (existing 25 strip tests + 4 new message-end tests + everything else).
 
 - [ ] **Step 8: Commit**
 
@@ -651,7 +649,7 @@ git commit -m "feat(message-end): notify on sanitizer strip or unproductive turn
 
 ---
 
-### Task 5: Final verification and documentation
+### Task 4: Final verification and documentation
 
 **Files:**
 
@@ -723,18 +721,19 @@ git commit -m "docs: changelog entry for residual metadata stripping"
 
 **1. Spec coverage:**
 
-| spec requirement                                                  | task                                         |
-| ----------------------------------------------------------------- | -------------------------------------------- |
-| Component 1 — residual regex additions                            | Tasks 1, 2                                   |
-| Component 2 — state-aware bare-ref stripping                      | Task 3                                       |
-| Component 3 — known-refs wiring in `message_end`                  | Task 4                                       |
-| Component 3 — `collectText` + `looksLikeUnproductiveTurn` helpers | Task 4                                       |
-| Existing 9 strip.test.ts cases continue to pass                   | Tasks 1, 2, 3 (each runs full strip.test.ts) |
-| New tests for residual regexes                                    | Tasks 1, 2                                   |
-| New tests for known-refs stripping                                | Task 3                                       |
-| New tests for `message_end` notify behavior                       | Task 4                                       |
-| `pnpm check` clean                                                | Tasks 3, 4, 5                                |
-| Changelog entry                                                   | Task 5                                       |
+| spec requirement                                                  | task                                      |
+| ----------------------------------------------------------------- | ----------------------------------------- |
+| Component 1 — inline residual regex addition                      | Task 1                                    |
+| Component 2 — state-aware bare-ref stripping                      | Task 2                                    |
+| Component 3 — known-refs wiring in `message_end`                  | Task 3                                    |
+| Component 3 — `collectText` + `looksLikeUnproductiveTurn` helpers | Task 3                                    |
+| Existing 9 strip.test.ts cases continue to pass                   | Tasks 1, 2 (each runs full strip.test.ts) |
+| New tests for inline residual regex                               | Task 1                                    |
+| New tests for known-refs stripping                                | Task 2                                    |
+| New tests for `message_end` notify behavior                       | Task 3                                    |
+| `pnpm check` clean                                                | Tasks 2, 3, 4                             |
+| Changelog entry                                                   | Task 4                                    |
+| EOL residual NOT addressed by regex (per `docs/07`)               | covered by Task 3 warning notify          |
 
 No gaps.
 
@@ -742,9 +741,11 @@ No gaps.
 
 **3. Type consistency:**
 
-- `stripHallucinationsFromString` signature: `text: string, knownRefs?: ReadonlySet<string>)` — consistent across Tasks 3, 4. Caller in `message_end` builds the set as `new Set(state.messageIds.byRawId.values())`. State field name verified against `src/state/state.ts:50`.
-- `stripKnownRefsFromString`: defined in Task 3, only used inside `stripHallucinationsFromString` in the same file. No cross-task name drift.
-- `collectText(msg: AgentMessage): string` and `looksLikeUnproductiveTurn(text: string, msg: AgentMessage): boolean` — defined once in Task 4, used once in Task 4's handler. No cross-task drift.
-- `mapText(msg, (t) => stripHallucinationsFromString(t, knownRefs))` — `mapText` already imported in `src/index.ts` (line ~14 of the existing handler context). Reused unchanged.
+- `stripHallucinationsFromString` signature: `(text: string, knownRefs?: ReadonlySet<string>) => string` — defined once in Task 1 (extended in Task 2), used in Tasks 2 and 3. Caller in `message_end` (Task 3) builds the set as `new Set(state.messageIds.byRawId.values())`. State field name verified against `src/state/state.ts:50`.
+- `stripKnownRefsFromString`: defined in Task 2, only used inside `stripHallucinationsFromString` in the same file. No cross-task name drift.
+- `collectText(msg: AgentMessage): string` and `looksLikeUnproductiveTurn(text: string, msg: AgentMessage): boolean` — defined once in Task 3, used once in Task 3's handler. No cross-task drift.
+- `mapText(msg, (t) => stripHallucinationsFromString(t, knownRefs))` — `mapText` already imported in `src/index.ts`. Reused unchanged.
+
+`stripHallucinations(messages)` deliberately keeps its single-arg signature: the bare-`m####` leak is an end-of-turn phenomenon, not a pipeline-pruning one. Pipeline messages pass through `stripHallucinations` unchanged (no known-refs available there), and the `message_end` handler re-strips with known-refs as the final sanitization pass.
 
 All consistent.
