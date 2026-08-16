@@ -107,6 +107,45 @@ export default function createExtension(pi: ExtensionAPI): void {
   let runtimePrompts: RuntimePrompts | undefined;
   let lastPersistedFingerprint: string | undefined;
 
+  /**
+   * Collect all text parts of an assistant message into a single string.
+   * Returns "" if the message has no array content (e.g. plain-string user
+   * content). Used by looksLikeUnproductiveTurn to inspect residual
+   * metadata after stripping.
+   */
+  function collectText(msg: AgentMessage): string {
+    if (!("content" in msg) || !Array.isArray(msg.content)) return "";
+    return msg.content
+      .filter(
+        (p): p is { type: "text"; text: string } =>
+          typeof p === "object" && p !== null && (p as { type?: unknown }).type === "text",
+      )
+      .map((p) => p.text)
+      .join("\n");
+  }
+
+  /**
+   * Detect a turn that ended with stopReason "stop" but produced no tool
+   * call AND still carries a residual dcp-* shape in the visible text.
+   *
+   * The strip pipeline should have caught any sane shape; this is the
+   * defense-in-depth branch for shapes we haven't yet enumerated. Per
+   * docs/06 in the investigation chain, notification is a UX safeguard,
+   * not a replacement for provider validation.
+   */
+  function looksLikeUnproductiveTurn(text: string, msg: AgentMessage): boolean {
+    const stopReason = (msg as { stopReason?: string }).stopReason;
+    if (stopReason !== "stop") return false;
+    const content = (msg as { content?: unknown[] }).content;
+    const hasToolCall =
+      Array.isArray(content) &&
+      content.some(
+        (p) => typeof p === "object" && p !== null && (p as { type?: string }).type === "toolCall",
+      );
+    if (hasToolCall) return false;
+    return /[-]?dcp-(message-id|system-reminder)/.test(text);
+  }
+
   function persistIfChanged(force = false): void {
     const snapshot = serializeDcpSnapshot(state);
     if (!snapshot) return;
@@ -342,13 +381,34 @@ export default function createExtension(pi: ExtensionAPI): void {
     logger.info("dcp", "session shutdown");
   });
 
-  pi.on("message_end", async (event, _ctx) => {
+  pi.on("message_end", async (event, ctx) => {
     if (!config.enabled) return;
     if (event.message.role !== "assistant") return;
 
-    const stripped = mapText(event.message, stripHallucinationsFromString);
+    const knownRefs = new Set(state.messageIds.byRawId.values());
+    const stripped = mapText(event.message, (t) => stripHallucinationsFromString(t, knownRefs));
+
     if (stripped !== event.message) {
+      if (ctx.hasUI) {
+        ctx.ui.notify("dcp: stripped residual metadata from model output", "info");
+      }
       return { message: stripped };
+    }
+
+    // Sanitizer returned the message unchanged (no strip matched). If the
+    // visible text still carries a dcp-* shape AND the turn produced no
+    // tool call, the strip pipeline missed a case we need to investigate.
+    // Per docs/06: notification is a UX safeguard, not a replacement for
+    // provider validation. This branch is expected to be rare — it fires
+    // only on shapes the regex set doesn't yet cover.
+    const text = collectText(event.message);
+    if (looksLikeUnproductiveTurn(text, event.message)) {
+      if (ctx.hasUI) {
+        ctx.ui.notify(
+          "dcp: model output looked malformed (no tool call, residual metadata present). Try re-prompting.",
+          "warning",
+        );
+      }
     }
   });
 
