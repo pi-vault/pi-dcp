@@ -14,8 +14,22 @@ const DCP_PARTIAL_TAG = /<\/?dcp[-\w]*(?:[^\S\n][^>\n]*)?$/gim;
 // Anchored on (^|[^\w-]) so it doesn't match inside identifiers like
 // "m0103-dcp-message-id>". Requires `>` so prose that merely mentions
 // the namespace is not swallowed.
-const DCP_RESIDUAL_INLINE =
-  /(^|[^\w-])-?dcp-(?:message-id|system-reminder)\b[^<>\n]*>/gi;
+const DCP_RESIDUAL_INLINE = /(^|[^\w-])-?dcp-(?:message-id|system-reminder)\b[^<>\n]*>/gi;
+
+/**
+ * Strip bare m#### message-id refs that were injected this session.
+ * Anchored on word boundaries so legitimate numeric tokens (model numbers,
+ * file sizes, hex suffixes) are not affected.
+ *
+ * The alternation source is sorted longest-first so a short ref like "m01"
+ * doesn't match inside a longer injected ref like "m0103".
+ */
+function stripKnownRefsFromString(text: string, knownRefs: ReadonlySet<string>): string {
+  if (knownRefs.size === 0) return text;
+  const alts = [...knownRefs].sort((a, b) => b.length - a.length).join("|");
+  const re = new RegExp(`(?<![\\w-])(?:${alts})(?![\\w-])`, "g");
+  return text.replace(re, "");
+}
 
 /**
  * Strip hallucinated DCP tags from a string.
@@ -23,13 +37,17 @@ const DCP_RESIDUAL_INLINE =
  * partial tags at end of string. Order matters: complete pairs first (they
  * consume the closing >), then truncated pairs, then lone tags, then partials.
  */
-export function stripHallucinationsFromString(text: string): string {
-  return text
+export function stripHallucinationsFromString(
+  text: string,
+  knownRefs?: ReadonlySet<string>,
+): string {
+  const stripped = text
     .replace(DCP_COMPLETE_PAIR, "")
     .replace(DCP_TRUNCATED_PAIR, "")
     .replace(DCP_UNPAIRED_TAG, "")
     .replace(DCP_PARTIAL_TAG, "")
     .replace(DCP_RESIDUAL_INLINE, "");
+  return knownRefs ? stripKnownRefsFromString(stripped, knownRefs) : stripped;
 }
 
 /**

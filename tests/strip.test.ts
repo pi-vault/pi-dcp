@@ -68,9 +68,7 @@ describe("strip", () => {
     });
 
     it("strips inline residual on its own line", () => {
-      expect(stripHallucinationsFromString("hello\n-dcp-message-id>\nworld")).toBe(
-        "hello\nworld",
-      );
+      expect(stripHallucinationsFromString("hello\n-dcp-message-id>\nworld")).toBe("hello\nworld");
     });
 
     it("strips inline system-reminder residual", () => {
@@ -82,18 +80,16 @@ describe("strip", () => {
     });
 
     it("does not match prose that mentions the namespace without a >", () => {
-      expect(
-        stripHallucinationsFromString("dcp-message-id is generally safe"),
-      ).toBe("dcp-message-id is generally safe");
+      expect(stripHallucinationsFromString("dcp-message-id is generally safe")).toBe(
+        "dcp-message-id is generally safe",
+      );
       expect(stripHallucinationsFromString("dcp-system-reminder is active")).toBe(
         "dcp-system-reminder is active",
       );
     });
 
     it("does not match inside identifiers (boundary check)", () => {
-      expect(stripHallucinationsFromString("m0103-dcp-message-id>")).toBe(
-        "m0103-dcp-message-id>",
-      );
+      expect(stripHallucinationsFromString("m0103-dcp-message-id>")).toBe("m0103-dcp-message-id>");
     });
 
     it("documents the dcp-message-id foo>bar false positive", () => {
@@ -177,6 +173,54 @@ describe("strip", () => {
 
       const result = stripHallucinations(messages);
       expect(result[0]).toBe(messages[0]);
+    });
+  });
+
+  describe("known-refs stripping", () => {
+    it("is a no-op when no refs are known", () => {
+      expect(stripHallucinationsFromString("m0103", new Set())).toBe("m0103");
+      expect(stripHallucinationsFromString("m0103")).toBe("m0103");
+    });
+
+    it("strips a single bare known ref", () => {
+      expect(stripHallucinationsFromString("m0103", new Set(["m0103"]))).toBe("");
+    });
+
+    it("strips a known ref embedded in prose (line-152 case)", () => {
+      expect(
+        stripHallucinationsFromString(
+          "Sort the selected names alphabetically on enter:\n\n\n\nm0103",
+          new Set(["m0103"]),
+        ),
+      ).toBe("Sort the selected names alphabetically on enter:\n\n\n\n");
+    });
+
+    it("does not strip a numeric token that looks like an m-id but isn't in the set", () => {
+      expect(stripHallucinationsFromString("the m1024 model", new Set(["m0103"]))).toBe(
+        "the m1024 model",
+      );
+    });
+
+    it("does not match inside identifiers (boundary check)", () => {
+      expect(stripHallucinationsFromString("xem0103y", new Set(["m0103"]))).toBe("xem0103y");
+    });
+
+    it("does not match when the ref is a prefix of a longer token", () => {
+      expect(stripHallucinationsFromString("m01034", new Set(["m0103"]))).toBe("m01034");
+    });
+
+    it("matches longest-first when multiple refs share a prefix", () => {
+      // m0103 must not be stripped from inside m01034 even if m0103 is in
+      // the set. The sort-longest-first logic on the alternation source
+      // keeps m01034 from being shadowed.
+      const refs = new Set(["m01", "m0103"]);
+      expect(stripHallucinationsFromString("m01034", refs)).toBe("m01034");
+      expect(stripHallucinationsFromString("m01", refs)).toBe("");
+    });
+
+    it("strips multiple distinct known refs", () => {
+      const refs = new Set(["m0103", "m0117"]);
+      expect(stripHallucinationsFromString("m0103 and m0117", refs)).toBe(" and ");
     });
   });
 });
