@@ -109,3 +109,55 @@ Focused implementation commit: `4f2cd17 fix: harden session analyzer evidence`
 - Prior transition values are SHA-256 digests only; serialized DCP state is not retained or emitted, while exact and semantic transition classifications remain unchanged.
 - Parsed values must be object entries with string `type`, `id`, and `timestamp`; malformed values are counted and streaming continues.
 - Only the corpus Pi stop reasons (`toolUse`, `stop`, `aborted`, `error`) are output verbatim; every other string is counted as `other`.
+
+## Fix round 2
+
+### Red regression evidence
+
+Added `length` to the existing real-file JSONL stop-reason regression before changing the analyzer, then ran:
+
+```text
+$ pnpm vitest run tests/session-analysis.test.ts
+
+Test Files  1 failed (1)
+Tests  1 failed | 3 passed (4)
+
+Expected: length: 1, other: 1
+Received: other: 2
+```
+
+This failed correctly because `length` was normalized as an unknown reason.
+
+### Changed files
+
+- `tests/session-analysis.test.ts` — verifies real JSONL input counts `length` separately while retaining unknown-reason normalization.
+- `scripts/analyze-sessions.ts` — adds `length` to the safe Pi stop-reason allowlist.
+
+### Green verification
+
+```text
+$ pnpm vitest run tests/session-analysis.test.ts
+
+Test Files  1 passed (1)
+Tests  4 passed (4)
+
+$ pnpm typecheck
+$ tsc --noEmit
+
+$ pnpm format:check
+$ biome format .
+Checked 96 files in 25ms. No fixes applied.
+
+$ git diff --check
+(exit 0)
+```
+
+### Commit
+
+Focused implementation commit: `4ee4863 fix: preserve length session stop reason`
+
+### Self-review
+
+- `length` now has a distinct structural count; unrecognized strings remain normalized to `other` and are not exposed.
+- The regression streams a real temporary JSONL file and includes both `length` and a private unknown reason.
+- Only the Task 2 analyzer, its test, and this required evidence report changed.
