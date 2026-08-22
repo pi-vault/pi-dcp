@@ -236,7 +236,7 @@ describe("session analysis", () => {
     const file = path.join(dir, "session.jsonl");
     fs.writeFileSync(
       file,
-      `${["toolUse", "stop", "aborted", "error", "private-stop-reason"]
+      `${["toolUse", "stop", "aborted", "error", "length", "private-stop-reason"]
         .map((stopReason, index) =>
           JSON.stringify({
             type: "message",
@@ -255,6 +255,7 @@ describe("session analysis", () => {
       stop: 1,
       aborted: 1,
       error: 1,
+      length: 1,
       other: 1,
     });
     expect(JSON.stringify(report)).not.toContain("private-stop-reason");

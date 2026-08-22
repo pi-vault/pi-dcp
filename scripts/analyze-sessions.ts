@@ -51,7 +51,7 @@ function fingerprint(value: unknown): string {
     .digest("hex");
 }
 
-const piStopReasons = new Set(["toolUse", "stop", "aborted", "error"]);
+const piStopReasons = new Set(["toolUse", "stop", "aborted", "error", "length"]);
 
 function counts(fileBytes = 0): SessionCounts {
   return {
