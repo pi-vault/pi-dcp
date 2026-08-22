@@ -89,7 +89,7 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
   let previousStateFingerprint: string | undefined;
   let previousSemanticFingerprint: string | undefined;
   let previousStateLine: number | undefined;
-  let previousEntryId: unknown;
+  let previousEntryIdFingerprint: string | undefined;
   let previousTimestamp: number | undefined;
 
   const lines = readline.createInterface({
@@ -136,9 +136,10 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
           const toolCall = record(part);
           if (toolCall?.type !== "toolCall" || typeof toolCall.id !== "string")
             continue;
+          const toolCallIdFingerprint = fingerprint(toolCall.id);
           openToolCalls.set(
-            toolCall.id,
-            (openToolCalls.get(toolCall.id) ?? 0) + 1,
+            toolCallIdFingerprint,
+            (openToolCalls.get(toolCallIdFingerprint) ?? 0) + 1,
           );
         }
       }
@@ -147,19 +148,27 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
       if (typeof toolCallId !== "string") {
         report.unmatchedToolResults++;
       } else {
-        const open = openToolCalls.get(toolCallId) ?? 0;
+        const toolCallIdFingerprint = fingerprint(toolCallId);
+        const open = openToolCalls.get(toolCallIdFingerprint) ?? 0;
         if (open === 0) report.unmatchedToolResults++;
-        else if (open === 1) openToolCalls.delete(toolCallId);
-        else openToolCalls.set(toolCallId, open - 1);
+        else if (open === 1) openToolCalls.delete(toolCallIdFingerprint);
+        else openToolCalls.set(toolCallIdFingerprint, open - 1);
       }
     }
 
     if (entry.type !== "custom" || entry.customType !== "pi-dcp-state")
       continue;
 
+    let stateFingerprint: string;
+    let semanticFingerprint: string;
+    try {
+      stateFingerprint = fingerprint(entry.data);
+      semanticFingerprint = fingerprint(semanticState(entry.data));
+    } catch {
+      report.malformedLines++;
+      continue;
+    }
     report.dcpBytes += Buffer.byteLength(line) + 1;
-    const stateFingerprint = fingerprint(entry.data);
-    const semanticFingerprint = fingerprint(semanticState(entry.data));
     const stateOrdinal = report.dcpStates + 1;
 
     if (previousStateFingerprint === undefined) {
@@ -178,9 +187,9 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
       const evidence = report.exactDuplicateEvidence;
       if (previousStateLine === lineNumber - 1) evidence.adjacentTransitions++;
       if (
-        typeof entry.id === "string" &&
-        typeof previousEntryId === "string" &&
-        entry.parentId === previousEntryId
+        typeof entry.parentId === "string" &&
+        previousEntryIdFingerprint !== undefined &&
+        fingerprint(entry.parentId) === previousEntryIdFingerprint
       )
         evidence.parentLinkedTransitions++;
       const currentTimestamp = timestamp(entry.timestamp);
@@ -201,7 +210,7 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
     previousStateFingerprint = stateFingerprint;
     previousSemanticFingerprint = semanticFingerprint;
     previousStateLine = lineNumber;
-    previousEntryId = entry.id;
+    previousEntryIdFingerprint = fingerprint(entry.id);
     previousTimestamp = timestamp(entry.timestamp);
   }
 

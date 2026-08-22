@@ -58,8 +58,18 @@ describe("session analysis", () => {
           role: "assistant",
           stopReason: "toolUse",
           content: [
-            { type: "toolCall", id: "call-1", name: "read", arguments: {} },
-            { type: "toolCall", id: "call-open", name: "read", arguments: {} },
+            {
+              type: "toolCall",
+              id: "sk-live-tool-call-secret-1",
+              name: "read",
+              arguments: {},
+            },
+            {
+              type: "toolCall",
+              id: "sk-live-tool-call-secret-open",
+              name: "read",
+              arguments: {},
+            },
           ],
         },
       },
@@ -70,7 +80,7 @@ describe("session analysis", () => {
         timestamp: "2026-08-22T00:00:00.200Z",
         message: {
           role: "toolResult",
-          toolCallId: "call-1",
+          toolCallId: "sk-live-tool-call-secret-1",
           toolName: "read",
           content: [],
           isError: false,
@@ -165,6 +175,7 @@ describe("session analysis", () => {
       maxDeltaMs: 3,
     });
     expect(report.files[0]?.dcpBytes).toBeGreaterThan(0);
+    expect(JSON.stringify(report)).not.toContain("sk-live-tool-call-secret");
   });
 
   it("accepts pnpm's argument separator", () => {
@@ -251,6 +262,28 @@ describe("session analysis", () => {
     const report = await analyzeSessionFiles([file]);
 
     expect(report.totals).toMatchObject({ malformedLines: 6, compactions: 1 });
+  });
+
+  it("skips deeply nested DCP data while continuing to stream", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-analysis-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    const deepData = `${'{"nested":'.repeat(10_000)}null${"}".repeat(10_000)}`;
+    const validEntry = {
+      type: "custom",
+      id: "s2",
+      timestamp: "2026-08-22T00:00:02.000Z",
+      customType: "pi-dcp-state",
+      data: state([]),
+    };
+    fs.writeFileSync(
+      file,
+      `{"type":"custom","id":"s1","timestamp":"2026-08-22T00:00:01.000Z","customType":"pi-dcp-state","data":${deepData}}\n${JSON.stringify(validEntry)}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals).toMatchObject({ malformedLines: 1, dcpStates: 1 });
   });
 
   it("normalizes unknown assistant stop reasons without exposing them", async () => {
