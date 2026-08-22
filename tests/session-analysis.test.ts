@@ -1,0 +1,172 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { analyzeSessionFiles } from "../scripts/analyze-sessions.ts";
+
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0))
+    fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function state(messageIds: string[][], totalPruneTokens = 0) {
+  return {
+    version: 1,
+    ownerSessionId: "session-1",
+    manualMode: false,
+    compressPermission: "allow",
+    stats: {
+      pruneTokenCounter: 0,
+      totalPruneTokens,
+      toolsPruned: 0,
+      messagesCompressed: 0,
+    },
+    lastCompaction: 0,
+    pruneTools: [],
+    blocks: [],
+    nextBlockId: 1,
+    nextRunId: 1,
+    messageIds: { byRawId: messageIds, nextRefIndex: messageIds.length + 1 },
+    nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+  };
+}
+
+describe("session analysis", () => {
+  it("reports safe transition, tool, error, and duplicate evidence", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-analysis-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    const first = state([]);
+    const idsOnly = state([["user:1:0", "m0001"]]);
+    const semantic = state([["user:1:0", "m0001"]], 5);
+    const lines = [
+      {
+        type: "session",
+        version: 3,
+        id: "session-1",
+        timestamp: "2026-08-22T00:00:00.000Z",
+        cwd: "/tmp",
+      },
+      {
+        type: "message",
+        id: "a1",
+        parentId: null,
+        timestamp: "2026-08-22T00:00:00.100Z",
+        message: {
+          role: "assistant",
+          stopReason: "toolUse",
+          content: [
+            { type: "toolCall", id: "call-1", name: "read", arguments: {} },
+            { type: "toolCall", id: "call-open", name: "read", arguments: {} },
+          ],
+        },
+      },
+      {
+        type: "message",
+        id: "r1",
+        parentId: "a1",
+        timestamp: "2026-08-22T00:00:00.200Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "read",
+          content: [],
+          isError: false,
+        },
+      },
+      {
+        type: "message",
+        id: "r2",
+        parentId: "r1",
+        timestamp: "2026-08-22T00:00:00.300Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "missing",
+          toolName: "read",
+          content: [],
+          isError: true,
+        },
+      },
+      {
+        type: "custom",
+        id: "s1",
+        parentId: "r2",
+        timestamp: "2026-08-22T00:00:01.000Z",
+        customType: "pi-dcp-state",
+        data: first,
+      },
+      {
+        type: "custom",
+        id: "s2",
+        parentId: "s1",
+        timestamp: "2026-08-22T00:00:02.000Z",
+        customType: "pi-dcp-state",
+        data: idsOnly,
+      },
+      {
+        type: "custom",
+        id: "s3",
+        parentId: "s2",
+        timestamp: "2026-08-22T00:00:02.003Z",
+        customType: "pi-dcp-state",
+        data: idsOnly,
+      },
+      {
+        type: "custom",
+        id: "s4",
+        parentId: "s3",
+        timestamp: "2026-08-22T00:00:03.000Z",
+        customType: "pi-dcp-state",
+        data: semantic,
+      },
+      {
+        type: "message",
+        id: "a2",
+        parentId: "s4",
+        timestamp: "2026-08-22T00:00:04.000Z",
+        message: {
+          role: "assistant",
+          stopReason: "error",
+          errorMessage: "redacted by analyzer",
+          content: [],
+        },
+      },
+      {
+        type: "compaction",
+        id: "c1",
+        parentId: "a2",
+        timestamp: "2026-08-22T00:00:05.000Z",
+      },
+    ];
+    fs.writeFileSync(
+      file,
+      `${lines.map((line) => JSON.stringify(line)).join("\n")}\nnot-json\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals).toMatchObject({
+      files: 1,
+      dcpStates: 4,
+      exactDuplicateTransitions: 1,
+      messageIdOnlyTransitions: 1,
+      semanticCheckpoints: 2,
+      compactions: 1,
+      malformedLines: 1,
+      unmatchedToolCalls: 1,
+      unmatchedToolResults: 1,
+      assistantErrors: 1,
+      stopReasons: { toolUse: 1, error: 1 },
+    });
+    expect(report.files[0]?.exactDuplicateEvidence).toEqual({
+      firstStateOrdinal: 3,
+      adjacentTransitions: 1,
+      parentLinkedTransitions: 1,
+      minDeltaMs: 3,
+      maxDeltaMs: 3,
+    });
+    expect(report.files[0]?.dcpBytes).toBeGreaterThan(0);
+  });
+});

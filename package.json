@@ -29,6 +29,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "benchmark": "tsx scripts/benchmark.ts",
+    "analyze:sessions": "tsx scripts/analyze-sessions.ts",
     "generate:schema": "tsx scripts/generate-schema.ts > dcp.schema.json",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "pack:verify": "node scripts/verify-pack.mjs",
