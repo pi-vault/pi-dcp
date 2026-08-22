@@ -170,3 +170,62 @@ $ git diff --check
 - The corpus was read only; no corpus copy, runtime trace/config, dependency/package file, or `src/` change was made.
 - The analyzer still emits structural metadata only, and the CLI regression uses an isolated temporary file.
 - `docs/analysis-report.md` retains no failed-command or ordinal-discrepancy claim.
+
+## Final review fix
+
+### Red regression evidence
+
+Added the deeply nested DCP-data regression before changing the analyzer, then ran:
+
+```text
+$ pnpm vitest run tests/session-analysis.test.ts
+
+Test Files  1 failed (1)
+Tests  1 failed | 5 passed (6)
+
+RangeError: Maximum call stack size exceeded
+❯ fingerprint scripts/analyze-sessions.ts:50:18
+❯ analyzeFile scripts/analyze-sessions.ts:161:30
+```
+
+The parsed deep DCP object caused `JSON.stringify` during fingerprinting to overflow the stack and abort analysis before the valid following line could be processed.
+
+### Changes
+
+- `scripts/analyze-sessions.ts` — hashes tool-call map keys and retained parent-link IDs with the existing SHA-256 fingerprint helper; catches per-entry state projection/fingerprinting failures, counts them as malformed, and continues.
+- `tests/session-analysis.test.ts` — uses secret-like tool-call IDs while retaining the structural tool assertions and verifies report omission; adds the deep-data continuation regression.
+- `.superpowers/sdd/phase-01-evidence-and-duplicate-writers/task-3-report.md` — this evidence append.
+
+### Green verification
+
+```text
+$ pnpm vitest run tests/session-analysis.test.ts
+
+Test Files  1 passed (1)
+Tests  6 passed (6)
+
+$ pnpm vitest run tests/session-analysis.test.ts tests/index.test.ts tests/persistence.test.ts
+
+Test Files  3 passed (3)
+Tests  46 passed (46)
+
+$ pnpm typecheck
+$ tsc --noEmit
+
+$ pnpm format:check
+$ biome format .
+Checked 96 files in 26ms. No fixes applied.
+
+$ git diff --check
+(exit 0)
+```
+
+### Commit
+
+`3fec1757bdf1194d671dc8458f16ba8229e60190` — `fix: harden session analyzer safety`
+
+### Self-review
+
+- No raw entry ID or tool-call ID crosses a streamed-record boundary; retained comparison and map keys are SHA-256 digests.
+- Unsafe parsed DCP state is neither emitted nor retained; it is counted as malformed and later valid lines continue.
+- No `src/`, package metadata, lockfile, or analyzer output content was changed beyond the phase-owned analyzer, test, and required report.
