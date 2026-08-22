@@ -159,6 +159,7 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
     if (entry.type !== "custom" || entry.customType !== "pi-dcp-state")
       continue;
 
+    report.dcpBytes += Buffer.byteLength(line) + 1;
     let stateFingerprint: string;
     let semanticFingerprint: string;
     try {
@@ -168,7 +169,6 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
       report.malformedLines++;
       continue;
     }
-    report.dcpBytes += Buffer.byteLength(line) + 1;
     const stateOrdinal = report.dcpStates + 1;
 
     if (previousStateFingerprint === undefined) {

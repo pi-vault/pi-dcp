@@ -276,14 +276,16 @@ describe("session analysis", () => {
       customType: "pi-dcp-state",
       data: state([]),
     };
-    fs.writeFileSync(
-      file,
-      `{"type":"custom","id":"s1","timestamp":"2026-08-22T00:00:01.000Z","customType":"pi-dcp-state","data":${deepData}}\n${JSON.stringify(validEntry)}\n`,
-    );
+    const deepLine = `{"type":"custom","id":"s1","timestamp":"2026-08-22T00:00:01.000Z","customType":"pi-dcp-state","data":${deepData}}`;
+    const validLine = JSON.stringify(validEntry);
+    fs.writeFileSync(file, `${deepLine}\n${validLine}\n`);
 
     const report = await analyzeSessionFiles([file]);
 
     expect(report.totals).toMatchObject({ malformedLines: 1, dcpStates: 1 });
+    expect(report.totals.dcpBytes).toBe(
+      Buffer.byteLength(deepLine) + 1 + Buffer.byteLength(validLine) + 1,
+    );
   });
 
   it("normalizes unknown assistant stop reasons without exposing them", async () => {
