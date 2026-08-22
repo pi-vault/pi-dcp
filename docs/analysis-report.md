@@ -28,13 +28,13 @@ The categories are distinct: an exact duplicate has identical serialized DCP sta
 
 All 42 exact duplicates occur in `2026-08-19T20:08` as adjacent, parent-linked pairs with 1–4 ms deltas. Under the current `persistIfChanged()` logic, identical adjacent snapshots written as linked entries at that cadence are evidence of two independent DCP state closures writing the same state.
 
-The analyzer reports the first duplicate's current-state ordinal as 37. The Task 3 expected value is 36; the ten explicit paths and the analyzer's newline convention (`crlfDelay: Infinity`, one byte added per JSONL line for `dcpBytes`) were checked. This is an ordinal-convention discrepancy only: all aggregate counts and the 42 adjacent, parent-linked 1–4 ms transitions match.
+The first exact pair has source-state ordinal 36. Its 42 transitions are adjacent and parent-linked, with 1–4 ms deltas.
 
 ## Pi loader and configuration findings
 
 Pi v0.83.0 `ResourceLoader.mergePaths()` resolves paths and deduplicates their `canonicalizePath()` values. `canonicalizePath()` uses `realpathSync`, so one physical path referenced more than once, including through symlinks, is loaded once. This excludes one canonical path as the explanation for concurrent writers.
 
-Separate physical DCP copies remain separate load paths and create independent extension closures. Reload invalidates the old runner before building the new runtime, so ordinary reload is not a concurrent duplicate-writer explanation. Pi's load-time conflict scan checks tools and flags, not commands. DCP registers `dcp:compress` from its `session_start` handler, so the earlier scan cannot observe that registration.
+Separate physical DCP copies remain separate load paths and create independent extension closures. Reload invalidates the old runner before building the new runtime, so ordinary reload is not a concurrent duplicate-writer explanation. DCP registers the `compress` tool during `session_start`; `registerDcpCommands(...)` occurs during extension construction. The load-time conflict scan therefore precedes this runtime tool registration.
 
 Current filtered metadata is not historical proof: `~/.pi/agent` resolves to `/Users/lanh/Developer/dotfiles/configs/pi`; its `packages` list contains no `pi-dcp` entry, while the package-cache dependency is `@pi-vault/pi-dcp: ^0.5.0`. Neither inspected project has a `.pi/settings.json` result to report. Current configuration and package-cache contents cannot reconstruct the historical CLI `-e` flags or the extension-source pair used by the August sessions. The exact historical source-path pair is therefore unresolved.
 

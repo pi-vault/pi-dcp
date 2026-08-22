@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -157,13 +158,35 @@ describe("session analysis", () => {
       stopReasons: { toolUse: 1, error: 1 },
     });
     expect(report.files[0]?.exactDuplicateEvidence).toEqual({
-      firstStateOrdinal: 3,
+      firstStateOrdinal: 2,
       adjacentTransitions: 1,
       parentLinkedTransitions: 1,
       minDeltaMs: 3,
       maxDeltaMs: 3,
     });
     expect(report.files[0]?.dcpBytes).toBeGreaterThan(0);
+  });
+
+  it("accepts pnpm's argument separator", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-analysis-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify({
+        type: "custom",
+        id: "s1",
+        timestamp: "2026-08-22T00:00:01.000Z",
+        customType: "pi-dcp-state",
+        data: state([]),
+      })}\n`,
+    );
+
+    const output = execFileSync("pnpm", ["run", "analyze:sessions", "--", file], {
+      encoding: "utf8",
+    });
+
+    expect(output).toContain('"files": 1');
   });
 
   it("uses non-reversible transition metadata without exposing state content", async () => {

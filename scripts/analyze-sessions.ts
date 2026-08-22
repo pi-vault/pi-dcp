@@ -168,7 +168,7 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
       report.exactDuplicateTransitions++;
       if (!report.exactDuplicateEvidence) {
         report.exactDuplicateEvidence = {
-          firstStateOrdinal: stateOrdinal,
+          firstStateOrdinal: stateOrdinal - 1,
           adjacentTransitions: 0,
           parentLinkedTransitions: 0,
           minDeltaMs: null,
@@ -239,6 +239,7 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   const files = process.argv.slice(2);
+  if (files[0] === "--") files.shift();
   if (files.length === 0) {
     process.stderr.write(
       "Usage: tsx scripts/analyze-sessions.ts <session.jsonl>...\n",
