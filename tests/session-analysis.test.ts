@@ -7,8 +7,7 @@ import { analyzeSessionFiles } from "../scripts/analyze-sessions.ts";
 const tempDirs: string[] = [];
 
 afterEach(() => {
-  for (const dir of tempDirs.splice(0))
-    fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
 function state(messageIds: string[][], totalPruneTokens = 0) {
@@ -140,10 +139,7 @@ describe("session analysis", () => {
         timestamp: "2026-08-22T00:00:05.000Z",
       },
     ];
-    fs.writeFileSync(
-      file,
-      `${lines.map((line) => JSON.stringify(line)).join("\n")}\nnot-json\n`,
-    );
+    fs.writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join("\n")}\nnot-json\n`);
 
     const report = await analyzeSessionFiles([file]);
 
@@ -168,5 +164,99 @@ describe("session analysis", () => {
       maxDeltaMs: 3,
     });
     expect(report.files[0]?.dcpBytes).toBeGreaterThan(0);
+  });
+
+  it("uses non-reversible transition metadata without exposing state content", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-analysis-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    const sensitiveState = {
+      ...state([]),
+      summary: "private summary must not be retained",
+      token: "private-token-must-not-be-retained",
+    };
+    fs.writeFileSync(
+      file,
+      `${[
+        {
+          type: "custom",
+          id: "s1",
+          timestamp: "2026-08-22T00:00:01.000Z",
+          customType: "pi-dcp-state",
+          data: sensitiveState,
+        },
+        {
+          type: "custom",
+          id: "s2",
+          parentId: "s1",
+          timestamp: "2026-08-22T00:00:01.001Z",
+          customType: "pi-dcp-state",
+          data: sensitiveState,
+        },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals.exactDuplicateTransitions).toBe(1);
+    expect(JSON.stringify(report)).not.toContain("private-token-must-not-be-retained");
+    expect(fs.readFileSync("scripts/analyze-sessions.ts", "utf8")).not.toMatch(
+      /let previous(?:Full|Semantic): string/,
+    );
+  });
+
+  it("counts non-entry JSONL values as malformed while continuing to stream", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-analysis-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    fs.writeFileSync(
+      file,
+      `${[null, [], 42, "scalar", {}, { type: "message" }]
+        .map((line) => JSON.stringify(line))
+        .concat(
+          JSON.stringify({
+            type: "compaction",
+            id: "c1",
+            timestamp: "2026-08-22T00:00:01.000Z",
+          }),
+        )
+        .join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals).toMatchObject({ malformedLines: 6, compactions: 1 });
+  });
+
+  it("normalizes unknown assistant stop reasons without exposing them", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-analysis-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    fs.writeFileSync(
+      file,
+      `${["toolUse", "stop", "aborted", "error", "private-stop-reason"]
+        .map((stopReason, index) =>
+          JSON.stringify({
+            type: "message",
+            id: `a${index}`,
+            timestamp: "2026-08-22T00:00:01.000Z",
+            message: { role: "assistant", stopReason, content: [] },
+          }),
+        )
+        .join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals.stopReasons).toEqual({
+      toolUse: 1,
+      stop: 1,
+      aborted: 1,
+      error: 1,
+      other: 1,
+    });
+    expect(JSON.stringify(report)).not.toContain("private-stop-reason");
   });
 });

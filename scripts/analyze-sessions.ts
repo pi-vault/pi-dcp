@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as readline from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -44,6 +45,14 @@ function semanticState(value: unknown): unknown {
   return semantic;
 }
 
+function fingerprint(value: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(value) ?? "undefined")
+    .digest("hex");
+}
+
+const piStopReasons = new Set(["toolUse", "stop", "aborted", "error"]);
+
 function counts(fileBytes = 0): SessionCounts {
   return {
     fileBytes,
@@ -77,8 +86,8 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
   const report: SessionFileReport = { file, ...counts(fs.statSync(file).size) };
   const openToolCalls = new Map<string, number>();
   let lineNumber = 0;
-  let previousFull: string | undefined;
-  let previousSemantic: string | undefined;
+  let previousStateFingerprint: string | undefined;
+  let previousSemanticFingerprint: string | undefined;
   let previousStateLine: number | undefined;
   let previousEntryId: unknown;
   let previousTimestamp: number | undefined;
@@ -90,10 +99,19 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
 
   for await (const line of lines) {
     lineNumber++;
-    let entry: Record<string, unknown>;
+    let entry: Record<string, unknown> | undefined;
     try {
-      entry = JSON.parse(line) as Record<string, unknown>;
+      entry = record(JSON.parse(line));
     } catch {
+      report.malformedLines++;
+      continue;
+    }
+    if (
+      !entry ||
+      typeof entry.type !== "string" ||
+      typeof entry.id !== "string" ||
+      typeof entry.timestamp !== "string"
+    ) {
       report.malformedLines++;
       continue;
     }
@@ -103,8 +121,10 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
     const message = record(entry.message);
     if (entry.type === "message" && message?.role === "assistant") {
       const stopReason = message.stopReason;
-      if (typeof stopReason === "string")
-        report.stopReasons[stopReason] = (report.stopReasons[stopReason] ?? 0) + 1;
+      if (typeof stopReason === "string") {
+        const reason = piStopReasons.has(stopReason) ? stopReason : "other";
+        report.stopReasons[reason] = (report.stopReasons[reason] ?? 0) + 1;
+      }
       if (
         stopReason === "error" ||
         (typeof message.errorMessage === "string" && message.errorMessage.length > 0)
@@ -138,13 +158,13 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
       continue;
 
     report.dcpBytes += Buffer.byteLength(line) + 1;
-    const full = JSON.stringify(entry.data);
-    const semantic = JSON.stringify(semanticState(entry.data));
+    const stateFingerprint = fingerprint(entry.data);
+    const semanticFingerprint = fingerprint(semanticState(entry.data));
     const stateOrdinal = report.dcpStates + 1;
 
-    if (previousFull === undefined) {
+    if (previousStateFingerprint === undefined) {
       report.semanticCheckpoints++;
-    } else if (full === previousFull) {
+    } else if (stateFingerprint === previousStateFingerprint) {
       report.exactDuplicateTransitions++;
       if (!report.exactDuplicateEvidence) {
         report.exactDuplicateEvidence = {
@@ -171,15 +191,15 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
           evidence.maxDeltaMs = Math.max(evidence.maxDeltaMs ?? delta, delta);
         }
       }
-    } else if (semantic === previousSemantic) {
+    } else if (semanticFingerprint === previousSemanticFingerprint) {
       report.messageIdOnlyTransitions++;
     } else {
       report.semanticCheckpoints++;
     }
 
     report.dcpStates = stateOrdinal;
-    previousFull = full;
-    previousSemantic = semantic;
+    previousStateFingerprint = stateFingerprint;
+    previousSemanticFingerprint = semanticFingerprint;
     previousStateLine = lineNumber;
     previousEntryId = entry.id;
     previousTimestamp = timestamp(entry.timestamp);
