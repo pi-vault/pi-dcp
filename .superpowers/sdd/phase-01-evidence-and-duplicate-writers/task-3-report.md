@@ -229,3 +229,57 @@ $ git diff --check
 - No raw entry ID or tool-call ID crosses a streamed-record boundary; retained comparison and map keys are SHA-256 digests.
 - Unsafe parsed DCP state is neither emitted nor retained; it is counted as malformed and later valid lines continue.
 - No `src/`, package metadata, lockfile, or analyzer output content was changed beyond the phase-owned analyzer, test, and required report.
+
+## Final review fix 2
+
+### Red regression evidence
+
+Added the byte-count assertion to the existing deeply nested DCP-data regression before changing the analyzer, then ran:
+
+```text
+$ pnpm vitest run tests/session-analysis.test.ts
+
+Test Files  1 failed (1)
+Tests  1 failed | 5 passed (6)
+
+AssertionError: expected 482 to be 110589
+```
+
+The unsafe but valid `pi-dcp-state` JSONL record was counted as malformed and skipped before its `Buffer.byteLength(line) + 1` contribution was added.
+
+### Changes
+
+- `scripts/analyze-sessions.ts` — counts each valid DCP JSON record's bytes before unsafe-state fingerprinting can mark it malformed.
+- `tests/session-analysis.test.ts` — asserts both the deeply nested malformed state record and following valid state record contribute to `dcpBytes`.
+
+### Green verification
+
+```text
+$ pnpm vitest run tests/session-analysis.test.ts
+Test Files  1 passed (1)
+Tests  6 passed (6)
+
+$ pnpm vitest run tests/session-analysis.test.ts tests/index.test.ts tests/persistence.test.ts
+Test Files  3 passed (3)
+Tests  46 passed (46)
+
+$ pnpm typecheck
+$ tsc --noEmit
+
+$ pnpm format:check
+$ biome format .
+Checked 96 files in 24ms. No fixes applied.
+
+$ git diff --check
+(exit 0)
+```
+
+### Commit
+
+`c3c637c1dc195cf3d528aa0214546665dc7c547f` — `fix: count unsafe DCP records`
+
+### Self-review
+
+- `dcpBytes` now includes every syntactically valid, structurally valid DCP record exactly once, even when state projection/fingerprinting is unsafe.
+- Unsafe state remains malformed and does not update transition state; following records continue to stream normally.
+- No package, configuration, source, corpus, or unrelated documentation was changed.
