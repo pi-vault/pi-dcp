@@ -17,6 +17,13 @@ describe("strip", () => {
       );
     });
 
+    it("preserves identifier-like text before a message-id suffix", () => {
+      expect(stripHallucinationsFromString("claim0001</dcp-message-id>")).toBe("claim0001");
+      expect(stripHallucinationsFromString("room0001</dpc-message-id>")).toBe(
+        "room0001</dpc-message-id>",
+      );
+    });
+
     it("removes an orphan message-id opening tag and its bounded reference", () => {
       expect(stripHallucinationsFromString("hello <dcp-message-id>m0001")).toBe("hello ");
       expect(stripHallucinationsFromString("hello <dpc-message-id>m0002")).toBe("hello ");

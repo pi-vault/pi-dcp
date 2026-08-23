@@ -7,7 +7,7 @@ const DCP_COMPLETE_PAIR = /<dcp[-\w]*(?:\s[^>]*)?>[\s\S]*?<\/dcp[-\w]*>/gi;
 const DCP_TRUNCATED_PAIR = /<dcp[-\w]*(?:\s[^>]*)?>[\s\S]*?<\/dcp[-\w]*/gi;
 // 3. Bounded message-ID suffixes or pairs, including the observed dpc transposition.
 const DCP_MESSAGE_ID_SUFFIX_OR_PAIR =
-  /(?:<(?:dcp|dpc)-message-id(?:\s[^>]*)?>)?m\d{4,}<\/(?:dcp|dpc)-message-id>/gi;
+  /(?:<(?:dcp|dpc)-message-id(?:\s[^>]*)?>)?(?<!\w)m\d{4,}<\/(?:dcp|dpc)-message-id>/gi;
 // 4. Orphan message-ID opening tag followed by a valid bounded reference.
 const DCP_ORPHANED_MESSAGE_ID = /<(?:dcp|dpc)-message-id(?:\s[^>]*)?>m\d{4,}\b/gi;
 // 5. Lone unpaired tags: </dcp-foo> or <dcp-foo>
