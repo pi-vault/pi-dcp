@@ -106,7 +106,7 @@ Interpret the evidence against Pi v0.83.0 loader behavior:
 
 1. `DefaultResourceLoader.mergePaths()` canonicalizes real paths, so repeated references to one physical extension are deduplicated.
 2. Distinct physical copies can still load as separate extension instances.
-3. Reload invalidates the old extension runner before constructing the replacement.
+3. Reload emits `session_shutdown`, reloads resources, replaces the extension runner, and then emits `session_start` on the replacement; the reload path itself does not call `runner.invalidate()`.
 4. DCP registers `compress` during `session_start`, after Pi's load-time conflict scan, and Pi does not scan command conflicts.
 
 The historical source-path pair remains unresolved unless a contemporaneous configuration or launch command is available. This uncertainty does not justify a production singleton guard.

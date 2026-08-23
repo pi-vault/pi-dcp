@@ -49,7 +49,7 @@ Interpret the evidence against Pi v0.83.0 loader behavior:
 
 1. `DefaultResourceLoader.mergePaths()` canonicalizes real paths, so repeated references to one physical extension are deduplicated.
 2. Distinct physical copies can still load as separate extension instances.
-3. Reload invalidates the old extension runner before constructing the replacement.
+3. Reload emits `session_shutdown`, reloads resources, replaces the extension runner, and then emits `session_start` on the replacement; the reload path itself does not call `runner.invalidate()`.
 4. DCP registers `compress` during `session_start`, after Pi's load-time conflict scan, and Pi does not scan command conflicts.
 
 The historical source-path pair remains unresolved unless a contemporaneous configuration or launch command is available. This uncertainty does not justify a production singleton guard.
@@ -300,7 +300,7 @@ describe("session analysis", () => {
       stopReasons: { toolUse: 1, error: 1 },
     });
     expect(report.files[0]?.exactDuplicateEvidence).toEqual({
-      firstStateOrdinal: 3,
+      firstStateOrdinal: 2,
       adjacentTransitions: 1,
       parentLinkedTransitions: 1,
       minDeltaMs: 3,
@@ -321,7 +321,7 @@ Expected: FAIL because `scripts/analyze-sessions.ts` does not exist.
 
 - [ ] **Step 3: Define the analyzer's report shapes**
 
-Create `scripts/analyze-sessions.ts` with imports from `node:fs`, `node:readline`, and `node:url`, followed by:
+Create `scripts/analyze-sessions.ts` with imports from `node:crypto`, `node:fs`, `node:readline`, and `node:url`, followed by:
 
 ```typescript
 export interface ExactDuplicateEvidence {
@@ -365,13 +365,21 @@ Use `fileBytes = fs.statSync(file).size`. Define `dcpBytes` as `Buffer.byteLengt
 Add:
 
 ```typescript
-function semanticState(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const { messageIds: _messageIds, ...semantic } = value as Record<
-    string,
-    unknown
-  >;
+function semanticState(value: Record<string, unknown>): Record<string, unknown> {
+  const { messageIds: _messageIds, ...semantic } = value;
   return semantic;
+}
+
+function fingerprint(value: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(value) ?? "undefined")
+    .digest("hex");
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 ```
 
@@ -384,26 +392,31 @@ readline.createInterface({
 });
 ```
 
-Increment a physical line counter before parsing. For each `custom` entry whose `customType` is `pi-dcp-state`:
+Increment a physical line counter before parsing. For each `custom` entry whose `customType` is `pi-dcp-state`, retain `dcpBytes` even when `data` is malformed, count non-object/array data as malformed, and otherwise hash the full and message-ID-excluded state without retaining state content:
 
 ```typescript
-const full = JSON.stringify(entry.data);
-const semantic = JSON.stringify(semanticState(entry.data));
+const data = record(entry.data);
+if (!data) {
+  report.malformedLines++;
+  continue;
+}
+const fullFingerprint = fingerprint(data);
+const semanticFingerprint = fingerprint(semanticState(data));
 const stateOrdinal = report.dcpStates + 1;
 
-if (previousFull === undefined) {
+if (previousStateFingerprint === undefined) {
   report.semanticCheckpoints++;
-} else if (full === previousFull) {
+} else if (fullFingerprint === previousStateFingerprint) {
   report.exactDuplicateTransitions++;
-} else if (semantic === previousSemantic) {
+} else if (semanticFingerprint === previousSemanticFingerprint) {
   report.messageIdOnlyTransitions++;
 } else {
   report.semanticCheckpoints++;
 }
 
 report.dcpStates = stateOrdinal;
-previousFull = full;
-previousSemantic = semantic;
+previousStateFingerprint = fullFingerprint;
+previousSemanticFingerprint = semanticFingerprint;
 ```
 
 On exact transitions, create `exactDuplicateEvidence` once and retain its first ordinal. Increment adjacency only when the physical lines are consecutive. Increment parent linkage only when both IDs are strings and `entry.parentId === previousEntryId`. Update minimum/maximum delta only for finite, non-negative timestamp differences.
@@ -412,7 +425,7 @@ On exact transitions, create `exactDuplicateEvidence` once and retain its first 
 
 Use `Map<string, number>` for open tool-call IDs:
 
-- Assistant messages increment their string `stopReason`.
+- Assistant messages increment known Pi stop reasons; normalize unknown strings to `other` so arbitrary values are not emitted.
 - `assistantErrors` increments when `stopReason === "error"` or `errorMessage` is a non-empty string; never retain the text.
 - Assistant `toolCall` parts increment their ID count.
 - Tool results decrement their ID count; a missing open ID increments `unmatchedToolResults`.
@@ -540,7 +553,7 @@ Record:
 
 - `mergePaths()` uses `canonicalizePath()`, which resolves symlinks with `realpathSync`; one physical path referenced more than once is deduplicated.
 - Separate physical DCP copies remain separate load paths and create independent closures.
-- Reload invalidates the old runner before building the new runtime.
+- Reload emits `session_shutdown`, reloads resources, replaces the runner before `session_start`, and does not call `runner.invalidate()` on that path.
 - DCP registers `compress` inside `session_start`; Pi's earlier load-time conflict scan cannot see it, and the scan does not inspect commands.
 
 - [ ] **Step 3: Inspect only current DCP configuration metadata**
