@@ -13,6 +13,8 @@ describe("context command", () => {
     expect(result).toContain("200000");
     expect(result).toContain("2.5");
     expect(result).toContain("Current user turn: 0");
+    expect(result).toContain("Currently pruned tool calls: 1");
+    expect(result).not.toContain("\n  Pruned tool calls:");
   });
 
   it("handles null token values in context usage (E5)", () => {
