@@ -2,19 +2,23 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the limited hand-written glob compiler with Node 24 native matching so protected patterns support character classes and retain existing wildcard behavior.
+**Goal:** Replace the limited hand-written glob compiler with Node's native POSIX glob matcher so every protected tool and file pattern supports character classes while preserving the existing slash-based contract.
 
-**Architecture:** Delegate matching to `node:path.matchesGlob` and route every tool pattern through it. Keep the public `matchesGlob()` wrapper so callers and tests remain stable; update schema and README to state the native contract.
+**Architecture:** Keep the public `matchesGlob()` wrapper and delegate it to `node:path.posix.matchesGlob`. The wrapper validates malformed character classes, converts matcher errors into a non-match, and retains the previous wildcard behavior for leading-dot path segments through a bounded compatibility fallback. Route all protected-tool consumers through `isToolNameProtected()`, and keep protected-file checks in the shared matcher path. Update the schema and README to state the native POSIX contract.
 
-**Tech Stack:** TypeScript ESM, Node.js >=24.15.0 `path.matchesGlob`, Vitest.
+**Tech Stack:** TypeScript ESM, Node.js >=24.15.0 `path.posix.matchesGlob`, Vitest.
 
 **Spec:** `docs/superpowers/specs/2026-08-22-dcp-troubleshooting-design.md`
 
 ## Global Constraints
 
 - Add no dependency.
-- Preserve existing exact, `*`, `**`, `?`, and slash behavior.
+- Require Node.js >=24.15.0 for implementation and verification; do not treat the current Node 23 runtime as supported evidence.
+- Preserve existing exact, `*`, `**`, `?`, and `/` separator behavior. Use `path.posix.matchesGlob` so behavior does not change with the host OS; backslashes remain literal path text.
+- Preserve the previous wildcard behavior for leading-dot path segments; native character classes and other native syntax must still use Node semantics.
 - Malformed string patterns must return a non-match rather than crash the context pipeline.
+- Evaluate every configured pattern, including exact strings and patterns without `*` or `?`.
+- Apply the contract consistently to deduplication, failed-input purging, compression-summary preservation, `dcp:sweep`, and protected file paths.
 - Treat broader native syntax as an intentional configuration contract change.
 
 ---
@@ -22,13 +26,27 @@
 ### Task 1: Lock down native behavior with failing tests
 
 **Files:**
+
+- Modify: `tests/protected-content.test.ts`
 - Modify: `tests/protected-patterns.test.ts`
+- Modify: `tests/strategy-runner.test.ts`
 
 **Interfaces:**
-- Consumes: `matchesGlob()`, `isToolNameProtected()`, and `isFilePathProtected()`.
-- Produces: tests for character classes, literal regex characters, malformed patterns, and tool patterns without `*` or `?`.
 
-- [ ] **Step 1: Add character-class and safety tests**
+- Consumes: `matchesGlob()`, `isToolNameProtected()`, `isFilePathProtected()`, `appendProtectedToolOutputs()`, and `sweepAll()`.
+- Produces: regression coverage for native character classes, literal regex punctuation, malformed patterns, POSIX separator behavior, leading-dot wildcard compatibility, compression protected-tool patterns, sweep protected-tool patterns, and sweep protected-file patterns.
+
+- [ ] **Step 1: Verify the supported runtime before running red tests**
+
+Run:
+
+```bash
+node --version
+```
+
+Continue only when the version is `>=24.15.0`. The repository's `package.json` already declares this engine requirement.
+
+- [ ] **Step 2: Add matcher and consumer tests**
 
 Add inside `describe("matchesGlob")`:
 
@@ -39,12 +57,25 @@ it("matches character classes using Node glob semantics", () => {
   expect(matchesGlob("file7.ts", "file[0-9].ts")).toBe(true);
 });
 
+it("preserves slash separators independently of the host OS", () => {
+  expect(matchesGlob("src/config.ts", "src/**/*.ts")).toBe(true);
+  expect(matchesGlob("src\\config.ts", "src/**/*.ts")).toBe(false);
+});
+
+it("preserves wildcard matching of leading-dot segments", () => {
+  expect(matchesGlob(".env", "*")).toBe(true);
+  expect(matchesGlob("src/.env", "src/**/*")).toBe(true);
+  expect(matchesGlob(".git/config", "**/*")).toBe(true);
+});
+
 it("preserves regex punctuation as literal path text", () => {
   expect(matchesGlob("src/a+b.ts", "src/a+b.ts")).toBe(true);
   expect(matchesGlob("src/ab.ts", "src/a+b.ts")).toBe(false);
 });
 
-it("returns false for malformed character classes", () => {
+it("returns false for malformed patterns", () => {
+  expect(matchesGlob("[", "[")).toBe(false);
+  expect(matchesGlob("src/[abc.ts", "src/[abc.ts")).toBe(false);
   expect(matchesGlob("testa.ts", "test[abc.ts")).toBe(false);
   expect(matchesGlob("foo", "[")).toBe(false);
 });
@@ -54,87 +85,124 @@ Add inside `describe("isToolNameProtected")`:
 
 ```typescript
 it("evaluates character-class patterns without star or question mark", () => {
-  expect(isToolNameProtected("read", ["r[ea]ad", "r[ea][ad]"])).toBe(true);
-  expect(isToolNameProtected("write", ["r[ea][ad]"])).toBe(false);
+  expect(isToolNameProtected("read", ["r[ea]ad"])).toBe(true);
+  expect(isToolNameProtected("write", ["r[ea]ad"])).toBe(false);
 });
 ```
 
-- [ ] **Step 2: Run the tests and verify current limitations**
+Add a character-class case to `describe("isFilePathProtected")`, such as `src/[ab].ts` matching `src/a.ts`.
+
+Add to `tests/protected-content.test.ts`:
+
+- a protected tool output matched by a class or wildcard pattern, proving compression summaries no longer use literal-only membership;
+- the existing exact-match and error-result behavior unchanged.
+
+Add to `tests/strategy-runner.test.ts` under `describe("sweepAll")`:
+
+- a `config.compress.protectedTools` class/wildcard pattern that protects the matching tool while an unrelated completed tool is pruned;
+- a `config.protectedFilePatterns` pattern that protects a completed tool whose parameters contain a matching `filePath`.
+
+- [ ] **Step 3: Run the focused tests and verify they fail for the intended current reasons**
 
 Run:
 
 ```bash
-pnpm vitest run tests/protected-patterns.test.ts
+pnpm vitest run tests/protected-patterns.test.ts tests/protected-content.test.ts tests/strategy-runner.test.ts
 ```
 
-Expected: FAIL on character-class matching and `isToolNameProtected` class evaluation.
+Expected red failures:
 
-### Task 2: Replace the custom compiler with the standard library
+- character-class matching and class-based tool/file protection;
+- compression protected-tool patterns;
+- `sweepAll` protected-tool patterns;
+- `sweepAll` protected-file patterns.
+
+The malformed-pattern tests may already pass against the current compiler; they remain required to lock down the safety contract.
+
+### Task 2: Replace the compiler and route every consumer through it
 
 **Files:**
+
+- Modify: `src/compress/protected-content.ts`
 - Modify: `src/strategies/protected-patterns.ts`
+- Modify: `src/strategies/runner.ts`
 
 **Interfaces:**
-- Consumes: Node's `matchesGlob(path: string, pattern: string): boolean`.
-- Produces: existing exported `matchesGlob(input, pattern)` wrapper.
 
-- [ ] **Step 1: Replace `globToRegex`**
+- Consumes: Node's `posix.matchesGlob(path: string, pattern: string): boolean`.
+- Produces: the existing exported `matchesGlob(input, pattern)` wrapper and consistent protected-pattern behavior across all pruning/preservation paths.
 
-At the top of `src/strategies/protected-patterns.ts`, add:
+- [ ] **Step 1: Replace the primary compiler with the POSIX native matcher**
+
+In `src/strategies/protected-patterns.ts`:
 
 ```typescript
-import { matchesGlob as matchesPathGlob } from "node:path";
+import { posix } from "node:path";
 ```
 
-Replace the current `matchesGlob()` and delete `globToRegex()`:
+Remove the old compiler as the primary matcher, keep the exported wrapper, and make native errors safe:
 
 ```typescript
 export function matchesGlob(input: string, pattern: string): boolean {
-  return matchesPathGlob(input, pattern);
+  try {
+    return posix.matchesGlob(input, pattern);
+  } catch {
+    return false;
+  }
 }
 ```
 
-- [ ] **Step 2: Route every tool pattern through the matcher**
+- Replace `isToolNameProtected()` with a `.some()` over every configured pattern.
+- Leave `isFilePathProtected()` on the shared `matchesGlob()` wrapper.
+- Add a bounded `matchesLegacyDotPath()` fallback after the native matcher returns false. Use it only when the input contains a leading-dot path segment and the pattern contains no native character-class, brace, or escape syntax; this preserves the old `*`/`**` behavior without overriding native class semantics.
 
-Replace `isToolNameProtected()` with:
+Do not use host-dependent `path.matchesGlob` or add path normalization in this helper. Pi's reference implementation uses `path.posix.matchesGlob` for stable slash semantics; its extra relative-path fallback is specific to Pi's guest `find` implementation and does not belong here.
 
-```typescript
-export function isToolNameProtected(toolName: string, protectedPatterns: string[]): boolean {
-  return protectedPatterns.some((pattern) => matchesGlob(toolName, pattern));
-}
-```
+- [ ] **Step 2: Route compression-summary preservation through the shared matcher**
 
-Exact strings continue to work under native matching; no special branch is needed.
+In `src/compress/protected-content.ts`, import `isToolNameProtected()` and replace `protectedTools.includes(msg.toolName)` with the shared predicate. Keep the existing error-result exclusion and output formatting unchanged.
 
-- [ ] **Step 3: Run focused tests**
+- [ ] **Step 3: Route `dcp:sweep` through the shared tool and file predicates**
+
+In `src/strategies/runner.ts`:
+
+- replace the `Set` membership check in `sweepAll()` with `isToolNameProtected(entry.tool, protectedTools)`;
+- retain `BASE_PROTECTED_TOOLS` and `config.compress.protectedTools` as the inputs to that predicate;
+- use `getFilePathsFromParameters()` and `isFilePathProtected()` before pruning so `protectedFilePatterns` keeps its documented “never pruned” contract during sweep;
+- preserve status, turn-protection, statistics, and token-counter behavior.
+
+- [ ] **Step 4: Run the focused tests green**
 
 Run:
 
 ```bash
-pnpm vitest run tests/protected-patterns.test.ts
+pnpm vitest run tests/protected-patterns.test.ts tests/protected-content.test.ts tests/strategy-runner.test.ts
 ```
 
-Expected: PASS.
+Expected: all focused tests pass, including the new class, malformed-pattern, compression, sweep-tool, and sweep-file cases.
 
 ### Task 3: Publish the explicit configuration contract
 
 **Files:**
+
+- Regenerate: `dcp.schema.json`
 - Modify: `src/config-schema.ts`
 - Modify: `README.md`
 
 **Interfaces:**
+
 - Consumes: protected tool and file pattern descriptions.
-- Produces: documentation that patterns follow Node native glob semantics.
+- Produces: a consistent public contract that identifies Node POSIX glob semantics.
 
 - [ ] **Step 1: Update schema descriptions**
 
 Use these exact descriptions in `src/config-schema.ts`:
 
 ```typescript
-"Tool names excluded from deduplication (Node path.matchesGlob patterns)"
-"Tool names excluded from failed-input purging (Node path.matchesGlob patterns)"
-"Tool outputs to preserve during compression (Node path.matchesGlob patterns)"
-"Node path.matchesGlob patterns for file paths to protect from pruning"
+"Tool names excluded from deduplication (Node path.posix.matchesGlob patterns)";
+"Tool names excluded from failed-input purging (Node path.posix.matchesGlob patterns)";
+"Tool outputs to preserve during compression (Node path.posix.matchesGlob patterns)";
+"Node path.posix.matchesGlob patterns for file paths to protect from pruning";
 ```
 
 - [ ] **Step 2: Update README configuration text**
@@ -142,43 +210,63 @@ Use these exact descriptions in `src/config-schema.ts`:
 After the `protectedFilePatterns` bullet, add:
 
 ```markdown
-Protected tool and file patterns use Node's `path.matchesGlob` semantics, including `*`, `**`, `?`, and character classes such as `[abc]` and `[0-9]`.
+Protected tool and file patterns use Node's `path.posix.matchesGlob` semantics: `/` is the path separator, and supported patterns include `*`, `**`, `?`, and character classes such as `[abc]` and `[0-9]`. Wildcards continue to match leading-dot path segments for compatibility with earlier pi-dcp releases.
 ```
 
-Change each protected-tool bullet that says only “tool names” to say “Node glob patterns for tool names” without duplicating the syntax list.
+Describe all three protected-tool settings consistently:
 
-- [ ] **Step 3: Run focused and schema checks**
+- `compress.protectedTools` — Node glob patterns for tool outputs preserved during compression.
+- `deduplication.protectedTools` — Node glob patterns for tool names excluded from deduplication.
+- `purgeErrors.protectedTools` — Node glob patterns for tool names excluded from failed-input purging.
+
+Do not duplicate the syntax list in each bullet.
+
+- [ ] **Step 3: Regenerate and inspect the tracked schema**
 
 Run:
 
 ```bash
-pnpm vitest run tests/protected-patterns.test.ts
-pnpm typecheck
-pnpm exec tsx scripts/generate-schema.ts > /tmp/pi-dcp-schema.json
-diff -u dcp.schema.json /tmp/pi-dcp-schema.json || true
-```
-
-Review the schema diff. If repository policy expects generated schema changes in feature commits, regenerate with:
-
-```bash
 pnpm run generate:schema
+git diff -- dcp.schema.json
 ```
 
-Then run:
+The schema diff must contain only the four protected-pattern description changes. Keep `dcp.schema.json` in the feature change; its tracked history already updates it with `src/config-schema.ts` changes.
+
+### Task 4: Verify the complete change
+
+- [ ] **Step 1: Run repository checks on the supported Node runtime**
+
+Run:
 
 ```bash
-pnpm format:check
-pnpm lint
+pnpm check
+pnpm run pack:verify
 git diff --check
 ```
 
-Expected: all checks PASS. Any generated schema diff must contain only the four description changes.
+Expected: all checks pass, package verification succeeds, and no generated or whitespace-only changes remain outside the intended files.
 
-- [ ] **Step 4: Commit Phase 3**
+- [ ] **Step 2: Review the final diff**
 
-```bash
-git add src/strategies/protected-patterns.ts tests/protected-patterns.test.ts src/config-schema.ts README.md dcp.schema.json
-git commit -m "feat: use native glob matching for protected patterns"
+Confirm the diff is limited to:
+
+```text
+src/strategies/protected-patterns.ts
+src/compress/protected-content.ts
+src/strategies/runner.ts
+tests/protected-patterns.test.ts
+tests/protected-content.test.ts
+tests/strategy-runner.test.ts
+src/config-schema.ts
+README.md
+dcp.schema.json
 ```
 
-If `dcp.schema.json` is unchanged, omit it from `git add`.
+Confirm no dependency, general-purpose replacement glob compiler, host-dependent matcher, or unrelated sweep behavior was added. The only compatibility fallback should be the bounded leading-dot wildcard path described in Task 2.
+
+- [ ] **Step 3: Commit Phase 3**
+
+```bash
+git add src/strategies/protected-patterns.ts src/compress/protected-content.ts src/strategies/runner.ts tests/protected-patterns.test.ts tests/protected-content.test.ts tests/strategy-runner.test.ts src/config-schema.ts README.md dcp.schema.json
+git commit -m "feat: use native glob matching for protected patterns"
+```

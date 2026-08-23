@@ -1,17 +1,38 @@
-/**
- * Glob matching and tool/file path protection for pruning strategies.
- *
- * Custom glob implementation (no external dependency) supporting:
- * - `*` matches any chars except `/`
- * - `**` matches any chars including `/`
- * - `?` matches single char except `/`
- */
+import { posix } from "node:path";
 
+/** Glob matching and tool/file path protection for pruning strategies. */
 export function matchesGlob(input: string, pattern: string): boolean {
-  return globToRegex(pattern).test(input);
+  if (hasUnclosedCharacterClass(pattern)) return false;
+
+  try {
+    if (posix.matchesGlob(input, pattern)) return true;
+  } catch {
+    return false;
+  }
+
+  // Node's matcher excludes leading-dot segments from wildcards; preserve the
+  // previous matcher contract without changing native class semantics.
+  return matchesLegacyDotPath(input, pattern);
 }
 
-function globToRegex(pattern: string): RegExp {
+function hasUnclosedCharacterClass(pattern: string): boolean {
+  let open = false;
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === "\\") {
+      i++;
+    } else if (pattern[i] === "[") {
+      open = true;
+    } else if (pattern[i] === "]") {
+      open = false;
+    }
+  }
+  return open;
+}
+
+function matchesLegacyDotPath(input: string, pattern: string): boolean {
+  if (!input.split("/").some((segment) => segment.startsWith("."))) return false;
+  if (["[", "]", "{", "}", "\\"].some((character) => pattern.includes(character))) return false;
+
   let result = "^";
   let i = 0;
   while (i < pattern.length) {
@@ -27,31 +48,25 @@ function globToRegex(pattern: string): RegExp {
         }
       } else {
         result += "[^/]*";
-        i += 1;
+        i++;
       }
     } else if (c === "?") {
       result += "[^/]";
-      i += 1;
-    } else if (".+^${}()|[]\\".includes(c)) {
-      result += "\\" + c;
-      i += 1;
+      i++;
+    } else if ((".+^$" + "{}()|[]\\").includes(c)) {
+      result += `\\${c}`;
+      i++;
     } else {
       result += c;
-      i += 1;
+      i++;
     }
   }
-  result += "$";
-  return new RegExp(result);
+
+  return new RegExp(`${result}$`).test(input);
 }
 
 export function isToolNameProtected(toolName: string, protectedPatterns: string[]): boolean {
-  for (const pattern of protectedPatterns) {
-    if (pattern === toolName) return true;
-    if (pattern.includes("*") || pattern.includes("?")) {
-      if (matchesGlob(toolName, pattern)) return true;
-    }
-  }
-  return false;
+  return protectedPatterns.some((pattern) => matchesGlob(toolName, pattern));
 }
 
 export function getFilePathsFromParameters(

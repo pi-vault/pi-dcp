@@ -157,6 +157,9 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 - `nudgeNotification` — notification verbosity: `"off"`, `"minimal"`, or `"detailed"`.
 - `nudgeNotificationType` — notification delivery: `"toast"` or `"status"`.
 - `protectedFilePatterns` — file-path globs whose related tool outputs should never be pruned.
+
+Protected tool and file patterns use Node's `path.posix.matchesGlob` semantics: `/` is the path separator, and supported patterns include `*`, `**`, `?`, and character classes such as `[abc]` and `[0-9]`. Wildcards continue to match leading-dot path segments for compatibility with earlier pi-dcp releases.
+
 - `turnProtection` — hard-protect the newest N raw user-message turns from every DCP transformation; defaults to `0`.
 
 ### `compress`
@@ -170,7 +173,7 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 - `nudgeFrequency` — minimum messages between non-urgent nudges.
 - `iterationNudgeThreshold` — assistant iterations without user input before an iteration nudge fires.
 - `nudgeForce` — nudge strength: `"soft"` or `"strong"`.
-- `protectedTools` — tool outputs preserved during compression.
+- `protectedTools` — Node glob patterns for tool outputs preserved during compression.
 - `protectUserMessages` — append user message text to compression summaries.
 - `protectTags` — preserve `<protect>...</protect>` tag content in summaries.
 - `summaryBuffer` — exclude active summary tokens from threshold comparison to prevent cascading compressions.
@@ -183,11 +186,11 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 ### `strategies`
 
 - `deduplication.enabled` — enable or disable deduplication.
-- `deduplication.protectedTools` — tool names excluded from deduplication.
+- `deduplication.protectedTools` — Node glob patterns for tool names excluded from deduplication.
 - `deduplication.turnProtection` — legacy deduplication window; deduplication uses the larger of this and top-level `turnProtection`.
 - `purgeErrors.enabled` — enable or disable stale failed-input purging.
 - `purgeErrors.turns` — age threshold for failed tool-input purging.
-- `purgeErrors.protectedTools` — tool names excluded from failed-input purging.
+- `purgeErrors.protectedTools` — Node glob patterns for tool names excluded from failed-input purging.
 
 DCP counts turns from raw user messages, not assistant iterations. When the history contains fewer user turns than `turnProtection`, all existing user turns are protected. Deduplication, stale-error pruning, `dcp:sweep`, and both compression modes enforce this boundary. Normal compression expands a tool target to its complete assistant call/result group; DCP removes orphan results it creates, while Pi synthesizes error results for assistant calls that have no result.
 

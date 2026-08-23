@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { DcpConfig } from "../config.ts";
+import { isToolNameProtected } from "../strategies/protected-patterns.ts";
 
 const PROTECT_TAG_PATTERN = /<protect>([\s\S]*?)<\/protect>/gi;
 
@@ -86,7 +87,7 @@ export function appendProtectedToolOutputs(
   for (const msg of messages) {
     if (msg.role !== "toolResult") continue;
     if (msg.isError) continue;
-    if (!protectedTools.includes(msg.toolName)) continue;
+    if (!isToolNameProtected(msg.toolName, protectedTools)) continue;
 
     const text = getMessageText(msg);
     if (text.trim()) {

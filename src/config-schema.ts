@@ -7,7 +7,7 @@ export const DeduplicationConfigSchema = Type.Object({
   }),
   protectedTools: Type.Array(Type.String(), {
     default: [],
-    description: "Tool names excluded from deduplication (glob patterns)",
+    description: "Tool names excluded from deduplication (Node path.posix.matchesGlob patterns)",
   }),
   turnProtection: Type.Number({
     default: 0,
@@ -29,7 +29,8 @@ export const PurgeErrorsConfigSchema = Type.Object({
   }),
   protectedTools: Type.Array(Type.String(), {
     default: [],
-    description: "Tool names excluded from failed-input purging (glob patterns)",
+    description:
+      "Tool names excluded from failed-input purging (Node path.posix.matchesGlob patterns)",
   }),
 });
 
@@ -94,7 +95,8 @@ export const CompressConfigSchema = Type.Object({
   }),
   protectedTools: Type.Array(Type.String(), {
     default: [],
-    description: "Tool outputs to preserve during compression (glob patterns)",
+    description:
+      "Tool outputs to preserve during compression (Node path.posix.matchesGlob patterns)",
   }),
   protectUserMessages: Type.Boolean({
     default: false,
@@ -159,7 +161,7 @@ export const DcpConfigSchema = Type.Object({
   }),
   protectedFilePatterns: Type.Array(Type.String(), {
     default: [],
-    description: "Glob patterns for file paths to protect from pruning",
+    description: "Node path.posix.matchesGlob patterns for file paths to protect from pruning",
   }),
   turnProtection: Type.Integer({
     default: 0,

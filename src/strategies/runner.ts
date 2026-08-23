@@ -128,7 +128,7 @@ export function runStrategies(state: SessionState, config: DcpConfig): StrategyR
  * Used by the dcp:sweep command.
  */
 export function sweepAll(state: SessionState, config: DcpConfig): StrategyResult {
-  const protectedTools = new Set([...BASE_PROTECTED_TOOLS, ...config.compress.protectedTools]);
+  const protectedTools = [...BASE_PROTECTED_TOOLS, ...config.compress.protectedTools];
 
   let pruned = 0;
   let tokensSaved = 0;
@@ -136,8 +136,14 @@ export function sweepAll(state: SessionState, config: DcpConfig): StrategyResult
 
   for (const [toolCallId, entry] of state.toolParameters) {
     if (state.prune.tools.has(toolCallId)) continue;
-    if (protectedTools.has(entry.tool)) continue;
+    if (isToolNameProtected(entry.tool, protectedTools)) continue;
     if (entry.status !== "completed") continue;
+
+    const filePaths = getFilePathsFromParameters(
+      entry.tool,
+      entry.parameters as Record<string, unknown>,
+    );
+    if (isFilePathProtected(filePaths, config.protectedFilePatterns)) continue;
     if (
       config.turnProtection > 0 &&
       state.currentUserTurn - entry.userTurn < config.turnProtection

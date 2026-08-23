@@ -52,7 +52,7 @@
         "type": "string"
       },
       "default": [],
-      "description": "Glob patterns for file paths to protect from pruning"
+      "description": "Node path.posix.matchesGlob patterns for file paths to protect from pruning"
     },
     "turnProtection": {
       "type": "integer",
@@ -192,7 +192,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Tool outputs to preserve during compression (glob patterns)"
+          "description": "Tool outputs to preserve during compression (Node path.posix.matchesGlob patterns)"
         },
         "protectUserMessages": {
           "type": "boolean",
@@ -252,7 +252,7 @@
                 "type": "string"
               },
               "default": [],
-              "description": "Tool names excluded from deduplication (glob patterns)"
+              "description": "Tool names excluded from deduplication (Node path.posix.matchesGlob patterns)"
             },
             "turnProtection": {
               "type": "number",
@@ -282,7 +282,7 @@
                 "type": "string"
               },
               "default": [],
-              "description": "Tool names excluded from failed-input purging (glob patterns)"
+              "description": "Tool names excluded from failed-input purging (Node path.posix.matchesGlob patterns)"
             }
           }
         }
