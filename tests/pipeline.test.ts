@@ -19,6 +19,22 @@ describe("runPipeline", () => {
     expect(result.messages.length).toBe(2);
   });
 
+  it("removes stale nudge anchors and preserves surviving anchors", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    state.nudges.turnAnchors.add("user:1:0");
+    state.nudges.turnAnchors.add("user:999:0");
+    state.nudges.contextLimitAnchors.add("assistant:2:0");
+    state.nudges.iterationAnchors.add("assistant:998:0");
+    const messages = [makeUserMessage("kept user", 1), makeAssistantMessage("kept assistant", 2)];
+
+    runPipeline(state, config, messages, undefined);
+
+    expect(state.nudges.turnAnchors).toEqual(new Set(["user:1:0"]));
+    expect(state.nudges.contextLimitAnchors).toEqual(new Set(["assistant:2:0"]));
+    expect(state.nudges.iterationAnchors).toEqual(new Set());
+  });
+
   it("strips hallucinated DCP tags from assistant messages", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();

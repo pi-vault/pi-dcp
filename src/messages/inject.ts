@@ -246,10 +246,6 @@ function addAnchorIfAllowed(
     // Anchors not in current messages (stale) are ignored for distance calculation
   }
 
-  // TODO: Stale anchors (keys not present in current messages) are never pruned from the Sets.
-  // In sessions with heavy compaction, Sets may grow over time. A future task should clean them
-  // up — e.g., after compaction by intersecting anchor sets with keys of surviving messages.
-
   if (closestDistance >= frequency) {
     anchorSet.add(targetKey);
   }

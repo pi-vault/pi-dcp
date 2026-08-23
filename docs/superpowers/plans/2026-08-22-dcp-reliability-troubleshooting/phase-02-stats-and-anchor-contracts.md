@@ -23,6 +23,7 @@
 **Files:**
 - Modify: `tests/commands-context.test.ts`
 - Modify: `tests/commands-stats.test.ts`
+- Modify: `tests/index.test.ts`
 - Modify: `src/commands/context.ts`
 - Modify: `src/commands/stats.ts`
 
@@ -87,6 +88,10 @@ pnpm vitest run tests/commands-context.test.ts tests/commands-stats.test.ts
 
 Expected: PASS.
 
+The extension-level compaction regression must also verify that `dcp:stats`
+preserves cumulative values while `dcp:context` reports zero active pruned
+tool calls after `session_compact`.
+
 ### Task 2: Prove stale-anchor reconciliation and remove stale commentary
 
 **Files:**
@@ -146,7 +151,7 @@ Do not alter `addAnchorIfAllowed()` or add cleanup to `session_compact`.
 Run:
 
 ```bash
-pnpm vitest run tests/commands-context.test.ts tests/commands-stats.test.ts tests/pipeline.test.ts
+pnpm vitest run tests/commands-context.test.ts tests/commands-stats.test.ts tests/index.test.ts tests/pipeline.test.ts
 pnpm typecheck
 git diff --check
 ```
@@ -156,6 +161,6 @@ Expected: all PASS.
 - [ ] **Step 5: Commit Phase 2**
 
 ```bash
-git add src/commands/context.ts src/commands/stats.ts src/messages/inject.ts tests/commands-context.test.ts tests/commands-stats.test.ts tests/pipeline.test.ts
+git add docs/superpowers/plans/2026-08-22-dcp-reliability-troubleshooting/phase-02-stats-and-anchor-contracts.md src/commands/context.ts src/commands/stats.ts src/messages/inject.ts tests/commands-context.test.ts tests/commands-stats.test.ts tests/index.test.ts tests/pipeline.test.ts
 git commit -m "fix: clarify dcp statistics and anchor cleanup"
 ```

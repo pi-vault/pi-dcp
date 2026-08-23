@@ -10,8 +10,8 @@ describe("stats command", () => {
     state.stats.messagesCompressed = 3;
 
     const result = statsCommand(state);
-    expect(result).toContain("5");
-    expect(result).toContain("1234");
-    expect(result).toContain("3");
+    expect(result).toContain("Tools pruned this session: 5");
+    expect(result).toContain("Cumulative tokens saved by pruning: 1234");
+    expect(result).toContain("Messages compressed this session: 3");
   });
 });

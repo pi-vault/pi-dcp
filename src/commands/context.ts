@@ -16,7 +16,7 @@ export function contextCommand(
     lines.push("  Tokens: unavailable");
   }
 
-  lines.push(`  Pruned tool calls: ${state.prune.tools.size}`);
+  lines.push(`  Currently pruned tool calls: ${state.prune.tools.size}`);
   lines.push(`  Active compression blocks: ${state.prune.messages.activeBlockIds.size}`);
   lines.push(`  Total blocks: ${state.prune.messages.blocksById.size}`);
   lines.push(`  Tool cache entries: ${state.toolParameters.size}`);
