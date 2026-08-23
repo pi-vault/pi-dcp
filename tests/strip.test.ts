@@ -4,6 +4,46 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 describe("strip", () => {
   describe("stripHallucinationsFromString", () => {
+    it("removes the observed transposed message-id suffix", () => {
+      expect(
+        stripHallucinationsFromString("**Creating the GitHub PR**m0112</dpc-message-id>"),
+      ).toBe("**Creating the GitHub PR**");
+    });
+
+    it("removes bounded message-id suffixes and transposed pairs", () => {
+      expect(stripHallucinationsFromString("hello m0001</dcp-message-id>")).toBe("hello ");
+      expect(stripHallucinationsFromString("hello <dpc-message-id>m0002</dpc-message-id>")).toBe(
+        "hello ",
+      );
+    });
+
+    it("removes an orphan message-id opening tag and its bounded reference", () => {
+      expect(stripHallucinationsFromString("hello <dcp-message-id>m0001")).toBe("hello ");
+      expect(stripHallucinationsFromString("hello <dpc-message-id>m0002")).toBe("hello ");
+    });
+
+    it("preserves prose after an orphan message reference", () => {
+      expect(stripHallucinationsFromString("hello <dcp-message-id>m0001 continued prose")).toBe(
+        "hello  continued prose",
+      );
+    });
+
+    it("preserves ambiguous message-like payloads", () => {
+      expect(stripHallucinationsFromString("hello <dcp-message-id>discussion")).toBe(
+        "hello discussion",
+      );
+      expect(stripHallucinationsFromString("hello <dcp-message-id>m0001abc")).toBe(
+        "hello m0001abc",
+      );
+    });
+
+    it("is idempotent for malformed message references", () => {
+      const once = stripHallucinationsFromString(
+        "hello <dcp-message-id>m0001 prose m0002</dpc-message-id>",
+      );
+      expect(stripHallucinationsFromString(once)).toBe(once);
+    });
+
     it("removes paired dcp tags", () => {
       const result = stripHallucinationsFromString(
         "hello <dcp-message-id>m0001</dcp-message-id> world",

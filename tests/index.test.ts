@@ -6,6 +6,7 @@ import createExtension from "../src/index.ts";
 import * as subagentResults from "../src/subagents/subagent-results.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { serializeDcpSnapshot } from "../src/state/persistence.ts";
+import { makeAssistantMessage } from "./helpers.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
 
@@ -126,6 +127,27 @@ describe("dcp extension", () => {
         {},
       ),
     ).resolves.toBeUndefined();
+  });
+
+  it("message_end strips the observed transposed message-id suffix", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    const handler = handlers.get("message_end")?.[0];
+    expect(handler).toBeDefined();
+
+    const result = await (handler as (...args: unknown[]) => Promise<unknown>)(
+      {
+        type: "message_end",
+        message: makeAssistantMessage("**Creating the GitHub PR**m0112</dpc-message-id>"),
+      },
+      {},
+    );
+
+    expect(result).toBeDefined();
+    const message = (result as { message: { content: Array<{ type: string; text?: string }> } })
+      .message;
+    expect(message.content[0]?.text).toBe("**Creating the GitHub PR**");
   });
 
   it("context handler tags messages with dcp-message-id", async () => {
