@@ -4,7 +4,7 @@
 
 **Goal:** Replace the limited hand-written glob compiler with Node's native POSIX glob matcher so every protected tool and file pattern supports character classes while preserving the existing slash-based contract.
 
-**Architecture:** Keep the public `matchesGlob()` wrapper and delegate it to `node:path.posix.matchesGlob`. The wrapper converts matcher errors into a non-match so malformed configuration cannot abort a context pass. Route all protected-tool consumers through `isToolNameProtected()`, and keep protected-file checks in the shared matcher path. Update the schema and README to state the native POSIX contract.
+**Architecture:** Keep the public `matchesGlob()` wrapper and delegate it to `node:path.posix.matchesGlob`. The wrapper validates malformed character classes, converts matcher errors into a non-match, and retains the previous wildcard behavior for leading-dot path segments through a bounded compatibility fallback. Route all protected-tool consumers through `isToolNameProtected()`, and keep protected-file checks in the shared matcher path. Update the schema and README to state the native POSIX contract.
 
 **Tech Stack:** TypeScript ESM, Node.js >=24.15.0 `path.posix.matchesGlob`, Vitest.
 
@@ -15,6 +15,7 @@
 - Add no dependency.
 - Require Node.js >=24.15.0 for implementation and verification; do not treat the current Node 23 runtime as supported evidence.
 - Preserve existing exact, `*`, `**`, `?`, and `/` separator behavior. Use `path.posix.matchesGlob` so behavior does not change with the host OS; backslashes remain literal path text.
+- Preserve the previous wildcard behavior for leading-dot path segments; native character classes and other native syntax must still use Node semantics.
 - Malformed string patterns must return a non-match rather than crash the context pipeline.
 - Evaluate every configured pattern, including exact strings and patterns without `*` or `?`.
 - Apply the contract consistently to deduplication, failed-input purging, compression-summary preservation, `dcp:sweep`, and protected file paths.
@@ -33,7 +34,7 @@
 **Interfaces:**
 
 - Consumes: `matchesGlob()`, `isToolNameProtected()`, `isFilePathProtected()`, `appendProtectedToolOutputs()`, and `sweepAll()`.
-- Produces: regression coverage for native character classes, literal regex punctuation, malformed patterns, POSIX separator behavior, compression protected-tool patterns, sweep protected-tool patterns, and sweep protected-file patterns.
+- Produces: regression coverage for native character classes, literal regex punctuation, malformed patterns, POSIX separator behavior, leading-dot wildcard compatibility, compression protected-tool patterns, sweep protected-tool patterns, and sweep protected-file patterns.
 
 - [ ] **Step 1: Verify the supported runtime before running red tests**
 
@@ -61,12 +62,20 @@ it("preserves slash separators independently of the host OS", () => {
   expect(matchesGlob("src\\config.ts", "src/**/*.ts")).toBe(false);
 });
 
+it("preserves wildcard matching of leading-dot segments", () => {
+  expect(matchesGlob(".env", "*")).toBe(true);
+  expect(matchesGlob("src/.env", "src/**/*")).toBe(true);
+  expect(matchesGlob(".git/config", "**/*")).toBe(true);
+});
+
 it("preserves regex punctuation as literal path text", () => {
   expect(matchesGlob("src/a+b.ts", "src/a+b.ts")).toBe(true);
   expect(matchesGlob("src/ab.ts", "src/a+b.ts")).toBe(false);
 });
 
 it("returns false for malformed patterns", () => {
+  expect(matchesGlob("[", "[")).toBe(false);
+  expect(matchesGlob("src/[abc.ts", "src/[abc.ts")).toBe(false);
   expect(matchesGlob("testa.ts", "test[abc.ts")).toBe(false);
   expect(matchesGlob("foo", "[")).toBe(false);
 });
@@ -123,7 +132,7 @@ The malformed-pattern tests may already pass against the current compiler; they 
 - Consumes: Node's `posix.matchesGlob(path: string, pattern: string): boolean`.
 - Produces: the existing exported `matchesGlob(input, pattern)` wrapper and consistent protected-pattern behavior across all pruning/preservation paths.
 
-- [ ] **Step 1: Replace the custom compiler with the POSIX native matcher**
+- [ ] **Step 1: Replace the primary compiler with the POSIX native matcher**
 
 In `src/strategies/protected-patterns.ts`:
 
@@ -131,7 +140,7 @@ In `src/strategies/protected-patterns.ts`:
 import { posix } from "node:path";
 ```
 
-Delete `globToRegex()`, keep the exported wrapper, and make native errors safe:
+Remove the old compiler as the primary matcher, keep the exported wrapper, and make native errors safe:
 
 ```typescript
 export function matchesGlob(input: string, pattern: string): boolean {
@@ -145,6 +154,7 @@ export function matchesGlob(input: string, pattern: string): boolean {
 
 - Replace `isToolNameProtected()` with a `.some()` over every configured pattern.
 - Leave `isFilePathProtected()` on the shared `matchesGlob()` wrapper.
+- Add a bounded `matchesLegacyDotPath()` fallback after the native matcher returns false. Use it only when the input contains a leading-dot path segment and the pattern contains no native character-class, brace, or escape syntax; this preserves the old `*`/`**` behavior without overriding native class semantics.
 
 Do not use host-dependent `path.matchesGlob` or add path normalization in this helper. Pi's reference implementation uses `path.posix.matchesGlob` for stable slash semantics; its extra relative-path fallback is specific to Pi's guest `find` implementation and does not belong here.
 
@@ -200,7 +210,7 @@ Use these exact descriptions in `src/config-schema.ts`:
 After the `protectedFilePatterns` bullet, add:
 
 ```markdown
-Protected tool and file patterns use Node's `path.posix.matchesGlob` semantics: `/` is the path separator, and supported patterns include `*`, `**`, `?`, and character classes such as `[abc]` and `[0-9]`.
+Protected tool and file patterns use Node's `path.posix.matchesGlob` semantics: `/` is the path separator, and supported patterns include `*`, `**`, `?`, and character classes such as `[abc]` and `[0-9]`. Wildcards continue to match leading-dot path segments for compatibility with earlier pi-dcp releases.
 ```
 
 Describe all three protected-tool settings consistently:
@@ -252,7 +262,7 @@ README.md
 dcp.schema.json
 ```
 
-Confirm no dependency, fallback glob compiler, host-dependent matcher, or unrelated sweep behavior was added.
+Confirm no dependency, general-purpose replacement glob compiler, host-dependent matcher, or unrelated sweep behavior was added. The only compatibility fallback should be the bounded leading-dot wildcard path described in Task 2.
 
 - [ ] **Step 3: Commit Phase 3**
 
