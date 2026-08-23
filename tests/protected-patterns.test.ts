@@ -45,8 +45,16 @@ describe("protected-patterns", () => {
     });
 
     it("returns false for malformed patterns", () => {
+      expect(matchesGlob("[", "[")).toBe(false);
+      expect(matchesGlob("src/[abc.ts", "src/[abc.ts")).toBe(false);
       expect(matchesGlob("testa.ts", "test[abc.ts")).toBe(false);
       expect(matchesGlob("foo", "[")).toBe(false);
+    });
+
+    it("preserves wildcard matching of leading-dot segments", () => {
+      expect(matchesGlob(".env", "*")).toBe(true);
+      expect(matchesGlob("src/.env", "src/**/*")).toBe(true);
+      expect(matchesGlob(".git/config", "**/*")).toBe(true);
     });
   });
 
