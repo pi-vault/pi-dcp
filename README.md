@@ -158,7 +158,7 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 - `nudgeNotificationType` — notification delivery: `"toast"` or `"status"`.
 - `protectedFilePatterns` — file-path globs whose related tool outputs should never be pruned.
 
-Protected tool and file patterns use Node's `path.posix.matchesGlob` semantics: `/` is the path separator, and supported patterns include `*`, `**`, `?`, and character classes such as `[abc]` and `[0-9]`.
+Protected tool and file patterns use Node's `path.posix.matchesGlob` semantics: `/` is the path separator, and supported patterns include `*`, `**`, `?`, and character classes such as `[abc]` and `[0-9]`. Wildcards continue to match leading-dot path segments for compatibility with earlier pi-dcp releases.
 
 - `turnProtection` — hard-protect the newest N raw user-message turns from every DCP transformation; defaults to `0`.
 
