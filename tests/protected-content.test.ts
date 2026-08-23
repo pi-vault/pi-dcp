@@ -97,6 +97,14 @@ describe("appendProtectedToolOutputs", () => {
     expect(result).toContain("file content here");
   });
 
+  it("preserves output when a protected-tool glob matches the name", () => {
+    const messages: AgentMessage[] = [makeToolResultMessage("call1", "read", "file content here")];
+
+    const result = appendProtectedToolOutputs("Summary", messages, ["r[ea]ad"]);
+    expect(result).toContain("[Protected Tool Output: read]");
+    expect(result).toContain("file content here");
+  });
+
   it("does not append when tool name not in protectedTools", () => {
     const messages: AgentMessage[] = [makeToolResultMessage("call1", "grep", "grep output")];
 

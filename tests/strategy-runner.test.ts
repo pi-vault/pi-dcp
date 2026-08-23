@@ -503,6 +503,65 @@ describe("sweepAll", () => {
     expect(state.prune.tools.has("a2")).toBe(true);
   });
 
+  it("preserves completed tools matched by protected-tool glob patterns", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ protectedTools: ["custom_[tu]ool"] });
+
+    seedToolCache(state, [
+      {
+        id: "a1",
+        tool: "custom_tool",
+        parameters: { path: "/a.ts" },
+        status: "completed",
+        userTurn: 1,
+        tokenCount: 100,
+      },
+      {
+        id: "a2",
+        tool: "another_tool",
+        parameters: { path: "/b.ts" },
+        status: "completed",
+        userTurn: 2,
+        tokenCount: 200,
+      },
+    ]);
+
+    const result = sweepAll(state, config);
+    expect(result.pruned).toBe(1);
+    expect(state.prune.tools.has("a1")).toBe(false);
+    expect(state.prune.tools.has("a2")).toBe(true);
+  });
+
+  it("preserves completed tools operating on protected file paths", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.protectedFilePatterns = ["src/[ab].ts"];
+
+    seedToolCache(state, [
+      {
+        id: "a1",
+        tool: "custom_tool",
+        parameters: { filePath: "src/a.ts" },
+        status: "completed",
+        userTurn: 1,
+        tokenCount: 100,
+      },
+      {
+        id: "a2",
+        tool: "another_tool",
+        parameters: { filePath: "src/c.ts" },
+        status: "completed",
+        userTurn: 2,
+        tokenCount: 200,
+      },
+    ]);
+
+    const result = sweepAll(state, config);
+    expect(result.pruned).toBe(1);
+    expect(state.prune.tools.has("a1")).toBe(false);
+    expect(state.prune.tools.has("a2")).toBe(true);
+  });
+
   it("skips already-pruned tools", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();

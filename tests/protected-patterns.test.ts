@@ -27,6 +27,27 @@ describe("protected-patterns", () => {
       expect(matchesGlob("ab", "a?")).toBe(true);
       expect(matchesGlob("abc", "a?")).toBe(false);
     });
+
+    it("matches character classes using Node glob semantics", () => {
+      expect(matchesGlob("testa.ts", "test[abc].ts")).toBe(true);
+      expect(matchesGlob("testz.ts", "test[abc].ts")).toBe(false);
+      expect(matchesGlob("file7.ts", "file[0-9].ts")).toBe(true);
+    });
+
+    it("preserves slash separators independently of the host OS", () => {
+      expect(matchesGlob("src/config.ts", "src/**/*.ts")).toBe(true);
+      expect(matchesGlob("src\\config.ts", "src/**/*.ts")).toBe(false);
+    });
+
+    it("preserves regex punctuation as literal path text", () => {
+      expect(matchesGlob("src/a+b.ts", "src/a+b.ts")).toBe(true);
+      expect(matchesGlob("src/ab.ts", "src/a+b.ts")).toBe(false);
+    });
+
+    it("returns false for malformed patterns", () => {
+      expect(matchesGlob("testa.ts", "test[abc.ts")).toBe(false);
+      expect(matchesGlob("foo", "[")).toBe(false);
+    });
   });
 
   describe("isToolNameProtected", () => {
@@ -38,6 +59,11 @@ describe("protected-patterns", () => {
     it("checks glob patterns", () => {
       expect(isToolNameProtected("todo_write", ["todo*"])).toBe(true);
       expect(isToolNameProtected("other", ["todo*"])).toBe(false);
+    });
+
+    it("evaluates character-class patterns without star or question mark", () => {
+      expect(isToolNameProtected("read", ["r[ea]ad"])).toBe(true);
+      expect(isToolNameProtected("write", ["r[ea]ad"])).toBe(false);
     });
 
     it("returns false for empty patterns", () => {
@@ -63,6 +89,11 @@ describe("protected-patterns", () => {
     it("matches file paths against glob patterns", () => {
       expect(isFilePathProtected(["src/config.ts"], ["src/**/*.ts"])).toBe(true);
       expect(isFilePathProtected(["lib/foo.ts"], ["src/**/*.ts"])).toBe(false);
+    });
+
+    it("matches file paths against character-class patterns", () => {
+      expect(isFilePathProtected(["src/a.ts"], ["src/[ab].ts"])).toBe(true);
+      expect(isFilePathProtected(["src/c.ts"], ["src/[ab].ts"])).toBe(false);
     });
 
     it("returns false for empty paths or patterns", () => {
