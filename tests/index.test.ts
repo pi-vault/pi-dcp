@@ -845,14 +845,100 @@ describe("sub-agent support", () => {
     }
   });
 
-  it("session_compact handler clears subagent cache without error", async () => {
-    const { api, handlers } = createMockApi();
+  it("preserves cumulative stats while compaction clears active pruning", async () => {
+    const { api, handlers, commands } = createMockApi();
     createExtension(api);
 
+    const sessionStartHandler = handlers.get("session_start")?.[0];
+    await (sessionStartHandler as (...args: unknown[]) => Promise<void>)(
+      { reason: "new" },
+      {
+        sessionManager: {
+          getSessionDir: () => "/tmp/test-session-dir",
+          getSessionId: () => "session",
+          getBranch: () => [],
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    const contextHandler = handlers.get("context")?.[0];
+    await (contextHandler as (...args: unknown[]) => Promise<unknown>)(
+      {
+        messages: [
+          { role: "user", content: [{ type: "text", text: "find the file" }], timestamp: 1001 },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "call-1",
+                name: "search_files",
+                arguments: { query: "foo" },
+              },
+            ],
+            stopReason: "toolUse",
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+              totalTokens: 0,
+            },
+            timestamp: 1002,
+          },
+          {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "search_files",
+            content: [{ type: "text", text: "result" }],
+            isError: false,
+            timestamp: 1003,
+          },
+        ],
+      },
+      {
+        getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
+      },
+    );
+
+    const sweepHandler = commands.get("dcp:sweep") as {
+      handler: (...args: unknown[]) => Promise<void>;
+    };
+    await sweepHandler.handler("", { ui: { notify: vi.fn() } });
+
+    const statsHandler = commands.get("dcp:stats") as {
+      handler: (...args: unknown[]) => Promise<void>;
+    };
+    const statsBeforeNotify = vi.fn();
+    await statsHandler.handler("", { ui: { notify: statsBeforeNotify } });
+    const statsBefore = statsBeforeNotify.mock.calls[0]?.[0] as string;
+    expect(statsBefore).toContain("Tools pruned this session: 1");
+    expect(statsBefore).toMatch(/Cumulative tokens saved by pruning: \d+/);
+
+    const contextCommandHandler = commands.get("dcp:context") as {
+      handler: (...args: unknown[]) => Promise<void>;
+    };
+    const contextBeforeNotify = vi.fn();
+    await contextCommandHandler.handler("", {
+      getContextUsage: () => undefined,
+      ui: { notify: contextBeforeNotify },
+    });
+    expect(contextBeforeNotify.mock.calls[0]?.[0]).toContain("Currently pruned tool calls: 1");
+
     const sessionCompactHandler = handlers.get("session_compact")?.[0];
-    await expect(
-      (sessionCompactHandler as (...args: unknown[]) => Promise<void>)({}, {}),
-    ).resolves.not.toThrow();
+    await (sessionCompactHandler as (...args: unknown[]) => Promise<void>)({}, {});
+
+    const statsAfterNotify = vi.fn();
+    await statsHandler.handler("", { ui: { notify: statsAfterNotify } });
+    expect(statsAfterNotify.mock.calls[0]?.[0]).toBe(statsBefore);
+
+    const contextAfterNotify = vi.fn();
+    await contextCommandHandler.handler("", {
+      getContextUsage: () => undefined,
+      ui: { notify: contextAfterNotify },
+    });
+    expect(contextAfterNotify.mock.calls[0]?.[0]).toContain("Currently pruned tool calls: 0");
   });
 
   it("before_agent_start returns early when PI_SUBAGENT_CHILD=1", async () => {
