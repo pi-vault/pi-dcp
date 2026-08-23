@@ -14,8 +14,8 @@
 
 - Use Node.js 24.15.0 or newer, as required by `package.json`.
 - Add no dependency or new sanitizer abstraction.
-- Remove only message references matching `m\d{4,}` when followed by a recognized closing tag or a word boundary.
-- For suffix-only matches, require the `m` token not to be preceded by an identifier character so payloads such as `claim0001` remain intact.
+- Remove only message references matching `m\d{4,}` when followed by a recognized closing tag or by a character outside a Unicode identifier.
+- For suffix-only matches, require the `m` token not to be preceded by a Unicode identifier character so payloads such as `claim0001` and `文m0001` remain intact.
 - Recognize only `dcp-message-id` and the observed `dpc-message-id` transposition; do not broaden every DCP tag rule to arbitrary `dpc-*` markup.
 - Preserve ambiguous prose and identifier-like payloads such as `m0001abc`.
 - Keep complete-pair, truncated-pair, lone-tag, and partial-tag behavior.
@@ -202,10 +202,10 @@ In `src/messages/strip.ts`, add after `DCP_TRUNCATED_PAIR`:
 ```typescript
 // 3. Bounded message-ID suffixes or pairs, including the observed dpc transposition.
 const DCP_MESSAGE_ID_SUFFIX_OR_PAIR =
-  /(?:<(?:dcp|dpc)-message-id(?:\s[^>]*)?>)?(?<!\w)m\d{4,}<\/(?:dcp|dpc)-message-id>/gi;
+  /(?:<(?:dcp|dpc)-message-id(?:\s[^>]*)?>)?(?<!\p{ID_Continue})m\d{4,}<\/(?:dcp|dpc)-message-id>/giu;
 // 4. Orphan message-ID opening tag followed by a valid bounded reference.
 const DCP_ORPHANED_MESSAGE_ID =
-  /<(?:dcp|dpc)-message-id(?:\s[^>]*)?>m\d{4,}\b/gi;
+  /<(?:dcp|dpc)-message-id(?:\s[^>]*)?>m\d{4,}(?!\p{ID_Continue})/giu;
 ```
 
 Renumber the comments for `DCP_UNPAIRED_TAG` and `DCP_PARTIAL_TAG`, then update the replacement chain to:

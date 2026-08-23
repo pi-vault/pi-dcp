@@ -22,6 +22,10 @@ describe("strip", () => {
       expect(stripHallucinationsFromString("room0001</dpc-message-id>")).toBe(
         "room0001</dpc-message-id>",
       );
+      expect(stripHallucinationsFromString("文m0001</dcp-message-id>")).toBe("文m0001");
+      expect(stripHallucinationsFromString("ém0001</dpc-message-id>")).toBe(
+        "ém0001</dpc-message-id>",
+      );
     });
 
     it("removes an orphan message-id opening tag and its bounded reference", () => {
@@ -42,6 +46,7 @@ describe("strip", () => {
       expect(stripHallucinationsFromString("hello <dcp-message-id>m0001abc")).toBe(
         "hello m0001abc",
       );
+      expect(stripHallucinationsFromString("hello <dcp-message-id>m0001文")).toBe("hello m0001文");
     });
 
     it("is idempotent for malformed message references", () => {
