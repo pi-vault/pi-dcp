@@ -36,12 +36,8 @@ export interface SessionCorpusReport {
   totals: SessionCounts & { files: number };
 }
 
-function semanticState(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const { messageIds: _messageIds, ...semantic } = value as Record<
-    string,
-    unknown
-  >;
+function semanticState(value: Record<string, unknown>): Record<string, unknown> {
+  const { messageIds: _messageIds, ...semantic } = value;
   return semantic;
 }
 
@@ -160,11 +156,16 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
       continue;
 
     report.dcpBytes += Buffer.byteLength(line) + 1;
+    const data = record(entry.data);
+    if (!data) {
+      report.malformedLines++;
+      continue;
+    }
     let stateFingerprint: string;
     let semanticFingerprint: string;
     try {
-      stateFingerprint = fingerprint(entry.data);
-      semanticFingerprint = fingerprint(semanticState(entry.data));
+      stateFingerprint = fingerprint(data);
+      semanticFingerprint = fingerprint(semanticState(data));
     } catch {
       report.malformedLines++;
       continue;

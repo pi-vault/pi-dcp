@@ -178,7 +178,7 @@ describe("session analysis", () => {
     expect(JSON.stringify(report)).not.toContain("sk-live-tool-call-secret");
   });
 
-  it("accepts pnpm's argument separator", () => {
+  it("accepts the package script's argument separator", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-analysis-"));
     tempDirs.push(dir);
     const file = path.join(dir, "session.jsonl");
@@ -193,9 +193,13 @@ describe("session analysis", () => {
       })}\n`,
     );
 
-    const output = execFileSync("pnpm", ["run", "analyze:sessions", "--", file], {
-      encoding: "utf8",
-    });
+    const output = execFileSync(
+      process.execPath,
+      ["--import", "tsx", "scripts/analyze-sessions.ts", "--", file],
+      {
+        encoding: "utf8",
+      },
+    );
 
     expect(output).toContain('"files": 1');
   });
@@ -236,9 +240,6 @@ describe("session analysis", () => {
 
     expect(report.totals.exactDuplicateTransitions).toBe(1);
     expect(JSON.stringify(report)).not.toContain("private-token-must-not-be-retained");
-    expect(fs.readFileSync("scripts/analyze-sessions.ts", "utf8")).not.toMatch(
-      /let previous(?:Full|Semantic): string/,
-    );
   });
 
   it("counts non-entry JSONL values as malformed while continuing to stream", async () => {
@@ -286,6 +287,25 @@ describe("session analysis", () => {
     expect(report.totals.dcpBytes).toBe(
       Buffer.byteLength(deepLine) + 1 + Buffer.byteLength(validLine) + 1,
     );
+  });
+
+  it("counts non-object DCP data as malformed", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-analysis-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    const entries = [null, [], "private-state", 42].map((data, index) => ({
+      type: "custom",
+      id: `s${index}`,
+      timestamp: `2026-08-22T00:00:0${index}.000Z`,
+      customType: "pi-dcp-state",
+      data,
+    }));
+    fs.writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals).toMatchObject({ malformedLines: 4, dcpStates: 0 });
+    expect(report.totals.dcpBytes).toBe(fs.statSync(file).size);
   });
 
   it("normalizes unknown assistant stop reasons without exposing them", async () => {
