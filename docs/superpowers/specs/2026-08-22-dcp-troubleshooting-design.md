@@ -46,7 +46,7 @@ The earlier 22% figure included files outside the exact ten-file corpus. The ear
 
 ### Unresolved cause
 
-The 42 byte-identical snapshot pairs strongly suggest two DCP extension instances handling the same events. This must be reproduced or traced before a production guard is added.
+The 42 byte-identical snapshot pairs are adjacent, parent-linked, and 1–4 ms apart; under the current `persistIfChanged()` logic this is evidence of two independent DCP state closures. The exact historical extension-source pair remains unresolved. Do not add a production guard without a supported single-instance reproduction.
 
 ### Contract improvements
 
@@ -100,14 +100,16 @@ If any test shows changed message references, the projection approach is rejecte
 
 ### Duplicate-instance diagnosis
 
-Temporary diagnostics will include process ID, random extension-instance ID, session ID, persistence callsite, force flag, and semantic fingerprint. Reproduction covers:
+Phase 1 uses committed, content-free corpus evidence rather than production runtime tracing. For each exact duplicate transition, the analyzer records only state ordinal, file adjacency, parent linkage, and timestamp delta.
 
-1. one DCP extension path,
-2. one canonical path listed twice,
-3. two distinct paths containing separate DCP copies,
-4. reload and session replacement.
+Interpret the evidence against Pi v0.83.0 loader behavior:
 
-If duplicate configuration or package discovery is confirmed, correct or document that setup and use Pi's conflict diagnostics where available. Add a global singleton guard only if supported single-instance configuration still loads duplicate runtime instances and Pi cannot prevent it.
+1. `DefaultResourceLoader.mergePaths()` canonicalizes real paths, so repeated references to one physical extension are deduplicated.
+2. Distinct physical copies can still load as separate extension instances.
+3. Reload emits `session_shutdown`, reloads resources, replaces the extension runner, and then emits `session_start` on the replacement; the reload path itself does not call `runner.invalidate()`.
+4. DCP registers `compress` during `session_start`, after Pi's load-time conflict scan, and Pi does not scan command conflicts.
+
+The historical source-path pair remains unresolved unless a contemporaneous configuration or launch command is available. This uncertainty does not justify a production singleton guard.
 
 ## Component Design
 
@@ -220,9 +222,9 @@ Acceptance criteria:
 - snapshot v1 round-trips unchanged,
 - message references remain stable across tested lifecycle transitions.
 
-### Phase C: Duplicate-instance gate
+### Phase C: Duplicate-instance evidence
 
-Reproduce the four extension-loading configurations with temporary diagnostics. Commit only a justified regression, diagnostic, documentation change, or configuration fix. Remove temporary tracing before completion.
+Use the analyzer's exact-duplicate chronology and Pi v0.83.0 loader semantics to classify the duplicate writer. Record the current configuration separately and do not present it as historical proof. Add no production guard without a supported single-instance reproduction.
 
 ### Phase D: Independent behavior fixes
 
@@ -238,7 +240,7 @@ Use Pi event semantics to classify malformed model output, provider failures, ab
 - Malformed glob configuration cannot crash context processing.
 - Sanitization preserves ambiguous prose rather than over-deleting it.
 - JSONL analysis skips malformed lines, records their count, and continues.
-- Temporary diagnostics contain no message content or secrets.
+- Analyzer output contains no message content, tool arguments, error text, or secrets.
 
 ## Verification
 

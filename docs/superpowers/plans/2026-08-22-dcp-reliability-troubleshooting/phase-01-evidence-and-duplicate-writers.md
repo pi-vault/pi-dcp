@@ -2,37 +2,139 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Produce a tested, read-only analyzer for Pi session JSONL and use it to correct the report and diagnose exact duplicate DCP snapshots before production behavior changes.
+**Goal:** Produce a tested, read-only Pi session analyzer, correct the ten-file evidence report, and explain the exact duplicate snapshots without changing production DCP behavior.
 
-**Architecture:** Parse each file line-by-line, classify DCP transitions by full equality and semantic equality, and aggregate stop/tool/compaction evidence without mutating source logs. Reproduce duplicate writers with extension registration tests and inspect configured extension paths before deciding whether any production guard is justified.
+**Architecture:** Stream each JSONL file once, classify adjacent DCP snapshots by full and message-ID-excluded equality, and retain only structural diagnostic metadata. Use the resulting chronology together with Pi v0.83.0 loader semantics to distinguish two independent runtime writers from ordinary message-ID snapshot growth; do not add runtime tracing or a singleton guard.
 
-**Tech Stack:** TypeScript ESM, Node.js filesystem/readline APIs, Vitest, tsx, Pi JSONL v3.
+**Tech Stack:** TypeScript ESM, Node.js filesystem/readline APIs, Vitest, tsx, Pi JSONL v3, Pi coding-agent v0.83.0 reference source.
 
 **Spec:** `docs/superpowers/specs/2026-08-22-dcp-troubleshooting-design.md`
 
 ## Global Constraints
 
 - The ten external JSONL files are read-only and must not be copied into the repository.
-- Analyzer output must not include message content, tool arguments, or secrets.
+- Analyzer output must not include message content, tool arguments, error text, or secrets.
 - Malformed lines are counted and skipped.
-- No production DCP behavior changes in this phase.
-- Do not add a singleton guard.
+- Use `/Users/lanh/Developer/pi-packages/pi` as a read-only reference; do not modify it.
+- Inspect Pi tag `v0.83.0` for corpus-era behavior and current `main` only for drift.
+- Do not add dependencies, runtime tracing, a duplicate-factory characterization test, or a singleton guard.
+- Do not modify `src/` or `tests/index.test.ts` in this phase.
+- Keep the analyzer outside the published package contents; `package.json.files` remains unchanged.
+- Every code change begins with the focused failing test and ends with the narrowest relevant checks.
 
 ---
 
-### Task 1: Add a synthetic JSONL analyzer regression
+### Task 1: Align the controlling design and parent plan
 
 **Files:**
-- Create: `tests/session-analysis.test.ts`
-- Create: `scripts/analyze-sessions.ts`
+
+- Modify: `docs/superpowers/specs/2026-08-22-dcp-troubleshooting-design.md`
+- Modify: `docs/superpowers/plans/2026-08-22-dcp-reliability-troubleshooting.md`
 
 **Interfaces:**
-- Consumes: Pi JSONL entries with `type`, `message`, `customType`, and `data` fields.
-- Produces: `analyzeSessionFiles(files: string[]): Promise<SessionCorpusReport>` and exported report interfaces.
 
-- [ ] **Step 1: Write the failing synthetic test**
+- Consumes: the approved evidence-only Phase 1 scope.
+- Produces: controlling documentation that no longer requires unimplemented runtime trace fields or a tautological duplicate-factory test.
 
-Create `tests/session-analysis.test.ts` with a temporary JSONL containing a session header, assistant tool call, tool result, four DCP snapshots, one compaction, and one malformed line:
+- [ ] **Step 1: Replace the spec's duplicate-instance diagnosis requirement**
+
+Replace the `### Duplicate-instance diagnosis` section with:
+
+```markdown
+### Duplicate-instance diagnosis
+
+Phase 1 uses committed, content-free corpus evidence rather than production runtime tracing. For each exact duplicate transition, the analyzer records only state ordinal, file adjacency, parent linkage, and timestamp delta.
+
+Interpret the evidence against Pi v0.83.0 loader behavior:
+
+1. `DefaultResourceLoader.mergePaths()` canonicalizes real paths, so repeated references to one physical extension are deduplicated.
+2. Distinct physical copies can still load as separate extension instances.
+3. Reload emits `session_shutdown`, reloads resources, replaces the extension runner, and then emits `session_start` on the replacement; the reload path itself does not call `runner.invalidate()`.
+4. DCP registers `compress` during `session_start`, after Pi's load-time conflict scan, and Pi does not scan command conflicts.
+
+The historical source-path pair remains unresolved unless a contemporaneous configuration or launch command is available. This uncertainty does not justify a production singleton guard.
+```
+
+In `## Troubleshooting Sequence`, replace `### Phase C: Duplicate-instance gate` with:
+
+```markdown
+### Phase C: Duplicate-instance evidence
+
+Use the analyzer's exact-duplicate chronology and Pi v0.83.0 loader semantics to classify the duplicate writer. Record the current configuration separately and do not present it as historical proof. Add no production guard without a supported single-instance reproduction.
+```
+
+In `## Finding Classification`, replace the unresolved-cause paragraph with:
+
+```markdown
+The 42 byte-identical snapshot pairs are adjacent, parent-linked, and 1–4 ms apart; under the current `persistIfChanged()` logic this is evidence of two independent DCP state closures. The exact historical extension-source pair remains unresolved. Do not add a production guard without a supported single-instance reproduction.
+```
+
+In `## Error Handling`, replace the temporary-diagnostics bullet with:
+
+```markdown
+- Analyzer output contains no message content, tool arguments, error text, or secrets.
+```
+
+- [ ] **Step 2: Correct the parent Phase 1 acceptance criteria**
+
+Replace:
+
+```markdown
+- Duplicate-writer tracing contains only IDs, callsites, force flags, and fingerprints.
+```
+
+with:
+
+```markdown
+- Exact-duplicate evidence contains only state ordinals, entry adjacency, parent linkage, and timestamp deltas.
+```
+
+Keep the existing no-production-behavior-change requirement.
+
+Also replace the parent global constraint:
+
+```markdown
+- Temporary diagnostics must not log message content, tool arguments, or secrets.
+```
+
+with:
+
+```markdown
+- Analyzer output must not contain message content, tool arguments, error text, or secrets.
+```
+
+- [ ] **Step 3: Verify and commit the documentation alignment**
+
+Run:
+
+```bash
+git diff --check
+git diff -- docs/superpowers/specs/2026-08-22-dcp-troubleshooting-design.md docs/superpowers/plans/2026-08-22-dcp-reliability-troubleshooting.md
+```
+
+Expected: no whitespace errors; the only semantic change is the evidence-only duplicate diagnosis.
+
+```bash
+git add docs/superpowers/specs/2026-08-22-dcp-troubleshooting-design.md docs/superpowers/plans/2026-08-22-dcp-reliability-troubleshooting.md
+git commit -m "docs: align duplicate-writer evidence plan"
+```
+
+### Task 2: Add the tested read-only session analyzer
+
+**Files:**
+
+- Create: `tests/session-analysis.test.ts`
+- Create: `scripts/analyze-sessions.ts`
+- Modify: `package.json`
+
+**Interfaces:**
+
+- Consumes: Pi JSONL v3 entries with top-level `type`, `id`, `parentId`, `timestamp`, `message`, `customType`, and `data` fields.
+- Produces: `analyzeSessionFiles(files: string[]): Promise<SessionCorpusReport>` and `pnpm run analyze:sessions -- <session.jsonl>...`.
+
+- [ ] **Step 1: Write the failing synthetic regression**
+
+Create `tests/session-analysis.test.ts`:
 
 ```typescript
 import * as fs from "node:fs";
@@ -42,8 +144,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { analyzeSessionFiles } from "../scripts/analyze-sessions.ts";
 
 const tempDirs: string[] = [];
+
 afterEach(() => {
-  for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of tempDirs.splice(0))
+    fs.rmSync(dir, { recursive: true, force: true });
 });
 
 function state(messageIds: string[][], totalPruneTokens = 0) {
@@ -52,7 +156,12 @@ function state(messageIds: string[][], totalPruneTokens = 0) {
     ownerSessionId: "session-1",
     manualMode: false,
     compressPermission: "allow",
-    stats: { pruneTokenCounter: 0, totalPruneTokens, toolsPruned: 0, messagesCompressed: 0 },
+    stats: {
+      pruneTokenCounter: 0,
+      totalPruneTokens,
+      toolsPruned: 0,
+      messagesCompressed: 0,
+    },
     lastCompaction: 0,
     pruneTools: [],
     blocks: [],
@@ -64,7 +173,7 @@ function state(messageIds: string[][], totalPruneTokens = 0) {
 }
 
 describe("session analysis", () => {
-  it("separates exact, message-id-only, and semantic state transitions", async () => {
+  it("reports safe transition, tool, error, and duplicate evidence", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-analysis-"));
     tempDirs.push(dir);
     const file = path.join(dir, "session.jsonl");
@@ -72,16 +181,108 @@ describe("session analysis", () => {
     const idsOnly = state([["user:1:0", "m0001"]]);
     const semantic = state([["user:1:0", "m0001"]], 5);
     const lines = [
-      { type: "session", version: 3, id: "session-1", timestamp: "2026-08-22T00:00:00Z", cwd: "/tmp" },
-      { type: "message", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", id: "call-1", name: "read", arguments: {} }] } },
-      { type: "message", message: { role: "toolResult", toolCallId: "call-1", toolName: "read", content: [], isError: false } },
-      { type: "custom", customType: "pi-dcp-state", data: first },
-      { type: "custom", customType: "pi-dcp-state", data: idsOnly },
-      { type: "custom", customType: "pi-dcp-state", data: idsOnly },
-      { type: "custom", customType: "pi-dcp-state", data: semantic },
-      { type: "compaction" },
+      {
+        type: "session",
+        version: 3,
+        id: "session-1",
+        timestamp: "2026-08-22T00:00:00.000Z",
+        cwd: "/tmp",
+      },
+      {
+        type: "message",
+        id: "a1",
+        parentId: null,
+        timestamp: "2026-08-22T00:00:00.100Z",
+        message: {
+          role: "assistant",
+          stopReason: "toolUse",
+          content: [
+            { type: "toolCall", id: "call-1", name: "read", arguments: {} },
+            { type: "toolCall", id: "call-open", name: "read", arguments: {} },
+          ],
+        },
+      },
+      {
+        type: "message",
+        id: "r1",
+        parentId: "a1",
+        timestamp: "2026-08-22T00:00:00.200Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "read",
+          content: [],
+          isError: false,
+        },
+      },
+      {
+        type: "message",
+        id: "r2",
+        parentId: "r1",
+        timestamp: "2026-08-22T00:00:00.300Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "missing",
+          toolName: "read",
+          content: [],
+          isError: true,
+        },
+      },
+      {
+        type: "custom",
+        id: "s1",
+        parentId: "r2",
+        timestamp: "2026-08-22T00:00:01.000Z",
+        customType: "pi-dcp-state",
+        data: first,
+      },
+      {
+        type: "custom",
+        id: "s2",
+        parentId: "s1",
+        timestamp: "2026-08-22T00:00:02.000Z",
+        customType: "pi-dcp-state",
+        data: idsOnly,
+      },
+      {
+        type: "custom",
+        id: "s3",
+        parentId: "s2",
+        timestamp: "2026-08-22T00:00:02.003Z",
+        customType: "pi-dcp-state",
+        data: idsOnly,
+      },
+      {
+        type: "custom",
+        id: "s4",
+        parentId: "s3",
+        timestamp: "2026-08-22T00:00:03.000Z",
+        customType: "pi-dcp-state",
+        data: semantic,
+      },
+      {
+        type: "message",
+        id: "a2",
+        parentId: "s4",
+        timestamp: "2026-08-22T00:00:04.000Z",
+        message: {
+          role: "assistant",
+          stopReason: "error",
+          errorMessage: "redacted by analyzer",
+          content: [],
+        },
+      },
+      {
+        type: "compaction",
+        id: "c1",
+        parentId: "a2",
+        timestamp: "2026-08-22T00:00:05.000Z",
+      },
     ];
-    fs.writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join("\n")}\nnot-json\n`);
+    fs.writeFileSync(
+      file,
+      `${lines.map((line) => JSON.stringify(line)).join("\n")}\nnot-json\n`,
+    );
 
     const report = await analyzeSessionFiles([file]);
 
@@ -93,17 +294,24 @@ describe("session analysis", () => {
       semanticCheckpoints: 2,
       compactions: 1,
       malformedLines: 1,
-      unmatchedToolCalls: 0,
-      unmatchedToolResults: 0,
+      unmatchedToolCalls: 1,
+      unmatchedToolResults: 1,
+      assistantErrors: 1,
+      stopReasons: { toolUse: 1, error: 1 },
     });
-    expect(report.totals.stopReasons).toEqual({ toolUse: 1 });
+    expect(report.files[0]?.exactDuplicateEvidence).toEqual({
+      firstStateOrdinal: 2,
+      adjacentTransitions: 1,
+      parentLinkedTransitions: 1,
+      minDeltaMs: 3,
+      maxDeltaMs: 3,
+    });
+    expect(report.files[0]?.dcpBytes).toBeGreaterThan(0);
   });
 });
 ```
 
-- [ ] **Step 2: Run the test and verify the module is missing**
-
-Run:
+- [ ] **Step 2: Run the regression and verify it fails**
 
 ```bash
 pnpm vitest run tests/session-analysis.test.ts
@@ -111,13 +319,20 @@ pnpm vitest run tests/session-analysis.test.ts
 
 Expected: FAIL because `scripts/analyze-sessions.ts` does not exist.
 
-- [ ] **Step 3: Implement the report types and semantic projection**
+- [ ] **Step 3: Define the analyzer's report shapes**
 
-Create `scripts/analyze-sessions.ts` with these public shapes:
+Create `scripts/analyze-sessions.ts` with imports from `node:crypto`, `node:fs`, `node:readline`, and `node:url`, followed by:
 
 ```typescript
-export interface SessionFileReport {
-  file: string;
+export interface ExactDuplicateEvidence {
+  firstStateOrdinal: number;
+  adjacentTransitions: number;
+  parentLinkedTransitions: number;
+  minDeltaMs: number | null;
+  maxDeltaMs: number | null;
+}
+
+export interface SessionCounts {
   fileBytes: number;
   dcpBytes: number;
   dcpStates: number;
@@ -128,85 +343,153 @@ export interface SessionFileReport {
   malformedLines: number;
   unmatchedToolCalls: number;
   unmatchedToolResults: number;
+  assistantErrors: number;
   stopReasons: Record<string, number>;
+}
+
+export interface SessionFileReport extends SessionCounts {
+  file: string;
+  exactDuplicateEvidence?: ExactDuplicateEvidence;
 }
 
 export interface SessionCorpusReport {
   files: SessionFileReport[];
-  totals: Omit<SessionFileReport, "file"> & { files: number };
+  totals: SessionCounts & { files: number };
 }
+```
 
-function semanticState(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const { messageIds: _messageIds, ...semantic } = value as Record<string, unknown>;
+Use `fileBytes = fs.statSync(file).size`. Define `dcpBytes` as `Buffer.byteLength(line) + 1` for each DCP JSON record; this convention includes its JSONL line feed and remains separate from filesystem bytes.
+
+- [ ] **Step 4: Implement semantic projection and transition classification**
+
+Add:
+
+```typescript
+function semanticState(value: Record<string, unknown>): Record<string, unknown> {
+  const { messageIds: _messageIds, ...semantic } = value;
   return semantic;
 }
+
+function fingerprint(value: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(value) ?? "undefined")
+    .digest("hex");
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
 ```
 
-Implement `analyzeSessionFiles()` with `node:readline`, `fs.createReadStream`, `Buffer.byteLength`, a `Map<string, number>` of open tool-call IDs, and JSON-string equality for full and semantic states. Count the first DCP state in each file as one semantic checkpoint. For each later state:
+For each file, stream lines with:
 
 ```typescript
-const full = JSON.stringify(data);
-const semantic = JSON.stringify(semanticState(data));
-if (full === previousFull) exactDuplicateTransitions++;
-else if (semantic === previousSemantic) messageIdOnlyTransitions++;
-else semanticCheckpoints++;
-previousFull = full;
-previousSemantic = semantic;
+readline.createInterface({
+  input: fs.createReadStream(file),
+  crlfDelay: Infinity,
+});
 ```
 
-Track tool calls from assistant `content` parts with `type === "toolCall"`; remove IDs when a top-level `toolResult` message is seen. A tool result without an open ID increments `unmatchedToolResults`; remaining IDs increment `unmatchedToolCalls` at EOF.
-
-- [ ] **Step 4: Add the CLI entry point**
-
-At the end of `scripts/analyze-sessions.ts`, add:
+Increment a physical line counter before parsing. For each `custom` entry whose `customType` is `pi-dcp-state`, retain `dcpBytes` even when `data` is malformed, count non-object/array data as malformed, and otherwise hash the full and message-ID-excluded state without retaining state content:
 
 ```typescript
-import { pathToFileURL } from "node:url";
+const data = record(entry.data);
+if (!data) {
+  report.malformedLines++;
+  continue;
+}
+const fullFingerprint = fingerprint(data);
+const semanticFingerprint = fingerprint(semanticState(data));
+const stateOrdinal = report.dcpStates + 1;
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (previousStateFingerprint === undefined) {
+  report.semanticCheckpoints++;
+} else if (fullFingerprint === previousStateFingerprint) {
+  report.exactDuplicateTransitions++;
+} else if (semanticFingerprint === previousSemanticFingerprint) {
+  report.messageIdOnlyTransitions++;
+} else {
+  report.semanticCheckpoints++;
+}
+
+report.dcpStates = stateOrdinal;
+previousStateFingerprint = fullFingerprint;
+previousSemanticFingerprint = semanticFingerprint;
+```
+
+On exact transitions, create `exactDuplicateEvidence` once and retain its first ordinal. Increment adjacency only when the physical lines are consecutive. Increment parent linkage only when both IDs are strings and `entry.parentId === previousEntryId`. Update minimum/maximum delta only for finite, non-negative timestamp differences.
+
+- [ ] **Step 5: Implement tool, error, and corpus aggregation**
+
+Use `Map<string, number>` for open tool-call IDs:
+
+- Assistant messages increment known Pi stop reasons; normalize unknown strings to `other` so arbitrary values are not emitted.
+- `assistantErrors` increments when `stopReason === "error"` or `errorMessage` is a non-empty string; never retain the text.
+- Assistant `toolCall` parts increment their ID count.
+- Tool results decrement their ID count; a missing open ID increments `unmatchedToolResults`.
+- Remaining counts at EOF become `unmatchedToolCalls`.
+- Corpus totals sum every numeric count and merge stop-reason counts.
+- Do not aggregate `exactDuplicateEvidence`; its chronology is file-specific.
+
+- [ ] **Step 6: Add the CLI and package command**
+
+Add the direct-execution guard:
+
+```typescript
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   const files = process.argv.slice(2);
   if (files.length === 0) {
-    process.stderr.write("Usage: tsx scripts/analyze-sessions.ts <session.jsonl>...\n");
+    process.stderr.write(
+      "Usage: tsx scripts/analyze-sessions.ts <session.jsonl>...\n",
+    );
     process.exitCode = 1;
   } else {
-    process.stdout.write(`${JSON.stringify(await analyzeSessionFiles(files), null, 2)}\n`);
+    process.stdout.write(
+      `${JSON.stringify(await analyzeSessionFiles(files), null, 2)}\n`,
+    );
   }
 }
 ```
 
-Place imports at the top of the file when implementing; do not leave the `node:url` import at the bottom.
-
-- [ ] **Step 5: Run the focused test**
-
-Run:
-
-```bash
-pnpm vitest run tests/session-analysis.test.ts
-```
-
-Expected: PASS.
-
-### Task 2: Add the analyzer command and run the exact corpus
-
-**Files:**
-- Modify: `package.json`
-
-**Interfaces:**
-- Consumes: `scripts/analyze-sessions.ts` from Task 1.
-- Produces: `pnpm run analyze:sessions --` followed by one or more session paths.
-
-- [ ] **Step 1: Add the package script**
-
-Add to `package.json` scripts:
+Add to `package.json`:
 
 ```json
 "analyze:sessions": "tsx scripts/analyze-sessions.ts"
 ```
 
-- [ ] **Step 2: Run the command with all ten explicit paths**
+- [ ] **Step 7: Verify and commit the analyzer**
 
-Run this exact command; do not replace it with a directory glob:
+```bash
+pnpm vitest run tests/session-analysis.test.ts
+pnpm typecheck
+```
+
+Expected: both PASS.
+
+```bash
+git add scripts/analyze-sessions.ts tests/session-analysis.test.ts package.json
+git commit -m "test: add reproducible dcp session analysis"
+```
+
+### Task 3: Run the exact corpus and correct the evidence report
+
+**Files:**
+
+- Modify: `docs/analysis-report.md`
+
+**Interfaces:**
+
+- Consumes: `pnpm run analyze:sessions -- <files...>` from Task 2 and read-only Pi source at tag `v0.83.0`.
+- Produces: a reproducible ten-file baseline and an evidence-backed duplicate-writer classification.
+
+- [ ] **Step 1: Run the analyzer with the ten explicit paths**
+
+Do not replace this list with a directory glob:
 
 ```bash
 SESSION_FILES=(
@@ -224,128 +507,112 @@ SESSION_FILES=(
 pnpm run analyze:sessions -- "${SESSION_FILES[@]}"
 ```
 
-Expected aggregate values:
+Expected totals:
 
 ```text
+files: 10
+fileBytes: 10740340
+dcpBytes: 5451357
 dcpStates: 692
-dcpBytes: approximately 5451357
 exactDuplicateTransitions: 42
 messageIdOnlyTransitions: 594
 semanticCheckpoints: 56
 compactions: 0
+malformedLines: 0
 unmatchedToolCalls: 0
 unmatchedToolResults: 0
+assistantErrors: 15
+stopReasons: { toolUse: 550, stop: 82, aborted: 5, error: 10 }
 ```
 
-If byte counts differ only by newline accounting, report both the analyzer's convention and the filesystem total. Do not change classification counts to force the expected output.
+The `2026-08-19T20:08` file must report:
 
-- [ ] **Step 3: Run type checking and the focused test**
+```text
+firstStateOrdinal: 36
+adjacentTransitions: 42
+parentLinkedTransitions: 42
+minDeltaMs: 1
+maxDeltaMs: 4
+```
+
+Do not alter classification logic to force these values. If a value differs, inspect the exact file list and newline convention, then report the discrepancy.
+
+- [ ] **Step 2: Verify Pi v0.83.0 loader and reload behavior**
 
 Run:
 
 ```bash
-pnpm typecheck
-pnpm vitest run tests/session-analysis.test.ts
+git -C /Users/lanh/Developer/pi-packages/pi show v0.83.0:packages/coding-agent/src/core/resource-loader.ts | sed -n '540,870p'
+git -C /Users/lanh/Developer/pi-packages/pi show v0.83.0:packages/coding-agent/src/utils/paths.ts | sed -n '1,45p'
+git -C /Users/lanh/Developer/pi-packages/pi show v0.83.0:packages/coding-agent/src/core/extensions/loader.ts | sed -n '490,610p'
+git -C /Users/lanh/Developer/pi-packages/pi show v0.83.0:packages/coding-agent/src/core/agent-session.ts | sed -n '2715,2775p'
+git -C /Users/lanh/Developer/pi-packages/pi show main:packages/coding-agent/src/core/resource-loader.ts | sed -n '540,870p'
 ```
 
-Expected: both PASS.
+Record:
 
-### Task 3: Reproduce duplicate extension writers without production guards
+- `mergePaths()` uses `canonicalizePath()`, which resolves symlinks with `realpathSync`; one physical path referenced more than once is deduplicated.
+- Separate physical DCP copies remain separate load paths and create independent closures.
+- Reload emits `session_shutdown`, reloads resources, replaces the runner before `session_start`, and does not call `runner.invalidate()` on that path.
+- DCP registers `compress` inside `session_start`; Pi's earlier load-time conflict scan cannot see it, and the scan does not inspect commands.
 
-**Files:**
-- Modify: `tests/index.test.ts`
-- Modify: `docs/analysis-report.md`
+- [ ] **Step 3: Inspect only current DCP configuration metadata**
 
-**Interfaces:**
-- Consumes: existing `createExtension()` and `createMockApi()` test harness.
-- Produces: evidence that two extension factories bound to one API can append byte-identical states independently.
-
-- [ ] **Step 1: Add a duplicate-registration characterization test**
-
-Add this test beside the persistence tests in `tests/index.test.ts`:
-
-```typescript
-it("characterizes duplicate state writes from two extension instances", async () => {
-  const { api, handlers, entries } = createMockApi();
-  createExtension(api);
-  createExtension(api);
-  const ctx = {
-    sessionManager: {
-      getSessionDir: () => "/tmp/test-session-dir",
-      getSessionId: () => "session",
-      getBranch: () => [] as unknown[],
-    },
-    getContextUsage: () => undefined,
-    hasUI: false,
-  };
-
-  for (const start of handlers.get("session_start") ?? []) {
-    await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
-  }
-
-  expect(entries).toHaveLength(2);
-  expect(entries[0]?.data).toEqual(entries[1]?.data);
-});
-```
-
-This is a characterization test and should pass on current code. It does not justify a singleton guard.
-
-- [ ] **Step 2: Run the characterization test**
-
-Run:
+Run filtered checks that do not print unrelated settings or credentials:
 
 ```bash
-pnpm vitest run tests/index.test.ts -t "characterizes duplicate state writes"
+realpath ~/.pi/agent
+node -e 'const s=require(process.env.HOME+"/.pi/agent/settings.json"); console.log((s.packages ?? []).filter((p) => /pi-dcp/i.test(p)))'
+node -e 'const p=require(process.env.HOME+"/.pi/agent/npm/package.json"); console.log(Object.entries(p.dependencies ?? {}).filter(([name]) => /pi-dcp/i.test(name)))'
+for repo in /Users/lanh/Developer/pi-vault/pi-plan /Users/lanh/Developer/pi-vault/pi-subagents; do
+  printf '%s\n' "$repo"
+  test -f "$repo/.pi/settings.json" && node -e 'const s=require(process.argv[1]); console.log((s.packages ?? []).filter((p) => /pi-dcp/i.test(p)), (s.extensions ?? []).filter((p) => /pi-dcp/i.test(p)))' "$repo/.pi/settings.json"
+done
 ```
 
-Expected: PASS with two equal snapshots.
+State explicitly that current configuration and package-cache contents cannot reconstruct historical CLI `-e` flags or the extension-source pair used by the August sessions.
 
-- [ ] **Step 3: Inspect configured extension sources**
+- [ ] **Step 4: Correct `docs/analysis-report.md`**
 
-Run read-only searches:
+Rewrite the report so it:
 
-```bash
-rg -n 'pi-dcp|@pi-vault/pi-dcp' ~/.pi/agent/settings.json ~/.pi/agent/extensions .pi 2>/dev/null || true
-find ~/.pi/agent/extensions .pi/extensions -maxdepth 3 \( -type f -o -type l \) 2>/dev/null | sort
-```
+- Uses only the exact ten-file totals from Step 1.
+- Reports DCP data as 5,451,357 of 10,740,340 bytes, approximately 50.8%.
+- Separates 42 exact duplicate transitions, 594 message-ID-only transitions, and 56 semantic checkpoints.
+- Describes the 42 adjacent, parent-linked, 1–4 ms pairs as evidence of two independent DCP state closures under the current `persistIfChanged()` logic.
+- Labels the exact historical source-path pair unresolved; current configuration is not historical proof.
+- Explains why one canonical path and ordinary reload are excluded by Pi v0.83.0 behavior.
+- Retains message-ID snapshot amplification and orphan message-ID stripping as confirmed DCP defects.
+- Removes the stale-anchor leak and compaction-stat bug claims contradicted by current code and the approved design.
+- Keeps provider failures, malformed model tool markup, idle gaps, and user aborts as external informational events.
+- Recommends no Phase 1 production guard or runtime tracing.
 
-Resolve every file containing a DCP package/path reference with:
-
-```bash
-rg -l 'pi-dcp|@pi-vault/pi-dcp' ~/.pi/agent/settings.json ~/.pi/agent/extensions .pi 2>/dev/null |
-  while IFS= read -r file; do
-    node -e 'console.log(require("node:fs").realpathSync(process.argv[1]))' "$file"
-  done
-```
-
-Record whether the historical session could have loaded distinct DCP copies. Do not edit user configuration as part of this repository change.
-
-- [ ] **Step 4: Correct the report**
-
-Update `docs/analysis-report.md` so it:
-
-- uses the exact ten-file totals,
-- separates 42 exact duplicates from 594 message-ID-only transitions,
-- identifies duplicate extension instances as the supported explanation only if source inspection corroborates it,
-- otherwise labels the cause unresolved but reproducible with two factory instances,
-- removes the stale-anchor and compaction-stat bug claims,
-- retains provider/abort findings as external informational events.
-
-- [ ] **Step 5: Run focused checks**
-
-Run:
+- [ ] **Step 5: Verify and commit the corrected report**
 
 ```bash
-pnpm vitest run tests/session-analysis.test.ts tests/index.test.ts
+pnpm vitest run tests/session-analysis.test.ts tests/index.test.ts tests/persistence.test.ts
 pnpm typecheck
 git diff --check
+git status --short
 ```
 
-Expected: all PASS.
+Expected:
 
-- [ ] **Step 6: Commit Phase 1**
+- The focused analyzer test passes.
+- Existing index and persistence tests remain green.
+- Type checking and whitespace checks pass.
+- No external JSONL file, runtime trace, `src/` file, or `tests/index.test.ts` change appears.
 
 ```bash
-git add scripts/analyze-sessions.ts tests/session-analysis.test.ts tests/index.test.ts package.json docs/analysis-report.md
-git commit -m "test: add reproducible dcp session analysis"
+git add docs/analysis-report.md
+git commit -m "docs: correct dcp session evidence"
 ```
+
+## Phase 1 Completion Criteria
+
+- The analyzer reproduces all aggregate and duplicate chronology values above.
+- Synthetic malformed JSON and unmatched tool events are reported without aborting.
+- Analyzer output contains structural counts and IDs only, never content or arguments.
+- The report distinguishes confirmed snapshot amplification, evidence-backed duplicate runtime writers, unresolved historical source paths, and external provider/user events.
+- Pi v0.83.0 behavior—not only current `main`—supports the loader conclusions.
+- No production DCP behavior, snapshot schema, dependency, or user configuration changes.

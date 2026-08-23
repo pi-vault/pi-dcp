@@ -71,7 +71,7 @@ For each failure, run only the failing test by name, add a regression that expre
 pnpm check
 ```
 
-Expected: formatting, lint, typecheck, and all tests PASS with no warnings or errors.
+Expected: formatting, lint, typecheck, and all tests PASS with no errors; existing repository lint warnings may remain.
 
 - [ ] **Step 2: Verify package contents**
 

@@ -20,7 +20,7 @@
 - Do not add nudge-anchor cleanup that duplicates `src/pipeline.ts`.
 - Do not add a process-global singleton guard without reproducing duplicate loading in supported single-instance configuration.
 - Do not treat provider/model failures, idle gaps, or user aborts as DCP bugs without deterministic evidence.
-- Temporary diagnostics must not log message content, tool arguments, or secrets.
+- Analyzer output must not contain message content, tool arguments, error text, or secrets.
 - Every production behavior change starts with a focused failing test.
 - Run the narrowest relevant test first; run `pnpm check` only after all phases pass focused checks.
 
@@ -47,7 +47,7 @@ Each phase is independently useful and ends in a reviewable commit. Execute the 
 
 - The exact ten-file corpus reports 692 states, about 5.45 MB of DCP entries, 594 message-ID-only transitions, 42 exact duplicate transitions, 56 semantic checkpoints, and zero compactions.
 - Synthetic malformed lines and unmatched tool calls are reported without aborting analysis.
-- Duplicate-writer tracing contains only IDs, callsites, force flags, and fingerprints.
+- Exact-duplicate evidence contains only state ordinals, entry adjacency, parent linkage, and timestamp deltas.
 - No production DCP behavior changes.
 
 - [ ] Complete Phase 1 and commit its files.

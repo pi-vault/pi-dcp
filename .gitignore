@@ -143,7 +143,6 @@ vite.config.ts.timestamp-*
 .vite/
 
 # Local-only working storage (plans, scratch notes, etc.)
-tmp/
-
-# Git worktrees
+.superpowers/
 .worktrees/
+tmp/
