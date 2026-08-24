@@ -35,25 +35,22 @@ describe("runPipeline", () => {
     expect(state.nudges.iterationAnchors).toEqual(new Set());
   });
 
-  it("strips hallucinated DCP tags from assistant messages", () => {
+  it("sanitizes a persisted transposed message-id suffix before canonical injection", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     const messages: AgentMessage[] = [
       makeUserMessage("Hello"),
-      makeAssistantMessage('Response <dcp-message-id ref="m0001" /> with hallucination'),
+      makeAssistantMessage("**Creating the GitHub PR**m0112</dpc-message-id>"),
     ];
 
     const result = runPipeline(state, config, messages, undefined);
+    const text = extractMessageText(result.messages[1]);
 
-    const assistantContent = (result.messages[1] as any).content as Array<{
-      type: string;
-      text: string;
-    }>;
-    const text = assistantContent[0].text;
-    // The hallucinated ref should have been stripped and replaced with the correct sequential ref
-    expect(text).not.toContain('ref="m0001"');
-    // A legitimate message ID was injected (not the hallucinated one)
-    expect(text).toContain("<dcp-message-id");
+    expect(text).toContain("**Creating the GitHub PR**");
+    expect(text).not.toContain("m0112");
+    expect(text).not.toContain("dpc-message-id");
+    expect(text.match(/<dcp-message-id/g)).toHaveLength(1);
+    expect(text).toContain("m0002");
   });
 
   it("injects message IDs into user messages", () => {
