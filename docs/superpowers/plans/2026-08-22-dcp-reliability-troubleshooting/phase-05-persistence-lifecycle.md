@@ -15,7 +15,9 @@
 - Keep `DcpSnapshotV1`, parser behavior, and serialized snapshot content unchanged.
 - Exclude both `messageIds.byRawId` and `messageIds.nextRefIndex` from the semantic fingerprint.
 - Preserve forced recovery writes and explicit command/compression/compaction writes.
-- Accept the projection only if all lifecycle reconstruction tests pass.
+- Use the current Pi 0.84.2 lifecycle contract for the gate: `session_tree` changes the active branch, `session_compact` fires after a successful compaction, and `agent_settled` fires only after retries, compaction, and queued follow-ups are finished. Keep the historical v0.83.0 corpus numbers separate from current lifecycle behavior.
+- Treat synthetic message refs as a reconstruction contract. OpenCode DCP is a reference for using host-stable message IDs; it does not justify removing Pi's synthetic-ID proof.
+- Accept the projection only if the complete lifecycle reconstruction matrix passes.
 - Do not combine the projection and `agent_settled` fallback; select one design from evidence.
 
 ---
@@ -23,10 +25,12 @@
 ### Task 1: Define the semantic fingerprint contract
 
 **Files:**
+
 - Modify: `tests/persistence.test.ts`
 - Modify: `src/state/persistence.ts`
 
 **Interfaces:**
+
 - Consumes: `serializeDcpSnapshot(state, "owner")`.
 - Produces: `durableStateFingerprint(state): string | undefined` that ignores only `messageIds`.
 
@@ -58,15 +62,33 @@ Add:
 
 ```typescript
 it("changes the durable fingerprint for semantic mutations", () => {
-  const mutations: Array<(state: ReturnType<typeof createSessionState>) => void> = [
-    (state) => { state.manualMode = "active"; },
-    (state) => { state.compressPermission = "deny"; },
-    (state) => { state.stats.totalPruneTokens = 1; },
-    (state) => { state.lastCompaction = 1; },
-    (state) => { state.prune.tools.set("call", 1); },
-    (state) => { state.prune.messages.nextBlockId = 2; },
-    (state) => { state.prune.messages.nextRunId = 2; },
-    (state) => { state.nudges.turnAnchors.add("user:1:0"); },
+  const mutations: Array<
+    (state: ReturnType<typeof createSessionState>) => void
+  > = [
+    (state) => {
+      state.manualMode = "active";
+    },
+    (state) => {
+      state.compressPermission = "deny";
+    },
+    (state) => {
+      state.stats.totalPruneTokens = 1;
+    },
+    (state) => {
+      state.lastCompaction = 1;
+    },
+    (state) => {
+      state.prune.tools.set("call", 1);
+    },
+    (state) => {
+      state.prune.messages.nextBlockId = 2;
+    },
+    (state) => {
+      state.prune.messages.nextRunId = 2;
+    },
+    (state) => {
+      state.nudges.turnAnchors.add("user:1:0");
+    },
   ];
 
   for (const mutate of mutations) {
@@ -96,7 +118,9 @@ Expected: the message-ID exclusion test FAILS; semantic mutation test PASSES.
 Replace `durableStateFingerprint()` in `src/state/persistence.ts` with:
 
 ```typescript
-export function durableStateFingerprint(state: SessionState): string | undefined {
+export function durableStateFingerprint(
+  state: SessionState,
+): string | undefined {
   const snapshot = serializeDcpSnapshot(state, "owner");
   if (!snapshot) return undefined;
   const { messageIds: _messageIds, ...durable } = snapshot;
@@ -139,18 +163,25 @@ Expected: PASS.
 ### Task 2: Prove deterministic reconstruction without ID-only checkpoints
 
 **Files:**
+
 - Modify: `tests/stable-ids.test.ts`
+- Modify: `tests/index.test.ts`
+- Modify: `tests/pipeline.test.ts`
 
 **Interfaces:**
+
 - Consumes: `serializeDcpSnapshot()`, `restoreDcpSnapshot()`, and `assignMessageRefs()`.
-- Produces: lifecycle evidence required to accept or reject the projection.
+- Produces: lifecycle evidence required to accept or reject the projection, including Pi branch/compaction events and compression-block boundary rebuilding.
 
 - [ ] **Step 1: Add persistence imports and a message helper**
 
 Add imports:
 
 ```typescript
-import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
+import {
+  restoreDcpSnapshot,
+  serializeDcpSnapshot,
+} from "../src/state/persistence.ts";
 ```
 
 Use existing inline messages or existing `makeUserMessage`/`makeAssistantMessage`; do not create a second production helper.
@@ -166,8 +197,16 @@ it("reconstructs the same refs after ID-only growth was not checkpointed", () =>
   const snapshot = serializeDcpSnapshot(baseline);
   if (!snapshot) throw new Error("expected snapshot");
   const messages: AgentMessage[] = [
-    { role: "user", content: [{ type: "text", text: "one" }], timestamp: 1 } as AgentMessage,
-    { role: "user", content: [{ type: "text", text: "two" }], timestamp: 2 } as AgentMessage,
+    {
+      role: "user",
+      content: [{ type: "text", text: "one" }],
+      timestamp: 1,
+    } as AgentMessage,
+    {
+      role: "user",
+      content: [{ type: "text", text: "two" }],
+      timestamp: 2,
+    } as AgentMessage,
   ];
 
   assignMessageRefs(baseline, messages);
@@ -224,10 +263,12 @@ it("reconstructs stable refs independently on sibling branches", () => {
   restoreDcpSnapshot(snapshot, returnedA, "owner");
   assignMessageRefs(returnedA, [prefix, branchA]);
 
-  expect([...returnedA.messageIds.byIndex.values()]).toEqual(
-    [...firstA.messageIds.byIndex.values()],
+  expect([...returnedA.messageIds.byIndex.values()]).toEqual([
+    ...firstA.messageIds.byIndex.values(),
+  ]);
+  expect(siblingB.messageIds.byIndex.get(0)).toBe(
+    firstA.messageIds.byIndex.get(0),
   );
-  expect(siblingB.messageIds.byIndex.get(0)).toBe(firstA.messageIds.byIndex.get(0));
 });
 ```
 
@@ -239,8 +280,16 @@ Add:
 it("uses the semantic compaction checkpoint to preserve retained refs", () => {
   const state = createSessionState();
   state.sessionId = "owner";
-  const old = { role: "user", content: [{ type: "text", text: "old" }], timestamp: 1 } as AgentMessage;
-  const retained = { role: "user", content: [{ type: "text", text: "retained" }], timestamp: 2 } as AgentMessage;
+  const old = {
+    role: "user",
+    content: [{ type: "text", text: "old" }],
+    timestamp: 1,
+  } as AgentMessage;
+  const retained = {
+    role: "user",
+    content: [{ type: "text", text: "retained" }],
+    timestamp: 2,
+  } as AgentMessage;
   assignMessageRefs(state, [old, retained]);
   expect(state.messageIds.byIndex.get(1)).toBe("m0002");
   state.lastCompaction = 10;
@@ -262,22 +311,43 @@ it("uses the semantic compaction checkpoint to preserve retained refs", () => {
 });
 ```
 
-- [ ] **Step 5: Run the lifecycle gate**
+- [ ] **Step 5: Test Pi tree navigation and compaction restart**
+
+Add extension-level regressions in `tests/index.test.ts` using the existing `createMockApi()`:
+
+1. Build two valid branch paths from the same semantic checkpoint. Drive `session_tree` from branch A to B and back to A, then run `context` on each path. Assert that the shared prefix and each branch's messages receive the same refs as independent reconstruction, and that ID-only context growth does not append a state entry.
+2. Drive `session_compact` on a state containing an old message and a retained message. Run `context` with a `compactionSummary` plus the retained tail, capture the resulting refs, create a fresh extension instance from the persisted checkpoint, and run the same context again. Assert that retained refs and the next allocated ref are unchanged across the restart.
+
+The test must use the actual registered handlers, not direct calls to `restoreDcpSnapshot()` alone. It should assert that the compaction handler clears runtime indexes while the persisted raw-key map remains available for reconstruction.
+
+- [ ] **Step 6: Test compression-block boundary reconstruction**
+
+Add in `tests/pipeline.test.ts`:
+
+1. Create a compression block with stable `startKey`, `endKey`, `anchorKey`, and `compressToolCallId` boundaries, then serialize that semantic checkpoint.
+2. Run a later pipeline pass that adds messages and grows only `messageIds`; do not serialize that ID-only change.
+3. Restore the semantic checkpoint into a fresh state and run the pipeline over the later message list.
+
+Assert that `startIndex`, `endIndex`, `anchorIndex`, `effectiveMessageIndices`, and the resulting pruned messages match the uninterrupted state. This proves that omitted ID-only checkpoints do not invalidate persisted compression boundaries.
+
+- [ ] **Step 7: Run the lifecycle gate**
 
 Run:
 
 ```bash
-pnpm vitest run tests/stable-ids.test.ts tests/persistence.test.ts
+pnpm vitest run tests/stable-ids.test.ts tests/persistence.test.ts tests/index.test.ts tests/pipeline.test.ts
 ```
 
-Expected: PASS. If any expected ref changes, stop and execute Task 5 instead of Task 3/4.
+Expected: PASS for same-owner resume, fork with reset statistics, both tree directions, compaction followed by restart, and compression-block boundary reconstruction. If any expected ref or block result changes, stop and execute Task 5 instead of Task 3/4.
 
 ### Task 3: Stop context writes caused only by growing messages
 
 **Files:**
+
 - Modify: `tests/index.test.ts`
 
 **Interfaces:**
+
 - Consumes: the semantic fingerprint from Task 1.
 - Produces: extension-level evidence that growing contexts do not append state without semantic changes.
 
@@ -295,21 +365,40 @@ it("skips state writes when growing context changes only message IDs", async () 
       getSessionId: () => "session",
       getBranch: () => [] as unknown[],
     },
-    getContextUsage: () => ({ tokens: 20_000, contextWindow: 1_000_000, percent: 2 }),
+    getContextUsage: () => ({
+      tokens: 20_000,
+      contextWindow: 1_000_000,
+      percent: 2,
+    }),
     hasUI: false,
   };
   const start = handlers.get("session_start")?.[0];
-  await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
+  await (start as (...args: unknown[]) => Promise<void>)(
+    { reason: "new" },
+    ctx,
+  );
   entries.length = 0;
   const context = handlers.get("context")?.[0];
-  const first = [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 }];
+  const first = [
+    { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 },
+  ];
   const second = [
     ...first,
-    { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 2 },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      timestamp: 2,
+    },
   ];
 
-  await (context as (...args: unknown[]) => Promise<unknown>)({ messages: first }, ctx);
-  await (context as (...args: unknown[]) => Promise<unknown>)({ messages: second }, ctx);
+  await (context as (...args: unknown[]) => Promise<unknown>)(
+    { messages: first },
+    ctx,
+  );
+  await (context as (...args: unknown[]) => Promise<unknown>)(
+    { messages: second },
+    ctx,
+  );
 
   expect(entries).toHaveLength(0);
 });
@@ -329,18 +418,29 @@ it("persists one context snapshot when a nudge anchor changes", async () => {
       getSessionId: () => "session",
       getBranch: () => [] as unknown[],
     },
-    getContextUsage: () => ({ tokens: 800_000, contextWindow: 1_000_000, percent: 80 }),
+    getContextUsage: () => ({
+      tokens: 800_000,
+      contextWindow: 1_000_000,
+      percent: 80,
+    }),
     hasUI: false,
   };
-  await (handlers.get("session_start")?.[0] as (...args: unknown[]) => Promise<void>)(
-    { reason: "new" },
-    ctx,
-  );
+  await (
+    handlers.get("session_start")?.[0] as (...args: unknown[]) => Promise<void>
+  )({ reason: "new" }, ctx);
   entries.length = 0;
   const event = {
-    messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 }],
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: 1,
+      },
+    ],
   };
-  const context = handlers.get("context")?.[0] as (...args: unknown[]) => Promise<unknown>;
+  const context = handlers.get("context")?.[0] as (
+    ...args: unknown[]
+  ) => Promise<unknown>;
 
   await context(event, ctx);
   await context(event, ctx);
@@ -362,15 +462,18 @@ pnpm vitest run tests/index.test.ts -t "state writes|context snapshot|persists c
 ```
 
 Expected: PASS with no `src/index.ts` production change.
+The accepted projection path must not add an `agent_settled` persistence handler; that handler belongs only to Task 5's rejected-projection fallback.
 
 ### Task 4: Verify the accepted projection design
 
 **Files:**
+
 - Verify: `src/state/persistence.ts`
 - Verify: `src/index.ts`
 - Verify: persistence and lifecycle tests
 
 **Interfaces:**
+
 - Produces: the selected persistence design and evidence for approximately 56 semantic checkpoints in the historical corpus.
 
 - [ ] **Step 1: Run all persistence/lifecycle tests**
@@ -420,18 +523,20 @@ Expected: PASS; `DcpSnapshotV1` and serialized `messageIds` remain unchanged.
 - [ ] **Step 4: Commit the accepted projection**
 
 ```bash
-git add src/state/persistence.ts tests/persistence.test.ts tests/stable-ids.test.ts tests/index.test.ts
+git add src/state/persistence.ts tests/persistence.test.ts tests/stable-ids.test.ts tests/index.test.ts tests/pipeline.test.ts
 git commit -m "fix: skip message-id-only dcp snapshots"
 ```
 
 ### Task 5: Fallback only if deterministic reconstruction fails
 
 **Files:**
+
 - Revert Task 1 production change: `src/state/persistence.ts`
 - Modify: `src/index.ts`
 - Modify: `tests/index.test.ts`
 
 **Interfaces:**
+
 - Consumes: full existing fingerprint.
 - Produces: one ordinary checkpoint at `agent_settled` instead of one per context pass.
 
@@ -442,7 +547,9 @@ Execute this task only when Task 2 produces a failing reference-stability case t
 Restore:
 
 ```typescript
-export function durableStateFingerprint(state: SessionState): string | undefined {
+export function durableStateFingerprint(
+  state: SessionState,
+): string | undefined {
   return JSON.stringify(serializeDcpSnapshot(state, "owner"));
 }
 ```
@@ -451,7 +558,7 @@ Keep the failing lifecycle regression that rejected the projection.
 
 - [ ] **Step 2: Move ordinary persistence to `agent_settled`**
 
-Remove the unconditional `persistIfChanged()` call at the end of the `context` handler. Add:
+Remove the unconditional `persistIfChanged()` call at the end of the `context` handler. Register the fallback alongside the other top-level lifecycle handlers:
 
 ```typescript
 pi.on("agent_settled", async () => {
@@ -463,7 +570,7 @@ Keep command, compression completion, compaction, shutdown, start, and tree pers
 
 - [ ] **Step 3: Replace the growing-context test expectation**
 
-After two growing context calls, assert zero entries; invoke the registered `agent_settled` handler and assert one full snapshot containing the latest message IDs. Invoke it again and assert the count remains one.
+Assert that `handlers.get("agent_settled")` contains exactly one handler. After two growing context calls, assert zero entries; invoke the registered `agent_settled` handler and assert one full snapshot containing the latest `messageIds.byRawId` and `nextRefIndex`. Invoke it again and assert the count remains one. Also assert that a semantic mutation still persists once before `agent_settled` and does not duplicate at settlement.
 
 - [ ] **Step 4: Run the fallback lifecycle suite**
 
@@ -480,6 +587,6 @@ Expected: all PASS, including the lifecycle regression that rejected the project
 - [ ] **Step 5: Commit the fallback instead of Task 4's commit**
 
 ```bash
-git add src/index.ts src/state/persistence.ts tests/index.test.ts tests/persistence.test.ts tests/stable-ids.test.ts
+git add src/index.ts src/state/persistence.ts tests/index.test.ts tests/persistence.test.ts tests/stable-ids.test.ts tests/pipeline.test.ts
 git commit -m "fix: checkpoint dcp state after settled agent runs"
 ```

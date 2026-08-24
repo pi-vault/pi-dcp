@@ -251,6 +251,59 @@ describe("persistence", () => {
       expect(snapshot?.blocks[0]).not.toHaveProperty("active");
     });
 
+    it("excludes message-id bookkeeping from the durable fingerprint", () => {
+      const state = createSessionState();
+      state.sessionId = "owner";
+      const before = persistence.durableStateFingerprint(state);
+
+      state.messageIds.byRawId.set("user:1:0", "m0001");
+      state.messageIds.byRef.set("m0001", "user:1:0");
+      state.messageIds.nextRefIndex = 2;
+
+      expect(persistence.durableStateFingerprint(state)).toBe(before);
+      expect(persistence.serializeDcpSnapshot(state)?.messageIds).toEqual({
+        byRawId: [["user:1:0", "m0001"]],
+        nextRefIndex: 2,
+      });
+    });
+
+    it("changes the durable fingerprint for semantic mutations", () => {
+      const mutations: Array<(state: ReturnType<typeof createSessionState>) => void> = [
+        (state) => {
+          state.manualMode = "active";
+        },
+        (state) => {
+          state.compressPermission = "deny";
+        },
+        (state) => {
+          state.stats.totalPruneTokens = 1;
+        },
+        (state) => {
+          state.lastCompaction = 1;
+        },
+        (state) => {
+          state.prune.tools.set("call", 1);
+        },
+        (state) => {
+          state.prune.messages.nextBlockId = 2;
+        },
+        (state) => {
+          state.prune.messages.nextRunId = 2;
+        },
+        (state) => {
+          state.nudges.turnAnchors.add("user:1:0");
+        },
+      ];
+
+      for (const mutate of mutations) {
+        const state = createSessionState();
+        state.sessionId = "owner";
+        const before = persistence.durableStateFingerprint(state);
+        mutate(state);
+        expect(persistence.durableStateFingerprint(state)).not.toBe(before);
+      }
+    });
+
     it("restores in place and resets statistics for a forked owner", () => {
       const saved = createSessionState();
       saved.sessionId = "parent";
