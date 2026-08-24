@@ -4,7 +4,7 @@
 
 **Goal:** Verify the complete change set against focused tests, package checks, historical evidence, and Pi lifecycle behavior, then finalize the report with only demonstrated conclusions.
 
-**Architecture:** Verify from narrow to broad, keep historical measurements separate from projected post-fix writes, and use an optional disposable Pi session for end-to-end lifecycle coverage. Production changes discovered during verification require a new failing regression before modification.
+**Architecture:** Verify from narrow to broad under the supported Node runtime, audit the committed Phase 1–5 range rather than only the working tree, keep historical measurements separate from projected post-fix writes, and use an isolated optional Pi session for end-to-end lifecycle coverage. Production changes discovered during verification require a new failing regression before modification.
 
 **Tech Stack:** pnpm, Vitest, TypeScript, Biome, package verification scripts, Pi interactive mode, JSONL analyzer.
 
@@ -12,20 +12,59 @@
 
 ## Global Constraints
 
+- Run every repository command with Node.js `>=24.15.0`; record the runtime before the first check.
+- Audit completed Phase 1–5 changes against commit `c173923` (the parent of the Phase 1 merge on this branch), not only against the current working tree.
 - Do not rewrite historical JSONL files.
 - Do not claim runtime write reduction from a projection alone; label projected and observed results separately.
-- Do not commit temporary Pi settings, traces, sessions, or packed artifacts.
+- Do not commit temporary Pi settings, traces, sessions, or packed artifacts. Use a disposable npm cache for `pack:verify` when the user npm cache is not writable.
 - Do not make opportunistic production edits during verification.
 - If a check cannot run, record the exact command, reason, and residual risk.
 
 ---
 
+### Task 0: Establish the verification runtime
+
+**Files:**
+
+- Verify: `package.json`, `/Users/lanh/Developer/pi-packages/pi/packages/coding-agent/package.json`
+
+**Interfaces:**
+
+- Consumes: the repository engine requirement and the Pi host version.
+- Produces: one recorded, supported verification toolchain.
+
+- [ ] **Step 1: Record the active toolchain and host versions**
+
+Run:
+
+```bash
+node --version
+pnpm --version
+pi --version
+git -C /Users/lanh/Developer/pi-packages/pi show -s --format='%H %s' HEAD
+git -C /Users/lanh/Developer/pi-packages/pi show HEAD:packages/coding-agent/package.json | sed -n '1,8p'
+```
+
+Expected: Node.js is `>=24.15.0` and the Pi package reports version `0.84.2`.
+
+- [ ] **Step 2: Stop before repository checks when the runtime is unsupported**
+
+Run:
+
+```bash
+node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 24 || (major === 24 && minor < 15)) { console.error(`Node >=24.15.0 required, found ${process.versions.node}`); process.exit(1); }'
+```
+
+If this fails, activate an installed Node.js `>=24.15.0` runtime and rerun Task 0. Do not treat a passing check with an engine warning as supported evidence.
+
 ### Task 1: Run focused phase verification
 
 **Files:**
+
 - Verify all files changed in Phases 1–5.
 
 **Interfaces:**
+
 - Consumes: every phase's focused tests.
 - Produces: one successful focused verification record.
 
@@ -40,10 +79,10 @@ Expected: PASS.
 - [ ] **Step 2: Run glob and sanitization tests**
 
 ```bash
-pnpm vitest run tests/protected-patterns.test.ts tests/strip.test.ts tests/message-end.test.ts tests/inject.test.ts tests/pipeline.test.ts
+pnpm vitest run tests/protected-patterns.test.ts tests/protected-content.test.ts tests/strategy-runner.test.ts tests/strip.test.ts tests/message-end.test.ts tests/inject.test.ts tests/pipeline.test.ts
 ```
 
-Expected: PASS.
+Expected: PASS, including every Phase 3 protected-pattern consumer and every Phase 4 sanitization boundary.
 
 - [ ] **Step 3: Run persistence and lifecycle tests**
 
@@ -60,9 +99,11 @@ For each failure, run only the failing test by name, add a regression that expre
 ### Task 2: Run repository and package verification
 
 **Files:**
+
 - Verify repository configuration and packed file set.
 
 **Interfaces:**
+
 - Produces: complete quality and packaging evidence.
 
 - [ ] **Step 1: Run the full repository check**
@@ -76,28 +117,45 @@ Expected: formatting, lint, typecheck, and all tests PASS with no errors; existi
 - [ ] **Step 2: Verify package contents**
 
 ```bash
-pnpm run pack:verify
+PACK_CACHE_DIR="$(mktemp -d)"
+trap 'rm -rf "$PACK_CACHE_DIR"' EXIT
+npm_config_cache="$PACK_CACHE_DIR" pnpm run pack:verify
 ```
 
 Expected: PASS and no analyzer scripts, plans, external logs, temporary traces, or local settings unexpectedly included in the published package.
 
-- [ ] **Step 3: Inspect the diff**
+- [ ] **Step 3: Inspect the committed Phase 1–5 range and working tree**
 
 ```bash
-git diff --check
+PHASE_BASE=c173923
+git diff --check "$PHASE_BASE..HEAD"
 git status --short
-git diff --stat
-git diff -- src tests scripts package.json README.md dcp.schema.json docs/analysis-report.md CHANGELOG.md
+git diff --stat "$PHASE_BASE..HEAD"
+git diff "$PHASE_BASE..HEAD" -- src tests scripts package.json pnpm-lock.yaml README.md dcp.schema.json docs/analysis-report.md CHANGELOG.md
+git diff -- docs/superpowers/plans/2026-08-22-dcp-reliability-troubleshooting/phase-06-integrated-verification.md
 ```
 
-Expected: every changed production/test/report file belongs to a completed phase; no temporary diagnostic output remains.
+Expected: the history-aware diff contains only completed Phase 1–5 scope plus the planned report changes; the working tree contains no temporary artifacts; the Phase 6 plan diff is reviewed separately.
+
+- [ ] **Step 4: Confirm the package check did not leave artifacts**
+
+```bash
+git status --short
+```
+
+Expected: no packed archive, npm cache, trace, session, or settings file is inside the repository.
+
+<!-- `pack:verify` uses `npm pack --dry-run`; no archive is created.
+-->
 
 ### Task 3: Re-run historical evidence and final report
 
 **Files:**
+
 - Modify: `docs/analysis-report.md`
 
 **Interfaces:**
+
 - Consumes: `pnpm run analyze:sessions` and actual Phase 1–5 outcomes.
 - Produces: final evidence-backed report.
 
@@ -121,11 +179,11 @@ SESSION_FILES=(
 pnpm run analyze:sessions -- "${SESSION_FILES[@]}"
 ```
 
-Expected historical values remain:
+Expected historical totals remain exactly:
 
 ```text
 dcpStates: 692
-dcpBytes: approximately 5451357
+dcpBytes: 5451357
 exactDuplicateTransitions: 42
 messageIdOnlyTransitions: 594
 semanticCheckpoints: 56
@@ -144,19 +202,24 @@ Ensure `docs/analysis-report.md` contains separate sections for:
 4. intentional native glob contract expansion,
 5. existing anchor cleanup now covered by tests,
 6. compaction statistics wording without schema change,
-7. external MiniMax/provider/abort events not fixed in DCP.
+7. external MiniMax/provider/abort events not fixed in DCP,
+8. Phase 6 command evidence, supported runtime, current Pi host evidence, and whether the optional smoke test ran.
 
-Replace predicted implementation language with actual test and command evidence. Keep the historical 692/594/42/56 numbers labeled as historical analysis, not post-fix runtime measurements.
+Replace predicted implementation language with actual test and command evidence. Keep the historical 692/594/42/56 numbers labeled as historical analysis and a projection input, not post-fix runtime measurements. State explicitly that the accepted fingerprint projects 56 semantic checkpoints from this corpus while duplicate-writer behavior remains a separate historical finding.
 
-- [ ] **Step 3: Add changelog entry only when policy requires it**
+- [ ] **Step 3: Record current Pi and OpenCode reference evidence**
 
-If this branch targets a release and `CHANGELOG.md` has an `[Unreleased]` section, append under `### Fixed`:
+Run:
 
-```markdown
-- Reduced redundant DCP session-state snapshots, repaired orphan message-ID sanitization, and clarified protected-pattern and statistics behavior.
+```bash
+git -C /Users/lanh/Developer/pi-packages/pi show -s --format='%H %s' HEAD
+git -C /Users/lanh/Developer/pi-packages/pi show HEAD:packages/coding-agent/package.json | sed -n '1,8p'
+git -C /Users/lanh/Developer/pi-packages/pi grep -n -E 'session_tree|session_compact|agent_settled|transformContext|appendMessage' -- packages/agent/src/agent-loop.ts packages/coding-agent/src/core/agent-session.ts packages/coding-agent/src/core/extensions/runner.ts
+git -C /Users/lanh/Developer/pi-packages/opencode-dynamic-context-pruning show -s --format='%H %s' HEAD
+git -C /Users/lanh/Developer/pi-packages/opencode-dynamic-context-pruning grep -n -E 'assignMessageRefs|syncCompressionBlocks|saveSessionState' -- lib/hooks.ts lib/message-ids.ts lib/messages/sync.ts
 ```
 
-If there is no `[Unreleased]` section or branch policy excludes changelog changes, leave `CHANGELOG.md` untouched and record that decision in the final summary.
+Expected: Pi is `0.84.2`; its lifecycle ordering supports the Phase 5 reconstruction tests; OpenCode DCP uses host-stable message IDs and rebuilds compression relationships from current messages. Do not copy OpenCode's sidecar persistence model or change Pi snapshot-v1 fields. Preserve the original historical baseline section and do not add a changelog entry in this non-release verification phase.
 
 - [ ] **Step 4: Re-run documentation-sensitive checks**
 
@@ -172,105 +235,141 @@ Expected: PASS.
 ### Task 4: Optional Pi lifecycle smoke test
 
 **Files:**
+
 - Create only disposable session/config data outside the repository.
 - Do not modify `/Users/lanh/Developer/pi-packages/pi`.
 
 **Interfaces:**
-- Consumes: locally installed DCP extension and Pi extension lifecycle.
+
+- Consumes: the locally installed DCP extension and Pi 0.84.2 extension lifecycle.
 - Produces: observed state-entry counts for a real run.
 
-- [ ] **Step 1: Record current extension configuration**
+- This task is optional and is not required to declare Phase 6 complete. If credentials, terminal access, or a reproducible lifecycle sequence are unavailable, skip it and record the exact reason and residual risk in `docs/analysis-report.md`.
 
-Read but do not edit the active Pi package/extension configuration. Confirm only one DCP source is enabled for the smoke test. If isolation cannot be guaranteed, skip the smoke test and record duplicate-loading as residual risk.
+- [ ] **Step 1: Confirm the host supports isolated extension loading**
 
-- [ ] **Step 2: Start a disposable Pi session**
+Read but do not edit the active Pi settings. The smoke command below must use Pi's `--no-extensions` flag plus one explicit `--extension` path. Pi's CLI contract keeps explicit `-e` paths enabled when discovery is disabled, and its resource loader canonicalizes duplicate paths.
 
-Create an isolated working directory and marker, then start Pi with the local extension:
+- [ ] **Step 2: Create isolated disposable state**
+
+Run these commands in one shell so the cleanup trap remains active:
 
 ```bash
-export SMOKE_CWD="$(mktemp -d)"
-export SMOKE_MARKER="$(mktemp)"
-cd "$SMOKE_CWD"
-pi -e /Users/lanh/Developer/pi-vault/pi-dcp/src/index.ts
+SMOKE_CWD="$(mktemp -d)"
+SMOKE_AGENT_DIR="$(mktemp -d)"
+SMOKE_MARKER="$(mktemp)"
+trap 'rm -rf "$SMOKE_CWD" "$SMOKE_AGENT_DIR" "$SMOKE_MARKER"' EXIT
 ```
 
-Do not open or modify a production project session.
+Do not use the normal `~/.pi/agent` directory for this run.
 
-- [ ] **Step 3: Exercise ordinary growth**
+- [ ] **Step 3: Exercise ordinary growth with one explicit DCP source**
 
-Run one prompt that causes at least three tool iterations without pruning or nudges. Inspect the resulting JSONL and verify ordinary message-ID growth does not create one DCP state per context pass.
+Start Pi from the disposable working directory:
 
-- [ ] **Step 4: Exercise lifecycle transitions**
+```bash
+(
+  cd "$SMOKE_CWD"
+  PI_CODING_AGENT_DIR="$SMOKE_AGENT_DIR" \
+    pi --no-extensions \
+      --extension /Users/lanh/Developer/pi-vault/pi-dcp/src/index.ts \
+      --session-dir "$SMOKE_AGENT_DIR/sessions"
+)
+```
 
-In the disposable session:
+Use this prompt, then wait for a clean response before exiting:
 
-1. finish a clean assistant response,
-2. resume the session,
-3. navigate the tree and return,
-4. trigger manual compaction,
-5. exit cleanly.
+```text
+Work only in this empty disposable directory. Use at least three separate tool calls in order: list the directory, write dcp-smoke.txt containing exactly smoke, and read dcp-smoke.txt back. Do not compact or prune during this prompt.
+```
+
+If the model does not produce at least three tool calls, discard that observation and repeat the disposable run.
+
+- [ ] **Step 4: Resume and exercise lifecycle transitions**
+
+Locate the session created after the marker:
+
+```bash
+SMOKE_SESSION="$(find "$SMOKE_AGENT_DIR/sessions" -type f -name '*.jsonl' -newer "$SMOKE_MARKER" -print | sort | tail -1)"
+test -n "$SMOKE_SESSION"
+```
+
+Resume that exact file with the same isolated loader:
+
+```bash
+(
+  cd "$SMOKE_CWD"
+  PI_CODING_AGENT_DIR="$SMOKE_AGENT_DIR" \
+    pi --no-extensions \
+      --extension /Users/lanh/Developer/pi-vault/pi-dcp/src/index.ts \
+      --session-dir "$SMOKE_AGENT_DIR/sessions" \
+      --session "$SMOKE_SESSION"
+)
+```
+
+In the resumed session, finish one clean response, use `/tree` to move to an earlier leaf and return to the latest leaf, trigger `/compact` and wait for it to complete, then exit cleanly.
 
 Verify message refs remain stable for surviving messages and state restoration does not throw.
 
-- [ ] **Step 5: Analyze the disposable session**
+- [ ] **Step 5: Verify the session header and analyze the disposable session**
 
-After exiting Pi, locate the session created after the marker and analyze it:
+Verify that the analyzed file belongs to the disposable cwd; the analyzer intentionally does not expose the raw `cwd` field:
 
 ```bash
-export SMOKE_SESSION="$(find ~/.pi/agent/sessions -type f -name '*.jsonl' -newer "$SMOKE_MARKER" -print | sort | tail -1)"
-test -n "$SMOKE_SESSION"
-cd /Users/lanh/Developer/pi-vault/pi-dcp
+node --input-type=module -e '
+import fs from "node:fs";
+const [file, expectedCwd] = process.argv.slice(1);
+const header = JSON.parse(fs.readFileSync(file, "utf8").split("\n", 1)[0]);
+if (header.type !== "session" || header.cwd !== expectedCwd) {
+  console.error(`unexpected session header cwd: ${header.cwd}`);
+  process.exit(1);
+}
+' "$SMOKE_SESSION" "$SMOKE_CWD"
 pnpm run analyze:sessions -- "$SMOKE_SESSION"
 ```
 
-If other Pi sessions ran concurrently, verify the reported header `cwd` equals `$SMOKE_CWD`; otherwise discard this observation and rerun in isolation. Expected: no exact duplicate snapshots under single-instance configuration and no message-ID-only state transitions under the accepted projection design. Under the fallback design, expect at most one ordinary checkpoint per settled agent run.
+Expected: no exact duplicate snapshots and no message-ID-only state transitions under the accepted projection design. Record the observed counts and the Pi version in the report.
 
-- [ ] **Step 6: Remove disposable artifacts**
-
-Delete only the temporary working directory, marker, and verified smoke-session file:
+- [ ] **Step 6: Confirm cleanup and repository isolation**
 
 ```bash
-test -n "$SMOKE_CWD" && rm -rf "$SMOKE_CWD"
-test -n "$SMOKE_MARKER" && rm -f "$SMOKE_MARKER"
-test -n "$SMOKE_SESSION" && rm -f "$SMOKE_SESSION"
+git status --short
 ```
 
-Do not alter normal Pi sessions or settings.
+The shell trap removes only the three explicitly created temporary paths. The repository and normal Pi settings must remain unchanged.
 
 ### Task 5: Final review and phase commit
 
 **Files:**
+
 - Modify: `docs/analysis-report.md`
-- Modify: `CHANGELOG.md` only if Task 3 requires it.
 
 **Interfaces:**
+
 - Produces: final report and integration-ready branch.
 
 - [ ] **Step 1: Review acceptance criteria**
 
 Confirm:
 
+- Node.js `>=24.15.0` was used without an engine warning,
 - focused and full checks passed,
 - package verification passed,
+- package verification used a disposable npm cache,
+- the history-aware `c173923..HEAD` diff was reviewed,
+- the exact historical corpus totals remain `692 / 5451357 / 42 / 594 / 56`,
+- current Pi `0.84.2` lifecycle evidence and the OpenCode reference boundary are recorded,
 - snapshot v1 stayed unchanged,
 - no dependency was added,
 - no Pi reference file changed,
 - no external JSONL or temporary trace is staged,
-- skipped optional verification is stated.
+- the optional smoke result or its exact skip reason is stated,
+- `CHANGELOG.md` remains untouched because this is not a release phase.
 
 - [ ] **Step 2: Commit final evidence**
 
-If only the report changed:
-
 ```bash
 git add docs/analysis-report.md
-git commit -m "docs: finalize dcp reliability findings"
-```
-
-If an approved changelog entry also changed:
-
-```bash
-git add docs/analysis-report.md CHANGELOG.md
 git commit -m "docs: finalize dcp reliability findings"
 ```
 
