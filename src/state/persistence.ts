@@ -70,7 +70,10 @@ export function serializeDcpSnapshot(
 
 /** Stable comparison key for deciding whether a custom entry must be appended. */
 export function durableStateFingerprint(state: SessionState): string | undefined {
-  return JSON.stringify(serializeDcpSnapshot(state, "owner"));
+  const snapshot = serializeDcpSnapshot(state, "owner");
+  if (!snapshot) return undefined;
+  const { messageIds: _messageIds, ...durable } = snapshot;
+  return JSON.stringify(durable);
 }
 
 type SnapshotWarning = (message: string) => void;

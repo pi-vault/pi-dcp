@@ -6,6 +6,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ContextUsage } from "../src/state/types.ts";
 import { applyCompressionState, allocateBlockId, allocateRunId } from "../src/compress/state.ts";
 import { countTokens, extractMessageText } from "../src/utils/tokens.ts";
+import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 
 describe("runPipeline", () => {
   it("returns messages unchanged when no pruning applies", () => {
@@ -379,6 +380,58 @@ describe("runPipeline", () => {
     // Should not throw — sync handles stale blocks gracefully
     const result = runPipeline(state, config, messages, undefined);
     expect(result.messages.length).toBe(2);
+  });
+
+  it("rebuilds compression boundaries after omitted ID-only checkpoints", () => {
+    const config = makeDefaultConfig();
+    const initial: AgentMessage[] = [
+      makeUserMessage("old user", 1),
+      makeAssistantMessage("old assistant", 2),
+      {
+        ...makeAssistantMessage("", 3),
+        content: [{ type: "toolCall", id: "compress-call", name: "compress", arguments: {} }],
+      } as AgentMessage,
+    ];
+    const uninterrupted = createSessionState();
+    uninterrupted.sessionId = "owner";
+    runPipeline(uninterrupted, config, initial, undefined);
+    applyCompressionState(uninterrupted, {
+      blockId: allocateBlockId(uninterrupted),
+      runId: allocateRunId(uninterrupted),
+      topic: "old context",
+      mode: "range",
+      startIndex: 0,
+      endIndex: 1,
+      anchorIndex: 0,
+      compressToolCallId: "compress-call",
+      startKey: "user:1:0",
+      endKey: "assistant:2:0",
+      anchorKey: "user:1:0",
+      summary: "compressed summary",
+      summaryTokens: 2,
+      consumedBlockIds: [],
+    });
+    const checkpoint = serializeDcpSnapshot(uninterrupted);
+    if (!checkpoint) throw new Error("expected checkpoint");
+    const later = [...initial, makeUserMessage("later user", 4)];
+
+    const uninterruptedResult = runPipeline(uninterrupted, config, later, undefined);
+    const uninterruptedBlock = uninterrupted.prune.messages.blocksById.get(1);
+
+    const restored = createSessionState();
+    expect(restoreDcpSnapshot(checkpoint, restored, "owner")).toBe(true);
+    const restoredResult = runPipeline(restored, config, later, undefined);
+    const restoredBlock = restored.prune.messages.blocksById.get(1);
+
+    expect(restoredBlock).toMatchObject({
+      startIndex: uninterruptedBlock?.startIndex,
+      endIndex: uninterruptedBlock?.endIndex,
+      anchorIndex: uninterruptedBlock?.anchorIndex,
+      effectiveMessageIndices: uninterruptedBlock?.effectiveMessageIndices,
+    });
+    expect(restoredResult.messages.map(extractMessageText)).toEqual(
+      uninterruptedResult.messages.map(extractMessageText),
+    );
   });
 
   it("is a pure function of its inputs (no Pi mock needed)", () => {

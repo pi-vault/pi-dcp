@@ -42,6 +42,12 @@ function createMockApi() {
   return { api, handlers, entries, commands, tools };
 }
 
+function registeredHandler(handlers: Map<string, Handler[]>, event: string): Handler {
+  const handler = handlers.get(event)?.[0];
+  if (!handler) throw new Error(`missing ${event} handler`);
+  return handler;
+}
+
 describe("dcp extension", () => {
   it("exports a function", () => {
     expect(typeof createExtension).toBe("function");
@@ -511,7 +517,64 @@ describe("dcp extension", () => {
     expect(entries[1]?.data).toMatchObject({ compressPermission: "deny" });
   });
 
-  it("persists one context mutation and skips an unchanged repeated pass", async () => {
+  it("reconstructs branch refs through session_tree without ID-only snapshots", async () => {
+    const { api, handlers, entries } = createMockApi();
+    const checkpointState = createSessionState();
+    checkpointState.sessionId = "session";
+    checkpointState.lastCompaction = 1;
+    const checkpoint = serializeDcpSnapshot(checkpointState);
+    if (!checkpoint) throw new Error("expected checkpoint");
+    let branch: unknown[] = [{ type: "custom", customType: "pi-dcp-state", data: checkpoint }];
+    const ctx = {
+      sessionManager: {
+        getSessionDir: () => "/tmp/test-session-dir",
+        getSessionId: () => "session",
+        getBranch: () => branch,
+      },
+      getContextUsage: () => undefined,
+      hasUI: false,
+    };
+    createExtension(api);
+    await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+      { reason: "resume" },
+      ctx,
+    );
+    entries.length = 0;
+    const context = registeredHandler(handlers, "context") as (...args: unknown[]) => Promise<{
+      messages: Array<{ content: Array<{ text?: string }> }>;
+    }>;
+    const tree = registeredHandler(handlers, "session_tree") as (
+      ...args: unknown[]
+    ) => Promise<void>;
+    const refs = (result: { messages: Array<{ content: Array<{ text?: string }> }> }) =>
+      result.messages.map((message) => message.content[0]?.text?.match(/m\d+/)?.[0]);
+    const branchA = {
+      messages: [
+        { role: "user", content: [{ type: "text", text: "prefix" }], timestamp: 1 },
+        { role: "user", content: [{ type: "text", text: "A" }], timestamp: 2 },
+      ],
+    };
+    const branchB = {
+      messages: [
+        { role: "user", content: [{ type: "text", text: "prefix" }], timestamp: 1 },
+        { role: "user", content: [{ type: "text", text: "B" }], timestamp: 3 },
+      ],
+    };
+
+    const firstA = await context(branchA, ctx);
+    branch = [{ type: "custom", customType: "pi-dcp-state", data: checkpoint }];
+    await tree({}, ctx);
+    const siblingB = await context(branchB, ctx);
+    branch = [{ type: "custom", customType: "pi-dcp-state", data: checkpoint }];
+    await tree({}, ctx);
+    const returnedA = await context(branchA, ctx);
+
+    expect(refs(returnedA)).toEqual(refs(firstA));
+    expect(refs(siblingB)[0]).toBe(refs(firstA)[0]);
+    expect(entries).toHaveLength(0);
+  });
+
+  it("reconstructs retained refs after compaction through registered lifecycle handlers", async () => {
     const { api, handlers, entries } = createMockApi();
     createExtension(api);
     const ctx = {
@@ -520,19 +583,132 @@ describe("dcp extension", () => {
         getSessionId: () => "session",
         getBranch: () => [] as unknown[],
       },
-      getContextUsage: () => ({ tokens: 200_000, contextWindow: 1_000_000, percent: 20 }),
+      getContextUsage: () => undefined,
       hasUI: false,
     };
-    const start = handlers.get("session_start")?.[0];
-    await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
+    await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+      { reason: "new" },
+      ctx,
+    );
+    entries.length = 0;
+    const context = registeredHandler(handlers, "context") as (...args: unknown[]) => Promise<{
+      messages: Array<{ content: Array<{ text?: string }> }>;
+    }>;
+    await context(
+      {
+        messages: [
+          { role: "user", content: [{ type: "text", text: "old" }], timestamp: 1 },
+          { role: "user", content: [{ type: "text", text: "retained" }], timestamp: 2 },
+        ],
+      },
+      ctx,
+    );
+    entries.length = 0;
+    await (registeredHandler(handlers, "session_compact") as (...args: unknown[]) => Promise<void>)(
+      {},
+      ctx,
+    );
+    const checkpoint = entries[0]?.data;
+    expect(checkpoint).toMatchObject({
+      messageIds: {
+        byRawId: [
+          ["user:1:0", "m0001"],
+          ["user:2:0", "m0002"],
+        ],
+      },
+    });
+
+    const restarted = createMockApi();
+    createExtension(restarted.api);
+    const restartCtx = {
+      ...ctx,
+      sessionManager: {
+        ...ctx.sessionManager,
+        getBranch: () => [{ type: "custom", customType: "pi-dcp-state", data: checkpoint }],
+      },
+    };
+    await (
+      registeredHandler(restarted.handlers, "session_start") as (
+        ...args: unknown[]
+      ) => Promise<void>
+    )({ reason: "resume" }, restartCtx);
+    const result = await (
+      registeredHandler(restarted.handlers, "context") as (...args: unknown[]) => Promise<{
+        messages: Array<{ content: Array<{ text?: string }> }>;
+      }>
+    )(
+      {
+        messages: [
+          { role: "compactionSummary", summary: "summary", tokensBefore: 100, timestamp: 3 },
+          { role: "user", content: [{ type: "text", text: "retained" }], timestamp: 2 },
+          { role: "user", content: [{ type: "text", text: "new" }], timestamp: 4 },
+        ],
+      },
+      restartCtx,
+    );
+
+    expect(result.messages[1]?.content[0]?.text).toContain("m0002");
+    expect(result.messages[2]?.content[0]?.text).toContain("m0004");
+  });
+
+  it("skips state writes when growing context changes only message IDs", async () => {
+    const { api, handlers, entries } = createMockApi();
+    createExtension(api);
+    const ctx = {
+      sessionManager: {
+        getSessionDir: () => "/tmp/test-session-dir",
+        getSessionId: () => "session",
+        getBranch: () => [] as unknown[],
+      },
+      getContextUsage: () => ({ tokens: 20_000, contextWindow: 1_000_000, percent: 2 }),
+      hasUI: false,
+    };
+    await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+      { reason: "new" },
+      ctx,
+    );
+    entries.length = 0;
+    const context = registeredHandler(handlers, "context") as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    const first = [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 }];
+    const second = [
+      ...first,
+      { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 2 },
+    ];
+
+    await context({ messages: first }, ctx);
+    await context({ messages: second }, ctx);
+
+    expect(entries).toHaveLength(0);
+  });
+
+  it("persists one context snapshot when a nudge anchor changes", async () => {
+    const { api, handlers, entries } = createMockApi();
+    createExtension(api);
+    const ctx = {
+      sessionManager: {
+        getSessionDir: () => "/tmp/test-session-dir",
+        getSessionId: () => "session",
+        getBranch: () => [] as unknown[],
+      },
+      getContextUsage: () => ({ tokens: 800_000, contextWindow: 1_000_000, percent: 80 }),
+      hasUI: false,
+    };
+    await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+      { reason: "new" },
+      ctx,
+    );
     entries.length = 0;
     const event = {
       messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 }],
     };
-    const context = handlers.get("context")?.[0];
+    const context = registeredHandler(handlers, "context") as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
 
-    await (context as (...args: unknown[]) => Promise<unknown>)(event, ctx);
-    await (context as (...args: unknown[]) => Promise<unknown>)(event, ctx);
+    await context(event, ctx);
+    await context(event, ctx);
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.data).toMatchObject({
