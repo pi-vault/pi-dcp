@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import createExtension from "../src/index.ts";
 import * as subagentResults from "../src/subagents/subagent-results.ts";
 import { createSessionState } from "../src/state/state.ts";
-import { serializeDcpSnapshot } from "../src/state/persistence.ts";
+import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
+import { assignMessageRefs } from "../src/messages/inject.ts";
 import { makeAssistantMessage } from "./helpers.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
@@ -48,6 +50,10 @@ function registeredHandler(handlers: Map<string, Handler[]>, event: string): Han
   return handler;
 }
 
+function messageRefs(result: { messages: Array<{ content?: Array<{ text?: string }> }> }) {
+  return result.messages.map((message) => message.content?.[0]?.text?.match(/m\d+/)?.[0]);
+}
+
 describe("dcp extension", () => {
   it("exports a function", () => {
     expect(typeof createExtension).toBe("function");
@@ -62,6 +68,7 @@ describe("dcp extension", () => {
     expect(handlers.has("session_compact")).toBe(true);
     expect(handlers.has("session_shutdown")).toBe(true);
     expect(handlers.has("context")).toBe(true);
+    expect(handlers.has("agent_settled")).toBe(false);
   });
 
   it("registers before_agent_start handler", () => {
@@ -407,6 +414,78 @@ describe("dcp extension", () => {
     });
   });
 
+  it("reconstructs refs through same-owner resume and fork lifecycle handlers", async () => {
+    const prefix = {
+      role: "user",
+      content: [{ type: "text" as const, text: "prefix" }],
+      timestamp: 1,
+    } as AgentMessage;
+    const continuation = {
+      role: "assistant",
+      content: [{ type: "text" as const, text: "continuation" }],
+      timestamp: 2,
+    } as AgentMessage;
+    const messages = [prefix, continuation];
+    const saved = createSessionState();
+    saved.sessionId = "parent";
+    saved.stats.totalPruneTokens = 99;
+    assignMessageRefs(saved, [prefix]);
+    const checkpoint = serializeDcpSnapshot(saved);
+    if (!checkpoint) throw new Error("expected checkpoint");
+
+    const runContext = async (
+      sessionId: string,
+      branch: unknown[],
+      reason: "new" | "resume" | "fork",
+    ) => {
+      const mock = createMockApi();
+      createExtension(mock.api);
+      const ctx = {
+        sessionManager: {
+          getSessionDir: () => "/tmp/test-session-dir",
+          getSessionId: () => sessionId,
+          getBranch: () => branch,
+        },
+        getContextUsage: () => undefined,
+        hasUI: false,
+      };
+      await (
+        registeredHandler(mock.handlers, "session_start") as (...args: unknown[]) => Promise<void>
+      )({ reason }, ctx);
+      const result = (await (
+        registeredHandler(mock.handlers, "context") as (...args: unknown[]) => Promise<unknown>
+      )({ messages }, ctx)) as {
+        messages: Array<{ content?: Array<{ text?: string }> }>;
+      };
+      return { mock, result };
+    };
+
+    const uninterrupted = await runContext("parent", [], "new");
+    const resumed = await runContext(
+      "parent",
+      [{ type: "custom", customType: "pi-dcp-state", data: checkpoint }],
+      "resume",
+    );
+    const forked = await runContext(
+      "child",
+      [{ type: "custom", customType: "pi-dcp-state", data: checkpoint }],
+      "fork",
+    );
+
+    expect(messageRefs(resumed.result)).toEqual(messageRefs(uninterrupted.result));
+    expect(messageRefs(forked.result)).toEqual(messageRefs(uninterrupted.result));
+    expect(resumed.mock.entries).toHaveLength(0);
+    expect(forked.mock.entries).toHaveLength(1);
+    expect(forked.mock.entries[0]?.data).toMatchObject({
+      ownerSessionId: "child",
+      stats: { totalPruneTokens: 0 },
+      messageIds: {
+        byRawId: [["user:1:0", "m0001"]],
+        nextRefIndex: 2,
+      },
+    });
+  });
+
   it("does not append an unchanged snapshot on clean resume", async () => {
     const { api, handlers, entries } = createMockApi();
     const saved = createSessionState();
@@ -519,12 +598,28 @@ describe("dcp extension", () => {
 
   it("reconstructs branch refs through session_tree without ID-only snapshots", async () => {
     const { api, handlers, entries } = createMockApi();
-    const checkpointState = createSessionState();
-    checkpointState.sessionId = "session";
-    checkpointState.lastCompaction = 1;
-    const checkpoint = serializeDcpSnapshot(checkpointState);
-    if (!checkpoint) throw new Error("expected checkpoint");
-    let branch: unknown[] = [{ type: "custom", customType: "pi-dcp-state", data: checkpoint }];
+    const sharedState = createSessionState();
+    sharedState.sessionId = "session";
+    sharedState.lastCompaction = 1;
+    const sharedCheckpoint = serializeDcpSnapshot(sharedState);
+    if (!sharedCheckpoint) throw new Error("expected checkpoint");
+    const branchAMessages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "prefix" }], timestamp: 1 } as AgentMessage,
+      { role: "user", content: [{ type: "text", text: "A" }], timestamp: 2 } as AgentMessage,
+    ];
+    const branchBMessages: AgentMessage[] = [
+      ...branchAMessages.slice(0, 1),
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "hidden" }],
+        timestamp: 2,
+      } as AgentMessage,
+      { role: "user", content: [{ type: "text", text: "B" }], timestamp: 3 } as AgentMessage,
+    ];
+    let branch: unknown[] = [
+      { type: "custom", customType: "pi-dcp-state", data: sharedCheckpoint },
+      { type: "message", message: branchAMessages[1] },
+    ];
     const ctx = {
       sessionManager: {
         getSessionDir: () => "/tmp/test-session-dir",
@@ -546,31 +641,32 @@ describe("dcp extension", () => {
     const tree = registeredHandler(handlers, "session_tree") as (
       ...args: unknown[]
     ) => Promise<void>;
-    const refs = (result: { messages: Array<{ content: Array<{ text?: string }> }> }) =>
-      result.messages.map((message) => message.content[0]?.text?.match(/m\d+/)?.[0]);
-    const branchA = {
-      messages: [
-        { role: "user", content: [{ type: "text", text: "prefix" }], timestamp: 1 },
-        { role: "user", content: [{ type: "text", text: "A" }], timestamp: 2 },
-      ],
-    };
-    const branchB = {
-      messages: [
-        { role: "user", content: [{ type: "text", text: "prefix" }], timestamp: 1 },
-        { role: "user", content: [{ type: "text", text: "B" }], timestamp: 3 },
-      ],
-    };
+    const expectedA = createSessionState();
+    expect(restoreDcpSnapshot(sharedCheckpoint, expectedA, "session")).toBe(true);
+    assignMessageRefs(expectedA, branchAMessages);
+    const expectedB = createSessionState();
+    expect(restoreDcpSnapshot(sharedCheckpoint, expectedB, "session")).toBe(true);
+    assignMessageRefs(expectedB, branchBMessages);
 
-    const firstA = await context(branchA, ctx);
-    branch = [{ type: "custom", customType: "pi-dcp-state", data: checkpoint }];
+    const firstA = await context({ messages: branchAMessages }, ctx);
+    expect(messageRefs(firstA)).toEqual([...expectedA.messageIds.byIndex.values()]);
+    branch = [
+      { type: "custom", customType: "pi-dcp-state", data: sharedCheckpoint },
+      { type: "message", message: branchBMessages[1] },
+      { type: "message", message: branchBMessages[2] },
+    ];
     await tree({}, ctx);
-    const siblingB = await context(branchB, ctx);
-    branch = [{ type: "custom", customType: "pi-dcp-state", data: checkpoint }];
+    const siblingB = await context({ messages: branchBMessages }, ctx);
+    expect(messageRefs(siblingB)).toEqual([...expectedB.messageIds.byIndex.values()]);
+    branch = [
+      { type: "custom", customType: "pi-dcp-state", data: sharedCheckpoint },
+      { type: "message", message: branchAMessages[1] },
+    ];
     await tree({}, ctx);
-    const returnedA = await context(branchA, ctx);
+    const returnedA = await context({ messages: branchAMessages }, ctx);
 
-    expect(refs(returnedA)).toEqual(refs(firstA));
-    expect(refs(siblingB)[0]).toBe(refs(firstA)[0]);
+    expect(messageRefs(returnedA)).toEqual(messageRefs(firstA));
+    expect(messageRefs(siblingB)[0]).toBe(messageRefs(firstA)[0]);
     expect(entries).toHaveLength(0);
   });
 
@@ -615,8 +711,19 @@ describe("dcp extension", () => {
           ["user:1:0", "m0001"],
           ["user:2:0", "m0002"],
         ],
+        nextRefIndex: 3,
       },
     });
+
+    const postCompactionEvent = {
+      messages: [
+        { role: "compactionSummary", summary: "summary", tokensBefore: 100, timestamp: 3 },
+        { role: "user", content: [{ type: "text", text: "retained" }], timestamp: 2 },
+        { role: "user", content: [{ type: "text", text: "new" }], timestamp: 4 },
+      ],
+    };
+    const liveResult = await context(postCompactionEvent, ctx);
+    expect(entries).toHaveLength(1);
 
     const restarted = createMockApi();
     createExtension(restarted.api);
@@ -636,17 +743,10 @@ describe("dcp extension", () => {
       registeredHandler(restarted.handlers, "context") as (...args: unknown[]) => Promise<{
         messages: Array<{ content: Array<{ text?: string }> }>;
       }>
-    )(
-      {
-        messages: [
-          { role: "compactionSummary", summary: "summary", tokensBefore: 100, timestamp: 3 },
-          { role: "user", content: [{ type: "text", text: "retained" }], timestamp: 2 },
-          { role: "user", content: [{ type: "text", text: "new" }], timestamp: 4 },
-        ],
-      },
-      restartCtx,
-    );
+    )(postCompactionEvent, restartCtx);
 
+    expect(messageRefs(result)).toEqual(messageRefs(liveResult));
+    expect(result.messages).toEqual(liveResult.messages);
     expect(result.messages[1]?.content[0]?.text).toContain("m0002");
     expect(result.messages[2]?.content[0]?.text).toContain("m0004");
   });
