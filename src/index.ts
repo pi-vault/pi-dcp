@@ -111,9 +111,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   function reconcileCompressTool(provider: string | undefined, modelId: string | undefined): void {
     const activeTools = pi.getActiveTools();
     const compressActive = activeTools.includes("compress");
-    const dcpEnabled = isDcpEnabledForModel(config, provider, modelId);
-
-    if (!dcpEnabled) {
+    if (!isDcpEnabledForModel(config, provider, modelId)) {
       if (compressWasActiveBeforeModelDisable === undefined) {
         compressWasActiveBeforeModelDisable = compressActive;
       }
@@ -282,7 +280,6 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   pi.on("before_agent_start", async (event, ctx) => {
-    if (!config.enabled) return;
     if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
     if ((state.compressPermission ?? config.compress.permission) === "deny") return;
     if (state.isSubAgent && !config.experimental.allowSubAgents) return;
@@ -370,7 +367,6 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("message_end", async (event, ctx) => {
-    if (!config.enabled) return;
     if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
     if (event.message.role !== "assistant") return;
 
@@ -395,14 +391,12 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_execution_start", async (event, ctx) => {
-    if (!config.enabled) return;
     if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
     if (event.toolName !== "compress") return;
     state.compressionTiming.startTimes.set(event.toolCallId, Date.now());
   });
 
   pi.on("tool_execution_end", async (event, ctx) => {
-    if (!config.enabled) return;
     if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
 
     // Compression timing (Phase 2)
@@ -426,7 +420,6 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (event, ctx) => {
-    if (!config.enabled) return;
     if (ctx.model) {
       state.modelId = ctx.model.id;
       state.modelProvider = ctx.model.provider;

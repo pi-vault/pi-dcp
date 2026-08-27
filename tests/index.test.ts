@@ -40,55 +40,53 @@ function sessionContext(model = enabledModel, branch: unknown[] = []) {
   };
 }
 
-function persistedCompressionSnapshot(toolCallId = "compress-1") {
-  return {
-    version: 1,
-    ownerSessionId: "session",
-    manualMode: false,
-    compressPermission: "allow",
-    stats: {
-      pruneTokenCounter: 0,
-      totalPruneTokens: 100,
-      toolsPruned: 0,
-      messagesCompressed: 2,
+const persistedCompressionSnapshot = {
+  version: 1,
+  ownerSessionId: "session",
+  manualMode: false,
+  compressPermission: "allow",
+  stats: {
+    pruneTokenCounter: 0,
+    totalPruneTokens: 100,
+    toolsPruned: 0,
+    messagesCompressed: 2,
+  },
+  lastCompaction: 0,
+  pruneTools: [],
+  blocks: [
+    {
+      blockId: 1,
+      runId: 1,
+      deactivatedByUser: false,
+      compressedTokens: 100,
+      summaryTokens: 10,
+      durationMs: 0,
+      mode: "range",
+      topic: "existing block",
+      compressToolCallId: "compress-1",
+      startKey: "user:1:0",
+      endKey: "assistant:2:0",
+      anchorKey: "user:1:0",
+      consumedBlockIds: [],
+      createdAt: 1,
+      summary: "existing summary",
     },
-    lastCompaction: 0,
-    pruneTools: [],
-    blocks: [
-      {
-        blockId: 1,
-        runId: 1,
-        deactivatedByUser: false,
-        compressedTokens: 100,
-        summaryTokens: 10,
-        durationMs: 0,
-        mode: "range",
-        topic: "existing block",
-        compressToolCallId: toolCallId,
-        startKey: "user:1:0",
-        endKey: "assistant:2:0",
-        anchorKey: "user:1:0",
-        consumedBlockIds: [],
-        createdAt: 1,
-        summary: "existing summary",
-      },
+  ],
+  nextBlockId: 2,
+  nextRunId: 2,
+  messageIds: {
+    byRawId: [
+      ["user:1:0", "m0001"],
+      ["assistant:2:0", "m0002"],
     ],
-    nextBlockId: 2,
-    nextRunId: 2,
-    messageIds: {
-      byRawId: [
-        ["user:1:0", "m0001"],
-        ["assistant:2:0", "m0002"],
-      ],
-      nextRefIndex: 3,
-    },
-    nudges: {
-      contextLimitAnchors: [],
-      turnAnchors: [],
-      iterationAnchors: [],
-    },
-  };
-}
+    nextRefIndex: 3,
+  },
+  nudges: {
+    contextLimitAnchors: [],
+    turnAnchors: [],
+    iterationAnchors: [],
+  },
+};
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => agentDir,
@@ -104,7 +102,6 @@ function createMockApi(options: { activeTools?: string[] } = {}) {
   const commands = new Map<string, unknown>();
   const tools = new Map<string, unknown>();
   let activeToolNames = [...(options.activeTools ?? ["read"])];
-  const sendMessage = vi.fn();
   const api = {
     on(event: string, handler: Handler) {
       const list = handlers.get(event) ?? [];
@@ -121,7 +118,6 @@ function createMockApi(options: { activeTools?: string[] } = {}) {
     setActiveTools(names: string[]) {
       activeToolNames = [...names];
     },
-    sendMessage,
     registerCommand(name: string, command: unknown) {
       commands.set(name, command);
     },
@@ -135,7 +131,6 @@ function createMockApi(options: { activeTools?: string[] } = {}) {
     entries,
     commands,
     tools,
-    sendMessage,
     activeTools: () => [...activeToolNames],
   };
 }
@@ -1014,11 +1009,10 @@ describe("static model disablement", () => {
     vi.useFakeTimers();
     try {
       writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
-      const snapshot = persistedCompressionSnapshot("compress-1");
       const { api, handlers, entries } = createMockApi();
       createExtension(api);
       const ctx = sessionContext(disabledModel, [
-        { type: "custom", customType: "pi-dcp-state", data: snapshot },
+        { type: "custom", customType: "pi-dcp-state", data: persistedCompressionSnapshot },
       ]);
       await registeredHandler(handlers, "session_start")({ reason: "resume" }, ctx);
       entries.length = 0;
