@@ -79,6 +79,49 @@ describe("isContextOverLimits", () => {
     expect(result.overMinLimit).toBe(true);
   });
 
+  it("uses independent percentage limits for different exact model keys", () => {
+    const config = makeDefaultConfig({
+      maxContextLimit: 200000,
+      minContextLimit: 100000,
+      modelMaxLimits: {
+        "openai-codex/gpt-5.6-sol": "80%",
+        "openai-codex/gpt-5.6-terra": "60%",
+      },
+      modelMinLimits: {
+        "openai-codex/gpt-5.6-sol": "50%",
+        "openai-codex/gpt-5.6-terra": "40%",
+      },
+    });
+    const check = (modelId: string, tokens: number) => {
+      const state = createSessionState();
+      state.modelProvider = "openai-codex";
+      state.modelId = modelId;
+      state.modelContextWindow = 1_000_000;
+      return isContextOverLimits(config, state, {
+        tokens,
+        contextWindow: 1_000_000,
+        percent: null,
+      });
+    };
+
+    expect(check("gpt-5.6-sol", 700_000)).toEqual({
+      overMaxLimit: false,
+      overMinLimit: true,
+    });
+    expect(check("gpt-5.6-terra", 700_000)).toEqual({
+      overMaxLimit: true,
+      overMinLimit: true,
+    });
+    expect(check("gpt-5.6-sol", 450_000)).toEqual({
+      overMaxLimit: false,
+      overMinLimit: false,
+    });
+    expect(check("gpt-5.6-terra", 450_000)).toEqual({
+      overMaxLimit: false,
+      overMinLimit: true,
+    });
+  });
+
   it("falls back to percentage when no absolute limits configured", () => {
     const state = createSessionState();
     state.modelContextWindow = 200000;

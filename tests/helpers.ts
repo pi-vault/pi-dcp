@@ -91,6 +91,7 @@ export function seedToolCache(
 export function makeDefaultConfig(overrides?: Partial<DcpConfig["compress"]>): DcpConfig {
   return {
     enabled: true,
+    disabledModels: [],
     debug: false,
     compress: {
       mode: "range",

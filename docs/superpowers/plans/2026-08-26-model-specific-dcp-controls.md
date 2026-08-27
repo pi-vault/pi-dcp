@@ -14,6 +14,7 @@
 
 - Match models exactly using `${provider}/${modelId}`; do not add glob matching.
 - `disabledModels` is top-level and defaults to `[]`.
+- Any non-string `disabledModels` entry resets the whole list to `[]` with a validation warning.
 - A disabled model takes precedence over its configured max/min limits.
 - Preserve existing `compress.modelMaxLimits` and `compress.modelMinLimits` resolution and merge behavior.
 - Modify only `pi-dcp`; the three reference repositories remain read-only.
@@ -36,7 +37,8 @@ Execute these plans in order. They contain the authoritative file lists, interfa
 ### Phase 1: Config contract
 
 - Add `DcpConfig.disabledModels` and `isDcpEnabledForModel`.
-- Update the shared test config factory.
+- Update the shared test config factory and prove fresh defaults plus global/project array replacement.
+- Reset invalid `disabledModels` lists at the config boundary without refactoring unrelated validation.
 - Prove exact eligibility matching and existing two-model percentage limits.
 - Regenerate the schema without documenting runtime behavior prematurely.
 
@@ -68,6 +70,7 @@ Execute these plans in order. They contain the authoritative file lists, interfa
 ## Acceptance criteria
 
 - Different exact model keys continue to resolve independent max/min thresholds.
+- Invalid `disabledModels` lists reset to `[]`, and project lists replace global lists.
 - Listed models receive no DCP processing or mutating command effects.
 - Unlisted and unidentified models retain existing behavior when global DCP is enabled.
 - Live switching removes and conditionally restores only `compress`.

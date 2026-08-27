@@ -41,6 +41,16 @@ export const DEFAULT_CONFIG: DcpConfig = (() => {
   return config;
 })();
 
+export function isDcpEnabledForModel(
+  config: Pick<DcpConfig, "enabled" | "disabledModels">,
+  provider: string | undefined,
+  modelId: string | undefined,
+): boolean {
+  if (!config.enabled) return false;
+  if (!provider || !modelId) return true;
+  return !config.disabledModels.includes(`${provider}/${modelId}`);
+}
+
 /**
  * Load DCP configuration from global and optional trusted project JSON files.
  * Falls back to defaults on missing file, parse error, or invalid content.
@@ -86,6 +96,14 @@ export function loadConfig(
         setByPath(merged, error.instancePath, structuredClone(defaultValue));
       }
     }
+  }
+
+  const disabledModels = merged.disabledModels;
+  if (
+    !Array.isArray(disabledModels) ||
+    disabledModels.some((modelKey) => typeof modelKey !== "string")
+  ) {
+    merged.disabledModels = [];
   }
 
   const config = merged as unknown as DcpConfig;

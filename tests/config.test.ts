@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadConfig, BASE_PROTECTED_TOOLS, DEFAULT_CONFIG } from "../src/config.ts";
+import {
+  loadConfig,
+  isDcpEnabledForModel,
+  BASE_PROTECTED_TOOLS,
+  DEFAULT_CONFIG,
+} from "../src/config.ts";
 
 describe("config loading", () => {
   let tempDir: string;
@@ -30,6 +35,41 @@ describe("config loading", () => {
     expect(config.nudgeNotification).toBe("minimal");
     expect(config.nudgeNotificationType).toBe("status");
     expect(config.experimental.allowSubAgents).toBe(false);
+  });
+
+  it("defaults disabledModels to an empty list", () => {
+    expect(loadConfig(path.join(tempDir, "missing.json")).config.disabledModels).toEqual([]);
+  });
+
+  it("loads exact disabled model keys", () => {
+    const file = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(file, JSON.stringify({ disabledModels: ["openai-codex/gpt-5.6-sol"] }));
+
+    expect(loadConfig(file).config.disabledModels).toEqual(["openai-codex/gpt-5.6-sol"]);
+  });
+
+  it("replaces the global disabled model list with the project list", () => {
+    const globalPath = path.join(tempDir, "global.json");
+    const projectPath = path.join(tempDir, "project.json");
+    fs.writeFileSync(globalPath, JSON.stringify({ disabledModels: ["openai-codex/gpt-5.6-sol"] }));
+    fs.writeFileSync(
+      projectPath,
+      JSON.stringify({ disabledModels: ["openai-codex/gpt-5.6-terra"] }),
+    );
+
+    expect(loadConfig(globalPath, projectPath).config.disabledModels).toEqual([
+      "openai-codex/gpt-5.6-terra",
+    ]);
+  });
+
+  it("resets disabledModels when any entry is not a string", () => {
+    const file = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(file, JSON.stringify({ disabledModels: ["openai-codex/gpt-5.6-sol", 123] }));
+
+    const result = loadConfig(file);
+
+    expect(result.config.disabledModels).toEqual([]);
+    expect(result.warnings.some((warning) => warning.includes("/disabledModels/1"))).toBe(true);
   });
 
   it("defaults top-level turn protection to zero", () => {
@@ -140,8 +180,11 @@ describe("config loading", () => {
     const configPath = path.join(tempDir, "missing.json");
     const first = loadConfig(configPath).config;
     first.compress.protectedTools.push("read");
+    first.disabledModels.push("openai-codex/gpt-5.6-sol");
 
-    expect(loadConfig(configPath).config.compress.protectedTools).toEqual(["compress"]);
+    const second = loadConfig(configPath).config;
+    expect(second.compress.protectedTools).toEqual(["compress"]);
+    expect(second.disabledModels).toEqual([]);
   });
 
   it("does not merge prototype mutation keys", () => {
@@ -272,6 +315,31 @@ describe("config validation warnings", () => {
     const { config, warnings } = loadConfig(configPath);
     expect(warnings.length).toBeGreaterThan(0);
     expect(config.nudgeNotificationType).toBe("status"); // reset to default
+  });
+});
+
+describe("isDcpEnabledForModel", () => {
+  it("matches disabled models exactly", () => {
+    const config = {
+      enabled: true,
+      disabledModels: ["openai-codex/gpt-5.6-sol"],
+    };
+
+    expect(isDcpEnabledForModel(config, "openai-codex", "gpt-5.6-sol")).toBe(false);
+    expect(isDcpEnabledForModel(config, "openai", "gpt-5.6-sol")).toBe(true);
+    expect(isDcpEnabledForModel(config, "openai-codex", "gpt-5.6-terra")).toBe(true);
+    expect(isDcpEnabledForModel(config, "OPENAI-CODEX", "gpt-5.6-sol")).toBe(true);
+  });
+
+  it("honors global disablement and treats missing identity as unmatched", () => {
+    const config = {
+      enabled: true,
+      disabledModels: ["openai-codex/gpt-5.6-sol"],
+    };
+
+    expect(isDcpEnabledForModel(config, undefined, "gpt-5.6-sol")).toBe(true);
+    expect(isDcpEnabledForModel(config, "openai-codex", undefined)).toBe(true);
+    expect(isDcpEnabledForModel({ ...config, enabled: false }, "openai", "other")).toBe(false);
   });
 });
 
