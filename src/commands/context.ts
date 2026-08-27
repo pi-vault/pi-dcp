@@ -3,6 +3,7 @@ import type { ContextUsage, SessionState } from "../state/types.ts";
 export function contextCommand(
   state: SessionState,
   contextUsage: ContextUsage | undefined,
+  modelDisabled = false,
 ): string {
   const lines: string[] = ["DCP Context Usage:"];
 
@@ -22,6 +23,10 @@ export function contextCommand(
   lines.push(`  Tool cache entries: ${state.toolParameters.size}`);
   lines.push(`  Current user turn: ${state.currentUserTurn}`);
   lines.push(`  Manual mode: ${state.manualMode || "off"}`);
+
+  if (modelDisabled) {
+    lines.push("  DCP status: disabled for the current model");
+  }
 
   return lines.join("\n");
 }

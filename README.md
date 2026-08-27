@@ -104,6 +104,7 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 ```json
 {
   "enabled": true,
+  "disabledModels": [],
   "debug": false,
   "nudgeNotification": "minimal",
   "nudgeNotificationType": "status",
@@ -153,6 +154,7 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 ### Top-level
 
 - `enabled` — set to `false` to disable the extension entirely without uninstalling.
+- `disabledModels` — exact, case-sensitive `provider/modelId` keys for which DCP processing, mutating commands, and the active `compress` tool are disabled.
 - `debug` — when `true`, writes per-session logs to `{sessionDir}/dcp/logs/YYYY-MM-DD.log`.
 - `nudgeNotification` — notification verbosity: `"off"`, `"minimal"`, or `"detailed"`.
 - `nudgeNotificationType` — notification delivery: `"toast"` or `"status"`.
@@ -161,6 +163,24 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 Protected tool and file patterns use Node's `path.posix.matchesGlob` semantics: `/` is the path separator, and supported patterns include `*`, `**`, `?`, and character classes such as `[abc]` and `[0-9]`. Wildcards continue to match leading-dot path segments for compatibility with earlier pi-dcp releases.
 
 - `turnProtection` — hard-protect the newest N raw user-message turns from every DCP transformation; defaults to `0`.
+
+```json
+{
+  "disabledModels": ["openai-codex/gpt-5.6-sol"],
+  "compress": {
+    "modelMaxLimits": {
+      "openai-codex/gpt-5.6-sol": "80%",
+      "openai-codex/gpt-5.6-terra": "60%"
+    },
+    "modelMinLimits": {
+      "openai-codex/gpt-5.6-sol": "50%",
+      "openai-codex/gpt-5.6-terra": "40%"
+    }
+  }
+}
+```
+
+For a session using `openai-codex/gpt-5.6-sol`, DCP leaves messages unchanged, rejects mutating DCP commands, and removes `compress` from the active tools. The configured `sol` thresholds remain dormant while that model is disabled. The independent `terra` thresholds remain active for sessions using `openai-codex/gpt-5.6-terra`. Live model switching is handled separately and is not part of this static-session behavior.
 
 ### `compress`
 

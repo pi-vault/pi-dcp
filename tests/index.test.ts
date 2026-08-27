@@ -11,6 +11,84 @@ import { assignMessageRefs } from "../src/messages/inject.ts";
 import { makeAssistantMessage } from "./helpers.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
+const disabledModel = { provider: "openai-codex", id: "gpt-5.6-sol" };
+const enabledModel = { provider: "openai-codex", id: "gpt-5.6-terra" };
+
+function writeDisabledModelConfig(...modelKeys: string[]): void {
+  const configDir = path.join(agentDir, "extensions");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "dcp.json"), JSON.stringify({ disabledModels: modelKeys }));
+}
+
+function sessionContext(model = enabledModel, branch: unknown[] = []) {
+  return {
+    cwd: agentDir,
+    model,
+    isProjectTrusted: () => false,
+    sessionManager: {
+      getSessionDir: () => "/tmp/test-session-dir",
+      getSessionId: () => "session",
+      getBranch: () => branch,
+    },
+    getContextUsage: () => ({
+      tokens: 1_000,
+      contextWindow: 200_000,
+      percent: 0.5,
+    }),
+    hasUI: false,
+    ui: { notify: vi.fn(), setStatus: vi.fn() },
+  };
+}
+
+function persistedCompressionSnapshot(toolCallId = "compress-1") {
+  return {
+    version: 1,
+    ownerSessionId: "session",
+    manualMode: false,
+    compressPermission: "allow",
+    stats: {
+      pruneTokenCounter: 0,
+      totalPruneTokens: 100,
+      toolsPruned: 0,
+      messagesCompressed: 2,
+    },
+    lastCompaction: 0,
+    pruneTools: [],
+    blocks: [
+      {
+        blockId: 1,
+        runId: 1,
+        deactivatedByUser: false,
+        compressedTokens: 100,
+        summaryTokens: 10,
+        durationMs: 0,
+        mode: "range",
+        topic: "existing block",
+        compressToolCallId: toolCallId,
+        startKey: "user:1:0",
+        endKey: "assistant:2:0",
+        anchorKey: "user:1:0",
+        consumedBlockIds: [],
+        createdAt: 1,
+        summary: "existing summary",
+      },
+    ],
+    nextBlockId: 2,
+    nextRunId: 2,
+    messageIds: {
+      byRawId: [
+        ["user:1:0", "m0001"],
+        ["assistant:2:0", "m0002"],
+      ],
+      nextRefIndex: 3,
+    },
+    nudges: {
+      contextLimitAnchors: [],
+      turnAnchors: [],
+      iterationAnchors: [],
+    },
+  };
+}
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => agentDir,
@@ -20,11 +98,13 @@ afterEach(() => fs.rmSync(agentDir, { recursive: true, force: true }));
 
 type Handler = (...args: never[]) => unknown;
 
-function createMockApi() {
+function createMockApi(options: { activeTools?: string[] } = {}) {
   const handlers = new Map<string, Handler[]>();
   const entries: Array<{ customType: string; data: unknown }> = [];
   const commands = new Map<string, unknown>();
   const tools = new Map<string, unknown>();
+  let activeToolNames = [...(options.activeTools ?? ["read"])];
+  const sendMessage = vi.fn();
   const api = {
     on(event: string, handler: Handler) {
       const list = handlers.get(event) ?? [];
@@ -33,7 +113,15 @@ function createMockApi() {
     },
     registerTool(tool: { name: string }) {
       tools.set(tool.name, tool);
+      if (!activeToolNames.includes(tool.name)) activeToolNames.push(tool.name);
     },
+    getActiveTools() {
+      return [...activeToolNames];
+    },
+    setActiveTools(names: string[]) {
+      activeToolNames = [...names];
+    },
+    sendMessage,
     registerCommand(name: string, command: unknown) {
       commands.set(name, command);
     },
@@ -41,13 +129,24 @@ function createMockApi() {
       entries.push({ customType, data });
     },
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
-  return { api, handlers, entries, commands, tools };
+  return {
+    api,
+    handlers,
+    entries,
+    commands,
+    tools,
+    sendMessage,
+    activeTools: () => [...activeToolNames],
+  };
 }
 
-function registeredHandler(handlers: Map<string, Handler[]>, event: string): Handler {
+function registeredHandler(
+  handlers: Map<string, Handler[]>,
+  event: string,
+): (...args: unknown[]) => unknown {
   const handler = handlers.get(event)?.[0];
   if (!handler) throw new Error(`missing ${event} handler`);
-  return handler;
+  return handler as (...args: unknown[]) => unknown;
 }
 
 function messageRefs(result: { messages: Array<{ content?: Array<{ text?: string }> }> }) {
@@ -871,6 +970,169 @@ describe("dcp extension", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("static model disablement", () => {
+  it("passes messages through and omits the prompt for a disabled model", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const ctx = sessionContext(disabledModel);
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+
+    const before = await registeredHandler(handlers, "before_agent_start")(
+      { systemPrompt: "base", prompt: "hello" },
+      ctx,
+    );
+    const messages = [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 }];
+    const context = await registeredHandler(handlers, "context")({ messages }, ctx);
+
+    expect(before).toBeUndefined();
+    expect(context).toBeUndefined();
+    expect(messages[0].content[0].text).toBe("hello");
+  });
+
+  it("does not sanitize assistant text for a disabled model", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const message = makeAssistantMessage("**Creating the GitHub PR**m0112</dpc-message-id>");
+
+    const result = await registeredHandler(handlers, "message_end")(
+      { type: "message_end", message },
+      sessionContext(disabledModel),
+    );
+
+    expect(result).toBeUndefined();
+    expect((message as { content: Array<{ text?: string }> }).content[0]?.text).toBe(
+      "**Creating the GitHub PR**m0112</dpc-message-id>",
+    );
+  });
+
+  it("does not record compression timing for a disabled model", async () => {
+    vi.useFakeTimers();
+    try {
+      writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+      const snapshot = persistedCompressionSnapshot("compress-1");
+      const { api, handlers, entries } = createMockApi();
+      createExtension(api);
+      const ctx = sessionContext(disabledModel, [
+        { type: "custom", customType: "pi-dcp-state", data: snapshot },
+      ]);
+      await registeredHandler(handlers, "session_start")({ reason: "resume" }, ctx);
+      entries.length = 0;
+
+      vi.setSystemTime(1_000);
+      await registeredHandler(handlers, "tool_execution_start")(
+        { toolName: "compress", toolCallId: "compress-1" },
+        ctx,
+      );
+      vi.setSystemTime(2_500);
+      await registeredHandler(handlers, "tool_execution_end")(
+        { toolName: "compress", toolCallId: "compress-1", isError: false },
+        ctx,
+      );
+
+      expect(entries).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not cache subagent results for a disabled model", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const parser = vi
+      .spyOn(subagentResults, "parseChildSessionResults")
+      .mockResolvedValue("child result");
+    try {
+      const { api, handlers } = createMockApi();
+      createExtension(api);
+
+      await registeredHandler(handlers, "tool_execution_end")(
+        {
+          toolName: "subagent",
+          toolCallId: "subagent-1",
+          isError: false,
+          result: { details: { childSessionPath: "/tmp/child.jsonl" } },
+        },
+        sessionContext(disabledModel),
+      );
+
+      expect(parser).not.toHaveBeenCalled();
+    } finally {
+      parser.mockRestore();
+    }
+  });
+
+  it("removes compress for an initially disabled model", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers, activeTools } = createMockApi({
+      activeTools: ["read"],
+    });
+    createExtension(api);
+
+    await registeredHandler(handlers, "session_start")(
+      { reason: "new" },
+      sessionContext(disabledModel),
+    );
+
+    expect(activeTools()).toEqual(["read"]);
+  });
+
+  it("keeps compress active for an unlisted initial model", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers, activeTools } = createMockApi({
+      activeTools: ["read"],
+    });
+    createExtension(api);
+
+    await registeredHandler(handlers, "session_start")(
+      { reason: "new" },
+      sessionContext(enabledModel),
+    );
+
+    expect(activeTools()).toEqual(["read", "compress"]);
+  });
+
+  it("blocks a stale compress call for a disabled model", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    const result = await registeredHandler(handlers, "tool_call")(
+      { toolName: "compress", toolCallId: "compress-1", input: {} },
+      sessionContext(disabledModel),
+    );
+
+    expect(result).toMatchObject({
+      block: true,
+      reason: "Compression is disabled for the current model",
+    });
+  });
+
+  it("rejects direct compress execution for a disabled model", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    const ctx = sessionContext(disabledModel);
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+    const compress = tools.get("compress") as {
+      execute: (...args: unknown[]) => Promise<unknown>;
+    };
+
+    const result = await compress.execute(
+      "compress-1",
+      { topic: "stale call", content: [] },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ text: "Compression is disabled for the current model." }],
+    });
   });
 });
 
