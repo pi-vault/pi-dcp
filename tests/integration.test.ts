@@ -23,6 +23,7 @@ function createMockApi() {
   const handlers = new Map<string, Handler[]>();
   const tools = new Map<string, unknown>();
   const commands = new Map<string, unknown>();
+  let activeToolNames = ["read"];
   const sentMessages: Array<{ message: unknown; options: unknown }> = [];
   const entries: Array<{ customType: string; data: unknown }> = [];
 
@@ -34,6 +35,13 @@ function createMockApi() {
     },
     registerTool(def: any) {
       tools.set(def.name, def);
+      if (!activeToolNames.includes(def.name)) activeToolNames.push(def.name);
+    },
+    getActiveTools() {
+      return [...activeToolNames];
+    },
+    setActiveTools(names: string[]) {
+      activeToolNames = [...names];
     },
     registerCommand(name: string, def: unknown) {
       commands.set(name, def);

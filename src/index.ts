@@ -3,7 +3,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { loadConfig, type DcpConfig } from "./config.ts";
+import { isDcpEnabledForModel, loadConfig, type DcpConfig } from "./config.ts";
 import { PromptStore, writeDefaultPrompts } from "./prompts/store.ts";
 import type { RuntimePrompts } from "./prompts/store.ts";
 import {
@@ -106,6 +106,26 @@ export default function createExtension(pi: ExtensionAPI): void {
   let promptStore: PromptStore | undefined;
   let runtimePrompts: RuntimePrompts | undefined;
   let lastPersistedFingerprint: string | undefined;
+  let compressWasActiveBeforeModelDisable: boolean | undefined;
+
+  function reconcileCompressTool(provider: string | undefined, modelId: string | undefined): void {
+    const activeTools = pi.getActiveTools();
+    const compressActive = activeTools.includes("compress");
+    if (!isDcpEnabledForModel(config, provider, modelId)) {
+      if (compressWasActiveBeforeModelDisable === undefined) {
+        compressWasActiveBeforeModelDisable = compressActive;
+      }
+      if (compressActive) {
+        pi.setActiveTools(activeTools.filter((name) => name !== "compress"));
+      }
+      return;
+    }
+
+    if (compressWasActiveBeforeModelDisable === true && !compressActive) {
+      pi.setActiveTools([...activeTools, "compress"]);
+    }
+    compressWasActiveBeforeModelDisable = undefined;
+  }
 
   function persistIfChanged(force = false): void {
     const snapshot = serializeDcpSnapshot(state);
@@ -177,9 +197,12 @@ export default function createExtension(pi: ExtensionAPI): void {
     params: Record<string, unknown>,
     ctx: ExtensionContext,
   ) {
-    if (!config.enabled) {
+    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) {
+      const text = config.enabled
+        ? "Compression is disabled for the current model."
+        : "Compression is disabled by configuration.";
       return {
-        content: [{ type: "text" as const, text: "Compression is disabled by configuration." }],
+        content: [{ type: "text" as const, text }],
         details: {},
         isError: true,
       };
@@ -256,8 +279,8 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   }
 
-  pi.on("before_agent_start", async (event, _ctx) => {
-    if (!config.enabled) return;
+  pi.on("before_agent_start", async (event, ctx) => {
+    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
     if ((state.compressPermission ?? config.compress.permission) === "deny") return;
     if (state.isSubAgent && !config.experimental.allowSubAgents) return;
 
@@ -272,6 +295,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     reloadConfig(ctx, logDir);
     if (!config.enabled) return;
     registerCompressTool();
+    reconcileCompressTool(ctx.model?.provider, ctx.model?.id);
 
     resetSessionState(state);
     lastPersistedFingerprint = undefined;
@@ -342,8 +366,8 @@ export default function createExtension(pi: ExtensionAPI): void {
     logger.info("dcp", "session shutdown");
   });
 
-  pi.on("message_end", async (event, _ctx) => {
-    if (!config.enabled) return;
+  pi.on("message_end", async (event, ctx) => {
+    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
     if (event.message.role !== "assistant") return;
 
     const stripped = mapText(event.message, stripHallucinationsFromString);
@@ -352,9 +376,12 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   });
 
-  pi.on("tool_call", async (event, _ctx) => {
+  pi.on("tool_call", async (event, ctx) => {
     if (!config.enabled) return undefined;
     if (event.toolName !== "compress") return undefined;
+    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) {
+      return { block: true, reason: "Compression is disabled for the current model" };
+    }
 
     const permission = state.compressPermission ?? config.compress.permission;
     if (permission === "deny") {
@@ -363,14 +390,14 @@ export default function createExtension(pi: ExtensionAPI): void {
     return undefined;
   });
 
-  pi.on("tool_execution_start", async (event, _ctx) => {
-    if (!config.enabled) return;
+  pi.on("tool_execution_start", async (event, ctx) => {
+    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
     if (event.toolName !== "compress") return;
     state.compressionTiming.startTimes.set(event.toolCallId, Date.now());
   });
 
-  pi.on("tool_execution_end", async (event, _ctx) => {
-    if (!config.enabled) return;
+  pi.on("tool_execution_end", async (event, ctx) => {
+    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
 
     // Compression timing (Phase 2)
     if (event.toolName === "compress") {
@@ -393,15 +420,16 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (event, ctx) => {
-    if (!config.enabled) return;
-    if (state.isSubAgent && !config.experimental.allowSubAgents) return;
-
-    const usage = ctx.getContextUsage();
-    if (usage) state.modelContextWindow = usage.contextWindow;
     if (ctx.model) {
       state.modelId = ctx.model.id;
       state.modelProvider = ctx.model.provider;
     }
+    reconcileCompressTool(ctx.model?.provider, ctx.model?.id);
+    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
+    if (state.isSubAgent && !config.experimental.allowSubAgents) return;
+
+    const usage = ctx.getContextUsage();
+    if (usage) state.modelContextWindow = usage.contextWindow;
     latestMessages = event.messages;
 
     if (promptStore) {

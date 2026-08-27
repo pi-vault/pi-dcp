@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SessionState } from "../state/types.ts";
-import type { DcpConfig } from "../config.ts";
+import { isDcpEnabledForModel, type DcpConfig } from "../config.ts";
 import { helpCommand } from "./help.ts";
 import { contextCommand } from "./context.ts";
 import { statsCommand } from "./stats.ts";
@@ -20,14 +20,21 @@ export function registerDcpCommands(
   onStateChange: () => void,
 ): void {
   const rejectWhenDisabled = (ctx: ExtensionCommandContext): boolean => {
-    if (config.enabled) return false;
-    ctx.ui.notify("DCP is disabled by configuration.", "info");
-    return true;
+    if (!config.enabled) {
+      ctx.ui.notify("DCP is disabled by configuration.", "info");
+      return true;
+    }
+    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) {
+      ctx.ui.notify("DCP is disabled for the current model.", "info");
+      return true;
+    }
+    return false;
   };
 
   pi.registerCommand("dcp:compress", {
     description: "Trigger manual compression, optionally focused on a topic",
     handler: async (args, ctx) => {
+      if (rejectWhenDisabled(ctx)) return;
       ctx.ui.notify(compressCommand(pi, state, config, args), "info");
     },
   });
@@ -43,7 +50,9 @@ export function registerDcpCommands(
     description: "Show context usage breakdown",
     handler: async (_args, ctx) => {
       const usage = ctx.getContextUsage();
-      ctx.ui.notify(contextCommand(state, usage ?? undefined), "info");
+      const modelDisabled =
+        config.enabled && !isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id);
+      ctx.ui.notify(contextCommand(state, usage ?? undefined, modelDisabled), "info");
     },
   });
 

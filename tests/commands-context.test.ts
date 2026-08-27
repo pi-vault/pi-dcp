@@ -29,4 +29,10 @@ describe("context command", () => {
     const result = contextCommand(state, undefined);
     expect(result).toContain("unavailable");
   });
+
+  it("reports model-level disablement", () => {
+    expect(contextCommand(createSessionState(), undefined, true)).toContain(
+      "disabled for the current model",
+    );
+  });
 });
