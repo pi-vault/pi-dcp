@@ -7,7 +7,9 @@
 ## Configuration
 
 - `disabledModels` is a top-level `string[]` with default `[]`.
+- If any `disabledModels` entry is not a string, config loading emits its existing validation warning and resets the whole list to `[]`.
 - Keys match `${provider}/${modelId}` exactly and case-sensitively; no glob matching is added.
+- Key shape is not otherwise validated, and entries are not deduplicated.
 - Missing provider or model identity does not match a disabled entry.
 - Global `enabled: false` disables DCP before model eligibility is considered.
 - A matching `disabledModels` entry takes precedence over `modelMaxLimits` and `modelMinLimits`. Limits for a disabled model remain configured but are dormant until that model is enabled again.
