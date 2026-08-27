@@ -58,30 +58,28 @@ Run: `pnpm vitest run tests/index.test.ts`
 
 Expected: PASS when `compressWasActiveBeforeModelDisable` is assigned only while it is `undefined`. If it fails, correct only the sentinel branch in `reconcileCompressTool` and rerun.
 
-### Task 2: Verify every disabled runtime boundary
+### Task 2: Re-verify disabled runtime boundaries
 
 **Files:**
 
-- Test: `tests/index.test.ts`
+- Verify: `tests/index.test.ts`
 - Modify if required by a failing test: `src/index.ts`
 
 **Interfaces:**
 
-- Disabled event handlers produce no DCP cleanup, timing, caching, persistence, or transformed messages.
+- Reuses the Phase 2 tests proving disabled event handlers produce no DCP cleanup, timing, caching, persistence, or transformed messages.
 
-- [ ] **Step 1: Test `message_end` passthrough**
+- [ ] **Step 1: Re-run the existing boundary tests**
 
-Send an assistant message containing `m0112</dpc-message-id>` through `message_end` with `sessionContext(disabledModel)`. Assert the handler returns `undefined` and the original text is unchanged.
+Run:
 
-- [ ] **Step 2: Test compression timing bypass**
+```bash
+pnpm vitest run tests/index.test.ts -t "does not sanitize|does not record compression timing|does not cache subagent"
+```
 
-Clear the mock API's captured `entries`, then invoke `tool_execution_start` and `tool_execution_end` for `compress` while disabled. Assert no `pi-dcp-state` entry was appended. This uses the extension's existing persistence boundary as the observable result and does not expose timing internals solely for testing.
+Expected: PASS using the tests added in Phase 2. Do not add duplicates.
 
-- [ ] **Step 3: Test subagent result-cache bypass**
-
-Spy on `parseChildSessionResults`, invoke a successful `subagent` `tool_execution_end` while disabled, and assert the parser was not called. This proves the handler returns before DCP result caching.
-
-- [ ] **Step 4: Run the focused runtime tests**
+- [ ] **Step 2: Run the complete index suite**
 
 Run: `pnpm vitest run tests/index.test.ts`
 
