@@ -17,6 +17,7 @@
 - Remove or restore only `compress`; preserve all other active tool names and their order.
 - Do not reset or serialize the activation sentinel.
 - Do not modify Pi or either DCP reference repository.
+- Run every Node/pnpm command through `mise exec node@24.15.0 --`; the default shell selects unsupported Node `v23.11.0`.
 - Do not commit unless the user explicitly requests a commit.
 
 ---
@@ -31,65 +32,100 @@
 
 - Consumes the Phase 2 `reconcileCompressTool` behavior through the `model_select` handler.
 - Characterizes both prior-active and prior-inactive `compress` states.
+- Proves unrelated active tools retain their order across both transitions.
 
-- [ ] **Step 1: Add the prior-active switch test**
+- [ ] **Step 1: Verify the required runtime**
+
+Run:
+
+```bash
+mise exec node@24.15.0 -- node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 24 || (major === 24 && minor < 15)) throw new Error(`Node >=24.15.0 required, got ${process.versions.node}`)'
+```
+
+Expected: exit code `0` and no output.
+
+- [ ] **Step 2: Add the prior-active switch test**
 
 ```ts
 it("removes and restores compress across model_select", async () => {
   writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
-  const { api, handlers, activeTools } = createMockApi({ activeTools: ["read"] });
+  const { api, handlers, activeTools } = createMockApi({
+    activeTools: ["read", "bash"],
+  });
   createExtension(api);
   await registeredHandler(handlers, "session_start")(
     { reason: "new" },
     sessionContext(enabledModel),
   );
-  expect(activeTools()).toEqual(["read", "compress"]);
+  expect(activeTools()).toEqual(["read", "bash", "compress"]);
 
   await registeredHandler(handlers, "model_select")(
-    { model: disabledModel, previousModel: enabledModel, source: "set" },
+    {
+      type: "model_select",
+      model: disabledModel,
+      previousModel: enabledModel,
+      source: "set",
+    },
     sessionContext(disabledModel),
   );
-  expect(activeTools()).toEqual(["read"]);
+  expect(activeTools()).toEqual(["read", "bash"]);
 
   await registeredHandler(handlers, "model_select")(
-    { model: enabledModel, previousModel: disabledModel, source: "set" },
+    {
+      type: "model_select",
+      model: enabledModel,
+      previousModel: disabledModel,
+      source: "set",
+    },
     sessionContext(enabledModel),
   );
-  expect(activeTools()).toEqual(["read", "compress"]);
+  expect(activeTools()).toEqual(["read", "bash", "compress"]);
 });
 ```
 
-- [ ] **Step 2: Add the prior-inactive switch test**
+- [ ] **Step 3: Add the prior-inactive switch test**
 
-After `session_start`, call `api.setActiveTools(["read"])` to model the user's explicit choice, switch to the disabled model, then return to the enabled model:
+After `session_start`, call `api.setActiveTools(["read", "bash"])` to model the user's explicit choice, switch to the disabled model, then return to the enabled model:
 
 ```ts
 it("does not restore compress when it was inactive before disablement", async () => {
   writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
-  const { api, handlers, activeTools } = createMockApi({ activeTools: ["read"] });
+  const { api, handlers, activeTools } = createMockApi({
+    activeTools: ["read", "bash"],
+  });
   createExtension(api);
   await registeredHandler(handlers, "session_start")(
     { reason: "new" },
     sessionContext(enabledModel),
   );
-  api.setActiveTools(["read"]);
+  api.setActiveTools(["read", "bash"]);
 
   await registeredHandler(handlers, "model_select")(
-    { model: disabledModel, previousModel: enabledModel, source: "set" },
+    {
+      type: "model_select",
+      model: disabledModel,
+      previousModel: enabledModel,
+      source: "set",
+    },
     sessionContext(disabledModel),
   );
   await registeredHandler(handlers, "model_select")(
-    { model: enabledModel, previousModel: disabledModel, source: "set" },
+    {
+      type: "model_select",
+      model: enabledModel,
+      previousModel: disabledModel,
+      source: "set",
+    },
     sessionContext(enabledModel),
   );
 
-  expect(activeTools()).toEqual(["read"]);
+  expect(activeTools()).toEqual(["read", "bash"]);
 });
 ```
 
-- [ ] **Step 3: Run the index tests and confirm the expected failures**
+- [ ] **Step 4: Run the index tests and confirm the expected failures**
 
-Run: `pnpm vitest run tests/index.test.ts`
+Run: `mise exec node@24.15.0 -- pnpm vitest run tests/index.test.ts`
 
 Expected: FAIL because `model_select` is not registered.
 
@@ -122,16 +158,20 @@ Do not call `resetSessionState`, `persistIfChanged`, or `registerCompressTool` f
 
 - [ ] **Step 2: Document live switching**
 
-State in `README.md` that changing models immediately removes or restores `compress`, while existing DCP state remains available if the user returns to an enabled model.
+In the model-specific configuration example, replace the final static-session sentence with:
+
+```md
+Changing models during a live session immediately removes or restores `compress` according to `disabledModels`. Existing DCP state remains intact while the selected model is disabled and is available again after switching to an enabled model.
+```
 
 - [ ] **Step 3: Run the focused live-switch tests**
 
-Run: `pnpm vitest run tests/index.test.ts`
+Run: `mise exec node@24.15.0 -- pnpm vitest run tests/index.test.ts`
 
 Expected: PASS.
 
 - [ ] **Step 4: Run the accumulated feature tests**
 
-Run: `pnpm vitest run tests/config.test.ts tests/context-limits.test.ts tests/commands-register.test.ts tests/commands-context.test.ts tests/index.test.ts`
+Run: `mise exec node@24.15.0 -- pnpm vitest run tests/config.test.ts tests/context-limits.test.ts tests/commands-register.test.ts tests/commands-context.test.ts tests/index.test.ts`
 
 Expected: PASS.

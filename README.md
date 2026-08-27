@@ -180,7 +180,7 @@ Protected tool and file patterns use Node's `path.posix.matchesGlob` semantics: 
 }
 ```
 
-For a session using `openai-codex/gpt-5.6-sol`, DCP leaves messages unchanged, rejects mutating DCP commands, and removes `compress` from the active tools. The configured `sol` thresholds remain dormant while that model is disabled. The independent `terra` thresholds remain active for sessions using `openai-codex/gpt-5.6-terra`. Live model switching is handled separately and is not part of this static-session behavior.
+For a session using `openai-codex/gpt-5.6-sol`, DCP leaves messages unchanged, rejects mutating DCP commands, and removes `compress` from the active tools. The configured `sol` thresholds remain dormant while that model is disabled. The independent `terra` thresholds remain active for sessions using `openai-codex/gpt-5.6-terra`. Changing models during a live session immediately removes or restores `compress` according to `disabledModels`. Existing DCP state remains intact while the selected model is disabled and is available again after switching to an enabled model.
 
 ### `compress`
 
