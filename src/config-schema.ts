@@ -168,6 +168,10 @@ export const DcpConfigSchema = Type.Object({
     minimum: 0,
     description: "Protect the newest N user turns from all DCP transformations",
   }),
+  disabledModels: Type.Array(Type.String(), {
+    default: [],
+    description: "Exact provider/model keys for which DCP is disabled",
+  }),
   compress: CompressConfigSchema,
   manualMode: ManualModeConfigSchema,
   strategies: StrategiesConfigSchema,

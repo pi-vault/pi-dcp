@@ -60,6 +60,14 @@
       "minimum": 0,
       "description": "Protect the newest N user turns from all DCP transformations"
     },
+    "disabledModels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Exact provider/model keys for which DCP is disabled"
+    },
     "compress": {
       "type": "object",
       "properties": {
