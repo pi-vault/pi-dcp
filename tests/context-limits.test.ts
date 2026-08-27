@@ -92,24 +92,32 @@ describe("isContextOverLimits", () => {
         "openai-codex/gpt-5.6-terra": "40%",
       },
     });
-    const check = (modelId: string) => {
+    const check = (modelId: string, tokens: number) => {
       const state = createSessionState();
       state.modelProvider = "openai-codex";
       state.modelId = modelId;
       state.modelContextWindow = 1_000_000;
       return isContextOverLimits(config, state, {
-        tokens: 700_000,
+        tokens,
         contextWindow: 1_000_000,
-        percent: 70,
+        percent: null,
       });
     };
 
-    expect(check("gpt-5.6-sol")).toEqual({
+    expect(check("gpt-5.6-sol", 700_000)).toEqual({
       overMaxLimit: false,
       overMinLimit: true,
     });
-    expect(check("gpt-5.6-terra")).toEqual({
+    expect(check("gpt-5.6-terra", 700_000)).toEqual({
       overMaxLimit: true,
+      overMinLimit: true,
+    });
+    expect(check("gpt-5.6-sol", 450_000)).toEqual({
+      overMaxLimit: false,
+      overMinLimit: false,
+    });
+    expect(check("gpt-5.6-terra", 450_000)).toEqual({
+      overMaxLimit: false,
       overMinLimit: true,
     });
   });

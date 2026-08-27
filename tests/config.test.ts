@@ -328,6 +328,7 @@ describe("isDcpEnabledForModel", () => {
     expect(isDcpEnabledForModel(config, "openai-codex", "gpt-5.6-sol")).toBe(false);
     expect(isDcpEnabledForModel(config, "openai", "gpt-5.6-sol")).toBe(true);
     expect(isDcpEnabledForModel(config, "openai-codex", "gpt-5.6-terra")).toBe(true);
+    expect(isDcpEnabledForModel(config, "OPENAI-CODEX", "gpt-5.6-sol")).toBe(true);
   });
 
   it("honors global disablement and treats missing identity as unmatched", () => {
