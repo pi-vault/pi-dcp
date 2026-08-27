@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerDcpCommands } from "../src/commands/register.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { makeDefaultConfig } from "./helpers.ts";
@@ -18,7 +19,7 @@ describe("registerDcpCommands", () => {
 
     const state = createSessionState();
     const config = makeDefaultConfig();
-    registerDcpCommands(mockPi as any, state, config, () => {});
+    registerDcpCommands(mockPi as unknown as ExtensionAPI, state, config, () => {});
 
     expect(registered).toContain("dcp:help");
     expect(registered).toContain("dcp:context");
@@ -40,25 +41,25 @@ describe("registerDcpCommands", () => {
       disabledModels: ["openai-codex/gpt-5.6-sol"],
     };
     const state = createSessionState();
-    const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
+    type Command = {
+      handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+    };
+    const commands = new Map<string, Command>();
     const sendMessage = vi.fn();
     const onStateChange = vi.fn();
     const notify = vi.fn();
     const pi = {
-      registerCommand(
-        name: string,
-        command: { handler: (args: string, ctx: any) => Promise<void> },
-      ) {
+      registerCommand(name: string, command: Command) {
         commands.set(name, command);
       },
       sendMessage,
     };
-    registerDcpCommands(pi as any, state, config, onStateChange);
+    registerDcpCommands(pi as unknown as ExtensionAPI, state, config, onStateChange);
     const ctx = {
       model: disabledModel,
       getContextUsage: () => undefined,
       ui: { notify },
-    };
+    } as unknown as ExtensionCommandContext;
 
     for (const name of [
       "dcp:compress",
