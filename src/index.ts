@@ -279,6 +279,13 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   }
 
+  pi.on("model_select", async (event, _ctx) => {
+    state.modelProvider = event.model.provider;
+    state.modelId = event.model.id;
+    if (!config.enabled) return;
+    reconcileCompressTool(event.model.provider, event.model.id);
+  });
+
   pi.on("before_agent_start", async (event, ctx) => {
     if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
     if ((state.compressPermission ?? config.compress.permission) === "deny") return;

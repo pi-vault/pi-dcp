@@ -1089,6 +1089,75 @@ describe("static model disablement", () => {
     expect(activeTools()).toEqual(["read", "compress"]);
   });
 
+  it("removes and restores compress across model_select", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers, activeTools } = createMockApi({
+      activeTools: ["read", "bash"],
+    });
+    createExtension(api);
+    await registeredHandler(handlers, "session_start")(
+      { reason: "new" },
+      sessionContext(enabledModel),
+    );
+    expect(activeTools()).toEqual(["read", "bash", "compress"]);
+
+    await registeredHandler(handlers, "model_select")(
+      {
+        type: "model_select",
+        model: disabledModel,
+        previousModel: enabledModel,
+        source: "set",
+      },
+      sessionContext(disabledModel),
+    );
+    expect(activeTools()).toEqual(["read", "bash"]);
+
+    await registeredHandler(handlers, "model_select")(
+      {
+        type: "model_select",
+        model: enabledModel,
+        previousModel: disabledModel,
+        source: "set",
+      },
+      sessionContext(enabledModel),
+    );
+    expect(activeTools()).toEqual(["read", "bash", "compress"]);
+  });
+
+  it("does not restore compress when it was inactive before disablement", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers, activeTools } = createMockApi({
+      activeTools: ["read", "bash"],
+    });
+    createExtension(api);
+    await registeredHandler(handlers, "session_start")(
+      { reason: "new" },
+      sessionContext(enabledModel),
+    );
+    api.setActiveTools(["read", "bash"]);
+
+    await registeredHandler(handlers, "model_select")(
+      {
+        type: "model_select",
+        model: disabledModel,
+        previousModel: enabledModel,
+        source: "set",
+      },
+      sessionContext(disabledModel),
+    );
+    await registeredHandler(handlers, "model_select")(
+      {
+        type: "model_select",
+        model: enabledModel,
+        previousModel: disabledModel,
+        source: "set",
+      },
+      sessionContext(enabledModel),
+    );
+
+    expect(activeTools()).toEqual(["read", "bash"]);
+  });
+
   it("blocks a stale compress call for a disabled model", async () => {
     writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
     const { api, handlers } = createMockApi();
