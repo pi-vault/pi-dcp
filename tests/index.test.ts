@@ -147,6 +147,17 @@ function registeredHandler(
   return handler as (...args: unknown[]) => unknown;
 }
 
+async function selectModel(
+  handlers: Map<string, Handler[]>,
+  model: typeof enabledModel,
+  previousModel: typeof enabledModel,
+): Promise<void> {
+  await registeredHandler(handlers, "model_select")(
+    { type: "model_select", model, previousModel, source: "set" },
+    sessionContext(model),
+  );
+}
+
 function messageRefs(result: { messages: Array<{ content?: Array<{ text?: string }> }> }) {
   return result.messages.map((message) => message.content?.[0]?.text?.match(/m\d+/)?.[0]);
 }
@@ -1058,15 +1069,7 @@ describe("static model disablement", () => {
         { toolName: "compress", toolCallId: "compress-1" },
         disabledCtx,
       );
-      await registeredHandler(handlers, "model_select")(
-        {
-          type: "model_select",
-          model: enabledModel,
-          previousModel: disabledModel,
-          source: "set",
-        },
-        sessionContext(enabledModel),
-      );
+      await selectModel(handlers, enabledModel, disabledModel);
       vi.setSystemTime(2_500);
       await registeredHandler(handlers, "tool_execution_end")(
         { toolName: "compress", toolCallId: "compress-1", isError: false },
@@ -1146,26 +1149,10 @@ describe("static model disablement", () => {
     );
     expect(activeTools()).toEqual(["read", "bash", "compress"]);
 
-    await registeredHandler(handlers, "model_select")(
-      {
-        type: "model_select",
-        model: disabledModel,
-        previousModel: enabledModel,
-        source: "set",
-      },
-      sessionContext(disabledModel),
-    );
+    await selectModel(handlers, disabledModel, enabledModel);
     expect(activeTools()).toEqual(["read", "bash"]);
 
-    await registeredHandler(handlers, "model_select")(
-      {
-        type: "model_select",
-        model: enabledModel,
-        previousModel: disabledModel,
-        source: "set",
-      },
-      sessionContext(enabledModel),
-    );
+    await selectModel(handlers, enabledModel, disabledModel);
     expect(activeTools()).toEqual(["read", "bash", "compress"]);
   });
 
@@ -1181,24 +1168,8 @@ describe("static model disablement", () => {
     );
     api.setActiveTools(["read", "bash"]);
 
-    await registeredHandler(handlers, "model_select")(
-      {
-        type: "model_select",
-        model: disabledModel,
-        previousModel: enabledModel,
-        source: "set",
-      },
-      sessionContext(disabledModel),
-    );
-    await registeredHandler(handlers, "model_select")(
-      {
-        type: "model_select",
-        model: enabledModel,
-        previousModel: disabledModel,
-        source: "set",
-      },
-      sessionContext(enabledModel),
-    );
+    await selectModel(handlers, disabledModel, enabledModel);
+    await selectModel(handlers, enabledModel, disabledModel);
 
     expect(activeTools()).toEqual(["read", "bash"]);
   });
@@ -1215,15 +1186,7 @@ describe("static model disablement", () => {
     );
     setActiveTools.mockClear();
 
-    await registeredHandler(handlers, "model_select")(
-      {
-        type: "model_select",
-        model: disabledModel,
-        previousModel: enabledModel,
-        source: "set",
-      },
-      sessionContext(disabledModel),
-    );
+    await selectModel(handlers, disabledModel, enabledModel);
     expect(activeTools()).toEqual(["read"]);
 
     for (let index = 0; index < 2; index++) {
@@ -1231,15 +1194,7 @@ describe("static model disablement", () => {
       expect(activeTools()).toEqual(["read"]);
     }
 
-    await registeredHandler(handlers, "model_select")(
-      {
-        type: "model_select",
-        model: enabledModel,
-        previousModel: disabledModel,
-        source: "set",
-      },
-      sessionContext(enabledModel),
-    );
+    await selectModel(handlers, enabledModel, disabledModel);
 
     expect(activeTools()).toEqual(["read", "compress"]);
     expect(setActiveTools.mock.calls).toEqual([[["read"]], [["read", "compress"]]]);
@@ -1273,33 +1228,9 @@ describe("static model disablement", () => {
       api.setActiveTools(activeBeforeDisable);
       setActiveTools.mockClear();
 
-      await registeredHandler(handlers, "model_select")(
-        {
-          type: "model_select",
-          model: disabledModel,
-          previousModel: enabledModel,
-          source: "set",
-        },
-        sessionContext(disabledModel),
-      );
-      await registeredHandler(handlers, "model_select")(
-        {
-          type: "model_select",
-          model: secondDisabledModel,
-          previousModel: disabledModel,
-          source: "set",
-        },
-        sessionContext(secondDisabledModel),
-      );
-      await registeredHandler(handlers, "model_select")(
-        {
-          type: "model_select",
-          model: enabledModel,
-          previousModel: secondDisabledModel,
-          source: "set",
-        },
-        sessionContext(enabledModel),
-      );
+      await selectModel(handlers, disabledModel, enabledModel);
+      await selectModel(handlers, secondDisabledModel, disabledModel);
+      await selectModel(handlers, enabledModel, secondDisabledModel);
 
       expect(activeTools()).toEqual(expectedActiveTools);
       expect(setActiveTools.mock.calls).toEqual(expectedCalls);
@@ -1369,15 +1300,7 @@ describe("static model disablement", () => {
     entries.length = 0;
 
     const disabledCtx = sessionContext(disabledModel);
-    await registeredHandler(handlers, "model_select")(
-      {
-        type: "model_select",
-        model: disabledModel,
-        previousModel: enabledModel,
-        source: "set",
-      },
-      disabledCtx,
-    );
+    await selectModel(handlers, disabledModel, enabledModel);
     expect(entries).toHaveLength(0);
     await context.handler("", disabledCtx);
     const disabledStatus = disabledCtx.ui.notify.mock.calls[0]?.[0] as string;
@@ -1385,15 +1308,7 @@ describe("static model disablement", () => {
     expect(disabledStatus).toContain("DCP status: disabled for the current model");
 
     const reenabledCtx = sessionContext(enabledModel);
-    await registeredHandler(handlers, "model_select")(
-      {
-        type: "model_select",
-        model: enabledModel,
-        previousModel: disabledModel,
-        source: "set",
-      },
-      reenabledCtx,
-    );
+    await selectModel(handlers, enabledModel, disabledModel);
     expect(entries).toHaveLength(0);
     await context.handler("", reenabledCtx);
     const enabledStatus = reenabledCtx.ui.notify.mock.calls[0]?.[0] as string;
