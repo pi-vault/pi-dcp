@@ -341,6 +341,15 @@ describe("isDcpEnabledForModel", () => {
     expect(isDcpEnabledForModel(config, "openai-codex", undefined)).toBe(true);
     expect(isDcpEnabledForModel({ ...config, enabled: false }, "openai", "other")).toBe(false);
   });
+
+  it.each([
+    ["", "model", "/model"],
+    ["provider", "", "provider/"],
+  ])("matches present empty identity strings exactly", (provider, modelId, disabledModel) => {
+    expect(
+      isDcpEnabledForModel({ enabled: true, disabledModels: [disabledModel] }, provider, modelId),
+    ).toBe(false);
+  });
 });
 
 describe("BASE_PROTECTED_TOOLS", () => {

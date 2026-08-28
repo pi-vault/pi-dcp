@@ -983,6 +983,23 @@ describe("dcp extension", () => {
 });
 
 describe("static model disablement", () => {
+  it("does not change active tools when DCP is globally disabled", async () => {
+    const configDir = path.join(agentDir, "extensions");
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "dcp.json"), JSON.stringify({ enabled: false }));
+    const { api, handlers, activeTools, setActiveTools } = createMockApi({
+      activeTools: ["read", "compress"],
+    });
+    createExtension(api);
+    const ctx = sessionContext(enabledModel);
+
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+    await registeredHandler(handlers, "context")({ messages: [] }, ctx);
+
+    expect(activeTools()).toEqual(["read", "compress"]);
+    expect(setActiveTools).not.toHaveBeenCalled();
+  });
+
   it("passes messages through and omits the prompt for a disabled model", async () => {
     writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
     const { api, handlers } = createMockApi();

@@ -47,7 +47,7 @@ export function isDcpEnabledForModel(
   modelId: string | undefined,
 ): boolean {
   if (!config.enabled) return false;
-  if (!provider || !modelId) return true;
+  if (provider === undefined || modelId === undefined) return true;
   return !config.disabledModels.includes(`${provider}/${modelId}`);
 }
 
