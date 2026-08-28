@@ -427,6 +427,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (event, ctx) => {
+    if (!config.enabled) return;
     if (ctx.model) {
       state.modelId = ctx.model.id;
       state.modelProvider = ctx.model.provider;
