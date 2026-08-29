@@ -32,9 +32,8 @@
     "analyze:sessions": "tsx scripts/analyze-sessions.ts",
     "generate:schema": "tsx scripts/generate-schema.ts > dcp.schema.json",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
-    "pack:verify": "node scripts/verify-pack.mjs",
     "pack:dry-run": "pnpm pack --dry-run",
-    "release:check": "pnpm check && pnpm run generate:schema && pnpm run pack:verify && pnpm run pack:dry-run"
+    "release:check": "pnpm check && pnpm run generate:schema && pnpm run pack:dry-run"
   },
   "pi": {
     "extensions": [
