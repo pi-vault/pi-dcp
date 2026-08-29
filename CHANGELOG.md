@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.6.0] - 2026-08-28
+## 2026-08-28 - [0.6.0]
 
 ### Added
 
@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - DCP statistics and anchor cleanup now keep cumulative numbers and prune-anchor ordering coherent across session compaction and pruning runs.
 - Live model switching no longer leaves stale `compress` registrations or double-registrations when toggling between disabled and enabled models.
 
-## [0.5.0] - 2026-08-01
+## 2026-08-01 - [0.5.0]
 
 ### Added
 
