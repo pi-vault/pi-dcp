@@ -4,7 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.5.0] - 2026-08-01
+## 2026-08-28 - [0.6.0]
+
+### Added
+
+- Top-level `disabledModels` config (exact, case-sensitive `provider/modelId` keys) that disables DCP processing, mutating commands, and the active `compress` tool for the configured models.
+- Per-model compression thresholds via `compress.modelMaxLimits` / `modelMinLimits` (accept percentage strings such as `"80%"`), dormant while the model is disabled.
+
+### Changed
+
+- `compress` tool is dynamically removed from the active tool set when the live model is in `disabledModels`, and restored when the model switches back to an enabled one; existing DCP state is preserved across disabled windows.
+- Session analysis now hashes session content when collecting evidence, and validates DCP state records against expected shapes before reading them.
+- DCP disablement now treats empty-string model entries as disabled and checks global configuration in addition to project configuration.
+
+### Fixed
+
+- Skip `pi-dcp-state` snapshots that contain only message references, so the latest valid snapshot is restored on resume.
+- Sanitize malformed `<dcp-message-id>` and `<dcp-system-reminder>` references in assistant output, including bound suffix matching and unicode message-like payloads.
+- Use Node's native `path.posix.matchesGlob` for protected patterns, with a compatibility fallback for leading-dot path segments so existing configs continue to match `.pi/**` and similar.
+- DCP statistics and anchor cleanup now keep cumulative numbers and prune-anchor ordering coherent across session compaction and pruning runs.
+- Live model switching no longer leaves stale `compress` registrations or double-registrations when toggling between disabled and enabled models.
+
+## 2026-08-01 - [0.5.0]
 
 ### Added
 

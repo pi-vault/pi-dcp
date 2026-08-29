@@ -42,6 +42,17 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
 - **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
+## What's new in 0.6.0
+
+- Disable DCP per model with the new top-level `disabledModels` array (exact, case-sensitive `provider/modelId` keys). For a disabled model, DCP leaves messages unchanged, rejects mutating commands, and removes `compress` from the active tools. Existing DCP state is preserved across disabled windows.
+- Live model switching reconciles the `compress` tool with `disabledModels` immediately when you change models mid-session; switching back to an enabled model restores it.
+- Per-model compression thresholds via `compress.modelMaxLimits` / `modelMinLimits` accept percentage strings such as `"80%"` and stay dormant while the matching model is disabled.
+- DCP state snapshots that contain only message references are skipped, so resume restores the newest valid snapshot.
+- Malformed `<dcp-message-id>` and `<dcp-system-reminder>` references are sanitized, including unicode message-like payloads and bound suffix matching.
+- `protectedFilePatterns` (and other Node-glob config) now use `path.posix.matchesGlob` with a leading-dot compatibility fallback, so existing configs that target `.pi/**` and similar patterns continue to match.
+- DCP statistics and pruning-anchor ordering stay coherent across session compaction and pruning runs.
+- Session analysis now hashes session content and validates DCP state records before reading them.
+
 ## What's new in 0.5.0
 
 - Trusted project configuration loads from `<ctx.cwd>/.pi/dcp.json` and layers over global configuration at session start; untrusted projects fall back to the global config only.
