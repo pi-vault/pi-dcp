@@ -1,6 +1,6 @@
 {
   "name": "@pi-vault/pi-dcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "Pi extension for dynamic context pruning — incremental tool output pruning and conversation compression",
   "author": "Lanh Hoang <lanhhoang@users.noreply.github.com>",
