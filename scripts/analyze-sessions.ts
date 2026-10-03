@@ -148,23 +148,68 @@ function parseUsage(value: unknown): UsageTotals | undefined {
   return parsed;
 }
 
-/** Add one call's usage into a running total, preserving optional-field absence. */
-function addUsage(target: UsageTotals, usage: UsageTotals): void {
-  target.input += usage.input;
-  target.output += usage.output;
-  target.cacheRead += usage.cacheRead;
-  target.cacheWrite += usage.cacheWrite;
-  target.totalTokens += usage.totalTokens;
-  target.cost.input += usage.cost.input;
-  target.cost.output += usage.cost.output;
-  target.cost.cacheRead += usage.cost.cacheRead;
-  target.cost.cacheWrite += usage.cost.cacheWrite;
-  target.cost.total += usage.cost.total;
+function checkedSum(left: number, right: number): number | undefined {
+  const sum = left + right;
+  return Number.isFinite(sum) ? sum : undefined;
+}
 
-  if (usage.cacheWrite1h !== undefined)
-    target.cacheWrite1h = (target.cacheWrite1h ?? 0) + usage.cacheWrite1h;
-  if (usage.reasoning !== undefined)
-    target.reasoning = (target.reasoning ?? 0) + usage.reasoning;
+/** Add one call's usage atomically, preserving optional-field absence. */
+function addUsage(target: UsageTotals, usage: UsageTotals): boolean {
+  const next = {
+    input: checkedSum(target.input, usage.input),
+    output: checkedSum(target.output, usage.output),
+    cacheRead: checkedSum(target.cacheRead, usage.cacheRead),
+    cacheWrite: checkedSum(target.cacheWrite, usage.cacheWrite),
+    totalTokens: checkedSum(target.totalTokens, usage.totalTokens),
+    cost: {
+      input: checkedSum(target.cost.input, usage.cost.input),
+      output: checkedSum(target.cost.output, usage.cost.output),
+      cacheRead: checkedSum(target.cost.cacheRead, usage.cost.cacheRead),
+      cacheWrite: checkedSum(target.cost.cacheWrite, usage.cost.cacheWrite),
+      total: checkedSum(target.cost.total, usage.cost.total),
+    },
+    cacheWrite1h:
+      usage.cacheWrite1h === undefined
+        ? target.cacheWrite1h
+        : checkedSum(target.cacheWrite1h ?? 0, usage.cacheWrite1h),
+    reasoning:
+      usage.reasoning === undefined
+        ? target.reasoning
+        : checkedSum(target.reasoning ?? 0, usage.reasoning),
+  };
+
+  if (
+    next.input === undefined ||
+    next.output === undefined ||
+    next.cacheRead === undefined ||
+    next.cacheWrite === undefined ||
+    next.totalTokens === undefined ||
+    next.cost.input === undefined ||
+    next.cost.output === undefined ||
+    next.cost.cacheRead === undefined ||
+    next.cost.cacheWrite === undefined ||
+    next.cost.total === undefined ||
+    (usage.cacheWrite1h !== undefined && next.cacheWrite1h === undefined) ||
+    (usage.reasoning !== undefined && next.reasoning === undefined)
+  ) {
+    return false;
+  }
+
+  target.input = next.input;
+  target.output = next.output;
+  target.cacheRead = next.cacheRead;
+  target.cacheWrite = next.cacheWrite;
+  target.totalTokens = next.totalTokens;
+  target.cost = {
+    input: next.cost.input,
+    output: next.cost.output,
+    cacheRead: next.cost.cacheRead,
+    cacheWrite: next.cost.cacheWrite,
+    total: next.cost.total,
+  };
+  if (next.cacheWrite1h !== undefined) target.cacheWrite1h = next.cacheWrite1h;
+  if (next.reasoning !== undefined) target.reasoning = next.reasoning;
+  return true;
 }
 
 /** Fold one call's usage into a report, counting a required-but-missing object as malformed. */
@@ -182,7 +227,7 @@ function recordUsage(
     report.malformedUsage++;
     return;
   }
-  addUsage(report.usage, parsed);
+  if (!addUsage(report.usage, parsed)) report.malformedUsage++;
 }
 
 function recordLatency(report: SessionCounts, deltaMs: number): void {
@@ -418,7 +463,11 @@ export async function analyzeSessionFiles(
     totals.assistantErrors += report.assistantErrors;
     totals.malformedUsage += report.malformedUsage;
     totals.malformedLatency += report.malformedLatency;
-    addUsage(totals.usage, report.usage);
+    if (!addUsage(totals.usage, report.usage)) {
+      throw new RangeError(
+        `usage totals overflow while aggregating file ${report.fileIndex}`,
+      );
+    }
     const latency = report.responseLatency;
     if (latency.count > 0) {
       totals.responseLatency.count += latency.count;

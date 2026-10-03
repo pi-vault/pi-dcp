@@ -464,14 +464,35 @@ describe("session usage and latency evidence", () => {
           cost: { input: 31, output: 32, cacheRead: 33, cacheWrite: 34, total: 35 },
         }),
       }),
-      // compaction with no usage -> optional absence, ignored
-      entry({ type: "compaction", id: "c1", timestamp: "2026-08-22T00:00:03.200Z" }),
-      // branch summary carrying an all-zero usage object
+      // compaction carrying usage
+      entry({
+        type: "compaction",
+        id: "c1",
+        timestamp: "2026-08-22T00:00:03.200Z",
+        usage: usage({
+          input: 50,
+          output: 60,
+          cacheRead: 70,
+          cacheWrite: 80,
+          totalTokens: 90,
+          cost: { input: 41, output: 42, cacheRead: 43, cacheWrite: 44, total: 45 },
+        }),
+      }),
+      // branch summary carrying positive usage and optional fields
       entry({
         type: "branch_summary",
         id: "b1",
         timestamp: "2026-08-22T00:00:03.300Z",
-        usage: zeroUsage,
+        usage: usage({
+          input: 100,
+          output: 110,
+          cacheRead: 120,
+          cacheWrite: 130,
+          cacheWrite1h: 7,
+          reasoning: 8,
+          totalTokens: 140,
+          cost: { input: 51, output: 52, cacheRead: 53, cacheWrite: 54, total: 55 },
+        }),
       }),
       // branch summary with no usage -> optional absence, ignored
       entry({ type: "branch_summary", id: "b2", timestamp: "2026-08-22T00:00:03.400Z" }),
@@ -511,14 +532,14 @@ describe("session usage and latency evidence", () => {
     }
 
     expect(report.files[0]?.usage).toEqual({
-      input: 1018,
-      output: 230,
-      cacheRead: 342,
-      cacheWrite: 454,
-      cacheWrite1h: 5,
-      reasoning: 6,
-      totalTokens: 1576,
-      cost: { input: 64, output: 68, cacheRead: 72, cacheWrite: 76, total: 85 },
+      input: 1168,
+      output: 400,
+      cacheRead: 532,
+      cacheWrite: 664,
+      cacheWrite1h: 12,
+      reasoning: 14,
+      totalTokens: 1806,
+      cost: { input: 156, output: 162, cacheRead: 168, cacheWrite: 174, total: 185 },
     });
     expect(report.files[0]?.responseLatency).toEqual({
       count: 2,
@@ -548,14 +569,14 @@ describe("session usage and latency evidence", () => {
     });
 
     expect(report.totals.usage).toEqual({
-      input: 1020,
-      output: 233,
-      cacheRead: 346,
-      cacheWrite: 459,
-      cacheWrite1h: 5,
-      reasoning: 6,
-      totalTokens: 1582,
-      cost: { input: 70, output: 75, cacheRead: 80, cacheWrite: 85, total: 95 },
+      input: 1170,
+      output: 403,
+      cacheRead: 536,
+      cacheWrite: 669,
+      cacheWrite1h: 12,
+      reasoning: 14,
+      totalTokens: 1812,
+      cost: { input: 162, output: 169, cacheRead: 176, cacheWrite: 183, total: 195 },
     });
     expect(report.totals.responseLatency).toEqual({
       count: 2,
@@ -689,6 +710,107 @@ describe("session usage and latency evidence", () => {
     expect(zeroReport.totals.usage).toHaveProperty("reasoning", 0);
   });
 
+  it("diagnoses invalid optional usage carriers without partial totals", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-malformed-optional-usage-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+
+    fs.writeFileSync(
+      file,
+      `${[
+        entry({
+          type: "message",
+          id: "r1",
+          message: {
+            role: "toolResult",
+            toolCallId: "c1",
+            content: [],
+            isError: false,
+            usage: usage({ input: -1 }),
+          },
+        }),
+        entry({
+          type: "compaction",
+          id: "c1",
+          usage: usage({ output: "__INF__" }),
+        }),
+        entry({
+          type: "branch_summary",
+          id: "b1",
+          usage: usage({ reasoning: -1 }),
+        }),
+        entry({
+          type: "usage",
+          id: "s1",
+          usage: usage({ input: 4, output: 5, totalTokens: 9 }),
+        }),
+      ].join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals.malformedUsage).toBe(3);
+    expect(report.totals.usage).toEqual({
+      input: 4,
+      output: 5,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 9,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    });
+  });
+
+  it("diagnoses per-record usage overflow atomically", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-overflow-usage-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    const largeUsage = (output: number) =>
+      usage({
+        input: 1e308,
+        output,
+        totalTokens: 1,
+        cost: { input: 1, output, cacheRead: 0, cacheWrite: 0, total: output + 1 },
+      });
+
+    fs.writeFileSync(
+      file,
+      `${[
+        entry({ type: "usage", id: "s1", usage: largeUsage(2) }),
+        entry({ type: "usage", id: "s2", usage: largeUsage(3) }),
+      ].join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals.malformedUsage).toBe(1);
+    expect(report.totals.usage.input).toBe(1e308);
+    expect(report.totals.usage.output).toBe(2);
+    expect(report.totals.usage.cost.output).toBe(2);
+  });
+
+  it("fails closed on corpus usage overflow without exposing input paths", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-corpus-overflow-"));
+    tempDirs.push(dir);
+    const firstFile = path.join(dir, "first-secret.jsonl");
+    const secondFile = path.join(dir, "second-secret.jsonl");
+    const largeUsage = usage({ input: 1e308 });
+    fs.writeFileSync(firstFile, `${entry({ type: "usage", id: "s1", usage: largeUsage })}\n`);
+    fs.writeFileSync(secondFile, `${entry({ type: "usage", id: "s2", usage: largeUsage })}\n`);
+
+    let caught: unknown;
+    try {
+      await analyzeSessionFiles([firstFile, secondFile]);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(RangeError);
+    const message = caught instanceof Error ? caught.message : String(caught);
+    expect(message).toContain("usage totals overflow while aggregating file 2");
+    expect(message).not.toContain(firstFile);
+    expect(message).not.toContain(secondFile);
+  });
+
   it("aggregates latency only for user/tool-result to assistant pairs", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-latency-"));
     tempDirs.push(dir);
@@ -783,7 +905,9 @@ describe("session usage and latency evidence", () => {
     tempDirs.push(dir);
     const secretName = "sk-live-dir-secret-name";
     const secretFile = "sk-live-file-secret-name.jsonl";
-    const file = path.join(dir, secretFile);
+    const secretDir = path.join(dir, secretName);
+    fs.mkdirSync(secretDir);
+    const file = path.join(secretDir, secretFile);
 
     const sensitive = {
       ...state([]),
