@@ -13,7 +13,6 @@ export function createSessionState(): SessionState {
     sessionId: null,
     manualMode: false,
     compressPermission: undefined,
-    pendingManualTrigger: null,
     prune: createPrune(),
     nudges: createNudges(),
     stats: createStats(),
@@ -35,7 +34,6 @@ export function resetSessionState(state: SessionState): void {
   state.sessionId = null;
   state.manualMode = false;
   state.compressPermission = undefined;
-  state.pendingManualTrigger = null;
   state.prune.tools.clear();
   resetPruneMessages(state.prune.messages);
   state.nudges.contextLimitAnchors.clear();

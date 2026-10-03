@@ -1,19 +1,17 @@
 /**
  * DCP session state types.
  *
- * Adapted from OpenCode DCP for Pi's AgentMessage-based message model.
+ * Historical derivation and licensing basis are recorded in docs/provenance.md.
  * All Maps/Sets are used in-memory; persistence serializes to plain objects.
  */
 
 export interface SessionState {
   /** Current session identifier (set on session_start). */
   sessionId: string | null;
-  /** Manual mode: false = auto, "active" = manual, "compress-pending" = trigger queued. */
-  manualMode: false | "active" | "compress-pending";
+  /** Manual mode: false = auto, "active" = manual. */
+  manualMode: false | "active";
   /** Effective compress permission for this session. */
   compressPermission: "allow" | "deny" | undefined;
-  /** Pending manual compress trigger. */
-  pendingManualTrigger: PendingManualTrigger | null;
   /** Pruning state (tools + message compression). */
   prune: Prune;
   /** Nudge anchor tracking. */
@@ -42,11 +40,6 @@ export interface SessionState {
   isSubAgent: boolean;
   /** Cached sub-agent results from completed child sessions, keyed by toolCallId. */
   subAgentResultCache: Map<string, string>;
-}
-
-export interface PendingManualTrigger {
-  sessionId: string;
-  prompt: string;
 }
 
 export interface Prune {

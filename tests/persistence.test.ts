@@ -340,6 +340,45 @@ describe("persistence", () => {
       expect(restored.toolParameters.size).toBe(0);
     });
 
+    it.each([false, "active"] as const)(
+      "keeps v1 snapshot manualMode %s unchanged through parse, restore, and serialize",
+      (manualMode) => {
+        const fixture = {
+          version: 1,
+          ownerSessionId: "owner",
+          manualMode,
+          compressPermission: "allow",
+          stats: {
+            pruneTokenCounter: 0,
+            totalPruneTokens: 0,
+            toolsPruned: 0,
+            messagesCompressed: 0,
+          },
+          lastCompaction: 0,
+          pruneTools: [],
+          blocks: [],
+          nextBlockId: 1,
+          nextRunId: 1,
+          messageIds: { byRawId: [], nextRefIndex: 1 },
+          nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+        };
+
+        const parsed = persistence.parseDcpSnapshot(fixture);
+        expect(parsed).toBeDefined();
+        expect(parsed?.manualMode).toBe(manualMode);
+
+        const state = createSessionState();
+        const restored = persistence.restoreDcpSnapshot(fixture, state, "owner");
+        expect(restored).toBe(true);
+        expect(state.manualMode).toBe(manualMode);
+
+        const reserialized = persistence.serializeDcpSnapshot(state);
+        expect(reserialized).toBeDefined();
+        expect(reserialized?.version).toBe(1);
+        expect(reserialized?.manualMode).toBe(manualMode);
+      },
+    );
+
     it("rejects invalid roots and salvages valid snapshot entries", () => {
       expect(persistence.parseDcpSnapshot(null)).toBeUndefined();
       const state = createSessionState();
