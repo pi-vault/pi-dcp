@@ -11,6 +11,24 @@ export interface ExactDuplicateEvidence {
   maxDeltaMs: number | null;
 }
 
+export interface UsageTotals {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cacheWrite1h?: number;
+  reasoning?: number;
+  totalTokens: number;
+  cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+}
+
+export interface LatencySummary {
+  count: number;
+  totalMs: number;
+  minMs: number | null;
+  maxMs: number | null;
+}
+
 export interface SessionCounts {
   fileBytes: number;
   dcpBytes: number;
@@ -24,10 +42,15 @@ export interface SessionCounts {
   unmatchedToolResults: number;
   assistantErrors: number;
   stopReasons: Record<string, number>;
+  usage: UsageTotals;
+  responseLatency: LatencySummary;
+  malformedUsage: number;
+  malformedLatency: number;
 }
 
 export interface SessionFileReport extends SessionCounts {
-  file: string;
+  /** One-based position in the requested file list. The path is never retained. */
+  fileIndex: number;
   exactDuplicateEvidence?: ExactDuplicateEvidence;
 }
 
@@ -49,6 +72,127 @@ function fingerprint(value: unknown): string {
 
 const piStopReasons = new Set(["toolUse", "stop", "aborted", "error", "length"]);
 
+function usageTotals(): UsageTotals {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+}
+
+function latencySummary(): LatencySummary {
+  return { count: 0, totalMs: 0, minMs: null, maxMs: null };
+}
+
+/** A finite, nonnegative number. Rejects non-numbers, NaN, Infinity, and negatives. */
+function finiteNonnegative(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * Parse a Pi `Usage` object. Required token fields and every cost component must be
+ * finite and nonnegative; `cacheWrite1h` and `reasoning` are validated only when present.
+ *
+ * `totalTokens` and `cost.total` are taken as reported — Pi preserves provider totals,
+ * which do not have to equal the sum of the individual components.
+ */
+function parseUsage(value: unknown): UsageTotals | undefined {
+  const usage = record(value);
+  if (!usage) return undefined;
+
+  const cost = record(usage.cost);
+  if (!cost) return undefined;
+
+  if (
+    !finiteNonnegative(usage.input) ||
+    !finiteNonnegative(usage.output) ||
+    !finiteNonnegative(usage.cacheRead) ||
+    !finiteNonnegative(usage.cacheWrite) ||
+    !finiteNonnegative(usage.totalTokens) ||
+    !finiteNonnegative(cost.input) ||
+    !finiteNonnegative(cost.output) ||
+    !finiteNonnegative(cost.cacheRead) ||
+    !finiteNonnegative(cost.cacheWrite) ||
+    !finiteNonnegative(cost.total)
+  ) {
+    return undefined;
+  }
+
+  const parsed = usageTotals();
+  parsed.input = usage.input;
+  parsed.output = usage.output;
+  parsed.cacheRead = usage.cacheRead;
+  parsed.cacheWrite = usage.cacheWrite;
+  parsed.totalTokens = usage.totalTokens;
+  parsed.cost = {
+    input: cost.input,
+    output: cost.output,
+    cacheRead: cost.cacheRead,
+    cacheWrite: cost.cacheWrite,
+    total: cost.total,
+  };
+
+  // Optional fields stay absent until at least one valid call reports them.
+  if (usage.cacheWrite1h !== undefined) {
+    if (!finiteNonnegative(usage.cacheWrite1h)) return undefined;
+    parsed.cacheWrite1h = usage.cacheWrite1h;
+  }
+  if (usage.reasoning !== undefined) {
+    if (!finiteNonnegative(usage.reasoning)) return undefined;
+    parsed.reasoning = usage.reasoning;
+  }
+
+  return parsed;
+}
+
+/** Add one call's usage into a running total, preserving optional-field absence. */
+function addUsage(target: UsageTotals, usage: UsageTotals): void {
+  target.input += usage.input;
+  target.output += usage.output;
+  target.cacheRead += usage.cacheRead;
+  target.cacheWrite += usage.cacheWrite;
+  target.totalTokens += usage.totalTokens;
+  target.cost.input += usage.cost.input;
+  target.cost.output += usage.cost.output;
+  target.cost.cacheRead += usage.cost.cacheRead;
+  target.cost.cacheWrite += usage.cost.cacheWrite;
+  target.cost.total += usage.cost.total;
+
+  if (usage.cacheWrite1h !== undefined)
+    target.cacheWrite1h = (target.cacheWrite1h ?? 0) + usage.cacheWrite1h;
+  if (usage.reasoning !== undefined)
+    target.reasoning = (target.reasoning ?? 0) + usage.reasoning;
+}
+
+/** Fold one call's usage into a report, counting a required-but-missing object as malformed. */
+function recordUsage(
+  report: SessionCounts,
+  raw: unknown,
+  required: boolean,
+): void {
+  if (raw === undefined) {
+    if (required) report.malformedUsage++;
+    return;
+  }
+  const parsed = parseUsage(raw);
+  if (!parsed) {
+    report.malformedUsage++;
+    return;
+  }
+  addUsage(report.usage, parsed);
+}
+
+function recordLatency(report: SessionCounts, deltaMs: number): void {
+  const summary = report.responseLatency;
+  summary.count++;
+  summary.totalMs += deltaMs;
+  summary.minMs = Math.min(summary.minMs ?? deltaMs, deltaMs);
+  summary.maxMs = Math.max(summary.maxMs ?? deltaMs, deltaMs);
+}
+
 function counts(fileBytes = 0): SessionCounts {
   return {
     fileBytes,
@@ -63,6 +207,10 @@ function counts(fileBytes = 0): SessionCounts {
     unmatchedToolResults: 0,
     assistantErrors: 0,
     stopReasons: {},
+    usage: usageTotals(),
+    responseLatency: latencySummary(),
+    malformedUsage: 0,
+    malformedLatency: 0,
   };
 }
 
@@ -78,8 +226,8 @@ function timestamp(value: unknown): number | undefined {
   return Number.isFinite(milliseconds) ? milliseconds : undefined;
 }
 
-async function analyzeFile(file: string): Promise<SessionFileReport> {
-  const report: SessionFileReport = { file, ...counts(fs.statSync(file).size) };
+async function analyzeFile(file: string, fileIndex: number): Promise<SessionFileReport> {
+  const report: SessionFileReport = { fileIndex, ...counts(fs.statSync(file).size) };
   const openToolCalls = new Map<string, number>();
   let lineNumber = 0;
   let previousStateFingerprint: string | undefined;
@@ -87,6 +235,9 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
   let previousStateLine: number | undefined;
   let previousEntryIdFingerprint: string | undefined;
   let previousTimestamp: number | undefined;
+  // Tracked independently of the DCP state-transition fingerprints above.
+  let previousEntryRole: string | undefined;
+  let previousEntryTimestamp: number | undefined;
 
   const lines = readline.createInterface({
     input: fs.createReadStream(file),
@@ -115,7 +266,28 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
     if (entry.type === "compaction") report.compactions++;
 
     const message = record(entry.message);
+    const entryRole =
+      entry.type === "message" && typeof message?.role === "string" ? message.role : entry.type;
+    const entryTimestamp = timestamp(entry.timestamp);
+
+    // Only a user or tool-result entry immediately before an assistant is a candidate.
+    if (message?.role === "assistant" && entry.type === "message") {
+      if (previousEntryRole === "user" || previousEntryRole === "toolResult") {
+        if (previousEntryTimestamp === undefined || entryTimestamp === undefined) {
+          report.malformedLatency++;
+        } else {
+          const delta = entryTimestamp - previousEntryTimestamp;
+          if (delta < 0) report.malformedLatency++;
+          else recordLatency(report, delta);
+        }
+      }
+    }
+    previousEntryRole = entryRole;
+    previousEntryTimestamp = entryTimestamp;
+
     if (entry.type === "message" && message?.role === "assistant") {
+      // Assistant usage is required: a missing or invalid object is malformed.
+      recordUsage(report, message.usage, true);
       const stopReason = message.stopReason;
       if (typeof stopReason === "string") {
         const reason = piStopReasons.has(stopReason) ? stopReason : "other";
@@ -140,6 +312,8 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
         }
       }
     } else if (entry.type === "message" && message?.role === "toolResult") {
+      // Tool-execution usage is optional: absent is ignored, invalid is diagnosed.
+      recordUsage(report, message.usage, false);
       const toolCallId = message.toolCallId;
       if (typeof toolCallId !== "string") {
         report.unmatchedToolResults++;
@@ -152,8 +326,13 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
       }
     }
 
-    if (entry.type !== "custom" || entry.customType !== "pi-dcp-state")
+    if (entry.type !== "custom" || entry.customType !== "pi-dcp-state") {
+      // Remaining optional usage carriers, counted only when present.
+      if (entry.type === "usage") recordUsage(report, entry.usage, true);
+      else if (entry.type === "compaction") recordUsage(report, entry.usage, false);
+      else if (entry.type === "branch_summary") recordUsage(report, entry.usage, false);
       continue;
+    }
 
     report.dcpBytes += Buffer.byteLength(line) + 1;
     const data = record(entry.data);
@@ -222,7 +401,7 @@ async function analyzeFile(file: string): Promise<SessionFileReport> {
 export async function analyzeSessionFiles(
   files: string[],
 ): Promise<SessionCorpusReport> {
-  const reports = await Promise.all(files.map(analyzeFile));
+  const reports = await Promise.all(files.map((file, index) => analyzeFile(file, index + 1)));
   const totals = { files: reports.length, ...counts() };
 
   for (const report of reports) {
@@ -237,6 +416,22 @@ export async function analyzeSessionFiles(
     totals.unmatchedToolCalls += report.unmatchedToolCalls;
     totals.unmatchedToolResults += report.unmatchedToolResults;
     totals.assistantErrors += report.assistantErrors;
+    totals.malformedUsage += report.malformedUsage;
+    totals.malformedLatency += report.malformedLatency;
+    addUsage(totals.usage, report.usage);
+    const latency = report.responseLatency;
+    if (latency.count > 0) {
+      totals.responseLatency.count += latency.count;
+      totals.responseLatency.totalMs += latency.totalMs;
+      totals.responseLatency.minMs = Math.min(
+        totals.responseLatency.minMs ?? latency.minMs ?? Number.POSITIVE_INFINITY,
+        latency.minMs ?? Number.POSITIVE_INFINITY,
+      );
+      totals.responseLatency.maxMs = Math.max(
+        totals.responseLatency.maxMs ?? latency.maxMs ?? Number.NEGATIVE_INFINITY,
+        latency.maxMs ?? Number.NEGATIVE_INFINITY,
+      );
+    }
     for (const [reason, count] of Object.entries(report.stopReasons))
       totals.stopReasons[reason] = (totals.stopReasons[reason] ?? 0) + count;
   }
