@@ -40,20 +40,26 @@ complexity:
 All existing Biome warnings are resolved without blanket rule suppression. The lint script uses
 `--error-on-warnings`, making zero warnings part of `pnpm check`.
 
-`compress-pending` and `pendingManualTrigger` are removed after tests confirm that no command,
-lifecycle handler, or snapshot uses them. Other state is retained unless the same proof exists. A
-concise provenance document records the behavioral comparison and the independent implementation
-boundary.
+`compress-pending` and `pendingManualTrigger` are removed after the stale command test is replaced
+and tests confirm that no command, lifecycle handler, or snapshot uses them. Other state is retained
+unless the same proof exists. A concise provenance document records the historical adaptation and
+behavioral-comparison boundaries, repository revisions, and licenses without making a legal or
+clean-room claim.
 
-Session analysis adds aggregate cache-read tokens, cache-write tokens, uncached input tokens,
-output tokens, reported cost, and response-latency samples derived from adjacent session-entry
-timestamps without retaining prompt contents or credentials. Malformed or absent usage data
-increments a diagnostic counter and does not abort the report. Incremental pruning remains
-unchanged in this phase; the report supplies evidence for a later proposal.
+Session analysis aggregates every usage carrier recognized by the current Pi session model:
+assistant messages, standalone usage entries, and optional tool-result, compaction, and branch
+summary usage. It reports uncached input, output, cache reads and writes, optional one-hour cache
+writes and reasoning, reported token totals and cost components, and response-latency samples from
+adjacent session-entry timestamps. Reports expose only numeric aggregates and ordinal file indices;
+they never retain paths, basenames, IDs, hashes, provider/model metadata, notes, prompt contents,
+tool arguments, errors, summaries, or credentials. Invalid usage and invalid latency samples have
+separate diagnostics and do not abort analysis. Incremental pruning remains unchanged in this phase;
+the report supplies evidence for a later proposal.
 
-The package is verified against Node 22.19 and the current Node 24 line. If the implementation
-passes unchanged, `engines.node` becomes `>=22.19.0`; otherwise the existing floor remains and the
-incompatibility is documented instead of patched speculatively.
+The package is verified against exact Node 22.19.0 and the current Node 24 line. The existing engine
+floor remains in place until the Node 22.19.0 CI job passes. If both jobs pass unchanged,
+`engines.node` becomes `>=22.19.0`; otherwise the existing floor remains and the incompatibility is
+documented instead of patched speculatively.
 
 ## Phase 2: Correctness and Configuration Safety
 
