@@ -8,7 +8,7 @@ import * as subagentResults from "../src/subagents/subagent-results.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 import { assignMessageRefs } from "../src/messages/inject.ts";
-import { makeAssistantMessage } from "./helpers.ts";
+import { makeAssistantMessage, getMessageText, requireMessage, requireDefined } from "./helpers.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
 const disabledModel = { provider: "openai-codex", id: "gpt-5.6-sol" };
@@ -312,8 +312,8 @@ describe("dcp extension", () => {
     );
 
     const resultMessages = (result as { messages: unknown[] }).messages;
-    const userText = (resultMessages[0] as any).content[0].text as string;
-    const assistantText = (resultMessages[1] as any).content[0].text as string;
+    const userText = getMessageText(requireMessage(resultMessages[0], "resultMessages[0]"));
+    const assistantText = getMessageText(requireMessage(resultMessages[1], "resultMessages[1]"));
 
     expect(userText).toContain("<dcp-message-id>m0001</dcp-message-id>");
     expect(assistantText).toContain("<dcp-message-id>m0002</dcp-message-id>");
@@ -343,7 +343,7 @@ describe("dcp extension", () => {
     );
 
     const resultMessages = (result as { messages: unknown[] }).messages;
-    const text = (resultMessages[0] as any).content[0].text as string;
+    const text = getMessageText(requireMessage(resultMessages[0], "resultMessages[0]"));
     expect(text).toContain("CRITICAL WARNING");
     expect(text).toContain("<dcp-system-reminder>");
   });
@@ -496,7 +496,7 @@ describe("dcp extension", () => {
     const parent = createSessionState();
     parent.sessionId = "parent";
     parent.stats.totalPruneTokens = 99;
-    const snapshot = serializeDcpSnapshot(parent)!;
+    const snapshot = requireDefined(serializeDcpSnapshot(parent), "serialized DCP snapshot");
     createExtension(api);
 
     const start = handlers.get("session_start")?.[0];

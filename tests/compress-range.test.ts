@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { handleCompress } from "../src/compress/handler.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { makeDefaultConfig } from "./helpers.ts";
+import { makeDefaultConfig, requireDefined } from "./helpers.ts";
 import { countMessageTokens } from "../src/utils/tokens.ts";
 
 function assignRefs(state: ReturnType<typeof createSessionState>, count: number): void {
@@ -345,7 +345,9 @@ describe("handleCompress token accounting", () => {
         { startId: "m0002", endId: "m0002", summary: "second summary" },
       ],
     });
-    const blocks = result.blockIds.map((id) => state.prune.messages.blocksById.get(id)!);
+    const blocks = result.blockIds.map((id) =>
+      requireDefined(state.prune.messages.blocksById.get(id), `block ${id}`),
+    );
 
     expect(result.compressedTokens).toBe(
       blocks.reduce((total, block) => total + block.compressedTokens, 0),

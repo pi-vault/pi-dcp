@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { loadAllSessionStats } from "../src/state/persistence.ts";
 import * as persistence from "../src/state/persistence.ts";
 import { createSessionState } from "../src/state/state.ts";
+import { requireDefined } from "./helpers.ts";
 
 function sessionHeader(id: string) {
   return {
@@ -343,7 +344,10 @@ describe("persistence", () => {
       expect(persistence.parseDcpSnapshot(null)).toBeUndefined();
       const state = createSessionState();
       state.sessionId = "owner";
-      const snapshot = persistence.serializeDcpSnapshot(state)!;
+      const snapshot = requireDefined(
+        persistence.serializeDcpSnapshot(state),
+        "serialized DCP snapshot",
+      );
       expect(persistence.parseDcpSnapshot({ ...snapshot, nextBlockId: 0 })).toBeUndefined();
       expect(
         persistence.parseDcpSnapshot({ ...snapshot, stats: { totalPruneTokens: 1 } }),

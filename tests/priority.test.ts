@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildPriorityMap } from "../src/messages/priority.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { assignMessageRefs } from "../src/messages/inject.ts";
-import { makeUserMessage, makeAssistantMessage } from "./helpers.ts";
+import { makeUserMessage, makeAssistantMessage, requireDefined } from "./helpers.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 describe("buildPriorityMap", () => {
@@ -19,11 +19,9 @@ describe("buildPriorityMap", () => {
     expect(map.size).toBe(3);
 
     // Earlier, larger messages should have higher priority (lower number)
-    const p0 = map.get(0);
-    const p2 = map.get(2);
-    expect(p0).toBeDefined();
-    expect(p2).toBeDefined();
-    expect(p0!.priority).toBeLessThanOrEqual(p2!.priority);
+    const p0 = requireDefined(map.get(0), "priority entry for message 0");
+    const p2 = requireDefined(map.get(2), "priority entry for message 2");
+    expect(p0.priority).toBeLessThanOrEqual(p2.priority);
   });
 
   it("returns empty map for empty messages", () => {

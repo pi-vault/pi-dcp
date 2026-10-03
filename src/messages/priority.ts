@@ -23,7 +23,7 @@ export type PriorityMap = Map<number, MessagePriorityEntry>;
 export function buildPriorityMap(state: SessionState, messages: AgentMessage[]): PriorityMap {
   if (messages.length === 0) return new Map();
 
-  const entries: Array<{ index: number; score: number; tokens: number }> = [];
+  const entries: Array<{ index: number; ref: string; score: number; tokens: number }> = [];
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -45,7 +45,7 @@ export function buildPriorityMap(state: SessionState, messages: AgentMessage[]):
     const roleWeight = msg.role === "toolResult" ? 0.2 : 0;
 
     const score = positionScore * 0.6 + tokenScore * 0.3 + roleWeight;
-    entries.push({ index: i, score, tokens });
+    entries.push({ index: i, ref, score, tokens });
   }
 
   // Sort by score descending (highest score = highest priority)
@@ -58,11 +58,10 @@ export function buildPriorityMap(state: SessionState, messages: AgentMessage[]):
   for (let rank = 0; rank < entries.length; rank++) {
     const entry = entries[rank];
     const priority = Math.min(5, Math.floor(rank / quintileSize) + 1);
-    const ref = state.messageIds.byIndex.get(entry.index)!;
 
     map.set(entry.index, {
       index: entry.index,
-      ref,
+      ref: entry.ref,
       priority,
       tokens: entry.tokens,
     });
