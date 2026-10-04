@@ -3,7 +3,13 @@ import { handleCompress } from "../src/compress/handler.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { assignMessageRefs } from "../src/messages/inject.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { makeUserMessage, makeAssistantMessage, makeDefaultConfig } from "./helpers.ts";
+import {
+  makeUserMessage,
+  makeAssistantMessage,
+  makeDefaultConfig,
+  requireDefined,
+  resetTestTimestamp,
+} from "./helpers.ts";
 
 describe("handleCompress (message mode)", () => {
   it("compresses targeted messages", () => {
@@ -208,5 +214,64 @@ describe("handleCompress (message mode)", () => {
         targets: [{ messageId: "m0003", summary: "protected" }],
       }),
     ).toThrow(/turnProtection.*protected window/i);
+  });
+});
+
+describe("handleCompress (message mode) — accepted message forms", () => {
+  const acceptedForms = ["m2", "m0002", "@m2@", "@m2:1@"];
+
+  it("records the same canonical block for every accepted message form", () => {
+    const fingerprints = acceptedForms.map((messageId) => {
+      // Fresh state and timestamps per case so one compression cannot mutate the next.
+      resetTestTimestamp();
+      const state = createSessionState();
+      const config = makeDefaultConfig({ mode: "message" });
+      const messages = [
+        makeUserMessage("hello"),
+        makeAssistantMessage("long response..."),
+        makeUserMessage("next"),
+      ];
+      assignMessageRefs(state, messages);
+
+      const result = handleCompress(state, config, messages, `compress-call-${messageId}`, {
+        topic: "Message form compatibility",
+        targets: [{ messageId, summary: "summary" }],
+        mode: "message",
+      });
+
+      expect(result.text).toContain("Compressed 1 messages");
+      const block = requireDefined(state.prune.messages.blocksById.get(1), "block 1");
+      return {
+        startIndex: block.startIndex,
+        endIndex: block.endIndex,
+        startKey: block.startKey,
+        endKey: block.endKey,
+        mode: block.mode,
+      };
+    });
+
+    for (const fingerprint of fingerprints) {
+      expect(fingerprint).toEqual(fingerprints[0]);
+    }
+    expect(fingerprints[0].startIndex).toBe(1);
+    expect(fingerprints[0].endIndex).toBe(1);
+    expect(fingerprints[0].mode).toBe("message");
+  });
+
+  it("still rejects compact forms that name a message that does not exist", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ mode: "message" });
+    const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
+
+    for (const messageId of ["m9", "@m9@", "@m9:1@"]) {
+      expect(() =>
+        handleCompress(state, config, messages, `compress-call-${messageId}`, {
+          topic: "test",
+          targets: [{ messageId, summary: "text" }],
+          mode: "message",
+        }),
+      ).toThrow(/is not available/);
+    }
   });
 });

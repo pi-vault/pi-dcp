@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { handleCompress } from "../src/compress/handler.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { makeDefaultConfig, requireDefined } from "./helpers.ts";
+import { makeDefaultConfig, requireDefined, resetTestTimestamp } from "./helpers.ts";
 import { countMessageTokens } from "../src/utils/tokens.ts";
 
 function assignRefs(state: ReturnType<typeof createSessionState>, count: number): void {
@@ -639,5 +639,95 @@ describe("handleCompress token reporting", () => {
     );
     expect(result.text).toContain(`~${originalTokens - result.summaryTokens} tokens saved`);
     expect(result.text).toContain("Compressed 4 messages");
+  });
+});
+
+describe("handleCompress (range mode) — accepted boundary forms", () => {
+  function preparedRangeState() {
+    const state = createSessionState();
+    assignRefs(state, 4);
+    state.messageIds.nextRefIndex = 5;
+    return state;
+  }
+
+  function rangeMessages(): AgentMessage[] {
+    return [
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: 0,
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "hi" }],
+        timestamp: 0,
+      } as unknown as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "do stuff" }],
+        timestamp: 0,
+      } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        timestamp: 0,
+      } as unknown as AgentMessage,
+    ];
+  }
+
+  /** Canonical description of what a range compression actually selected. */
+  function selectionFingerprint(state: ReturnType<typeof createSessionState>) {
+    return [...state.prune.messages.blocksById.values()]
+      .map((block) => ({
+        startIndex: block.startIndex,
+        endIndex: block.endIndex,
+        startKey: block.startKey,
+        endKey: block.endKey,
+        messageIndices: [...block.effectiveMessageIndices].sort((a, b) => a - b),
+        directMessageIndices: [...block.directMessageIndices].sort((a, b) => a - b),
+        byMessageIndex: [...state.prune.messages.byMessageIndex.entries()]
+          .filter(([, entry]) => entry.activeBlockIds.length > 0)
+          .map(([index]) => index)
+          .sort((a, b) => a - b),
+      }))
+      .sort((a, b) => a.startIndex - b.startIndex);
+  }
+
+  const acceptedPairs: Array<[string, string]> = [
+    ["m1", "m3"],
+    ["m0001", "m0003"],
+    ["@m1@", "@m3@"],
+    ["@m1:3@", "@m3:2@"],
+  ];
+
+  it("selects identical boundaries for every accepted boundary form", () => {
+    const fingerprints = acceptedPairs.map(([startId, endId]) => {
+      // Fresh state per case so one compression cannot mutate the next.
+      resetTestTimestamp();
+      const state = preparedRangeState();
+      const messages = rangeMessages();
+
+      const result = handleCompress(
+        state,
+        makeDefaultConfig(),
+        messages,
+        `compress-call-${startId}-${endId}`,
+        {
+          topic: "Boundary form compatibility",
+          content: [{ startId, endId, summary: "summary" }],
+          mode: "range",
+        },
+      );
+
+      expect(result.text).toContain("Compressed");
+      return selectionFingerprint(state);
+    });
+
+    for (const fingerprint of fingerprints) {
+      expect(fingerprint).toEqual(fingerprints[0]);
+    }
+    expect(fingerprints[0]).toHaveLength(1);
+    expect(fingerprints[0][0].startIndex).toBe(0);
+    expect(fingerprints[0][0].endIndex).toBe(2);
   });
 });

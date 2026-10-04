@@ -5,7 +5,9 @@ import * as path from "node:path";
 import { loadAllSessionStats } from "../src/state/persistence.ts";
 import * as persistence from "../src/state/persistence.ts";
 import { createSessionState } from "../src/state/state.ts";
-import { requireDefined } from "./helpers.ts";
+import { getMessageText, requireDefined } from "./helpers.ts";
+import { assignMessageRefs, injectMessageIds } from "../src/messages/inject.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 function sessionHeader(id: string) {
   return {
@@ -506,5 +508,68 @@ describe("persistence", () => {
       expect(parsed?.pruneTools).toEqual([["valid", 0]]);
       expect(parsed?.blocks).toEqual([]);
     });
+  });
+});
+
+describe("persistence — canonical message refs", () => {
+  function literalSnapshot(messageIds: { byRawId: unknown; nextRefIndex: number }) {
+    return {
+      version: 1,
+      ownerSessionId: "owner",
+      manualMode: false,
+      compressPermission: "allow",
+      stats: {
+        pruneTokenCounter: 0,
+        totalPruneTokens: 0,
+        toolsPruned: 0,
+        messagesCompressed: 0,
+      },
+      lastCompaction: 0,
+      pruneTools: [],
+      blocks: [],
+      nextBlockId: 1,
+      nextRunId: 1,
+      messageIds,
+      nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+    };
+  }
+
+  it("displays a restored version-1 canonical ref compactly and reserializes it padded", () => {
+    const snapshot = literalSnapshot({ byRawId: [["user:1:0", "m0001"]], nextRefIndex: 2 });
+    const state = createSessionState();
+
+    expect(persistence.restoreDcpSnapshot(snapshot, state, "owner")).toBe(true);
+
+    // Rebuild runtime indices from the message that matches the persisted raw key.
+    const restoredMessage: AgentMessage = {
+      role: "user",
+      content: [{ type: "text", text: "restored" }],
+      timestamp: 1,
+    } as AgentMessage;
+    assignMessageRefs(state, [restoredMessage]);
+    expect(state.messageIds.byIndex.get(0)).toBe("m0001");
+
+    const injected = injectMessageIds(state, [restoredMessage]);
+    const text = getMessageText(requireDefined(injected[0], "injected[0]"));
+    expect(text.endsWith("@m1@")).toBe(true);
+
+    const reserialized = persistence.serializeDcpSnapshot(state);
+    expect(reserialized?.messageIds.byRawId).toEqual([["user:1:0", "m0001"]]);
+  });
+
+  it("discards a compact persisted ref instead of normalizing or migrating it", () => {
+    const snapshot = literalSnapshot({ byRawId: [["user:1:0", "m1"]], nextRefIndex: 7 });
+    const state = createSessionState();
+
+    expect(persistence.restoreDcpSnapshot(snapshot, state, "owner")).toBe(true);
+
+    expect(state.messageIds.byRawId.size).toBe(0);
+    expect(state.messageIds.byRef.size).toBe(0);
+    // nextRefIndex is authoritative and is not recomputed from discarded pairs.
+    expect(state.messageIds.nextRefIndex).toBe(7);
+
+    const reserialized = persistence.serializeDcpSnapshot(state);
+    expect(reserialized?.messageIds.byRawId).toEqual([]);
+    expect(reserialized?.messageIds.nextRefIndex).toBe(7);
   });
 });
