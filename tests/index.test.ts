@@ -263,6 +263,7 @@ describe("dcp extension", () => {
     const schema = JSON.stringify(tool.parameters);
 
     expect(tool.description).toContain("@mN:P@");
+    expect(schema).toMatch(/(?:^|[\s(])m1(?=[\s,)])/);
     expect(schema).toContain("@m1@");
     expect(`${tool.description}${schema}`).not.toContain("m0001");
   });

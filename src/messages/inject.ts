@@ -79,7 +79,10 @@ export function injectMessageIds(
     // This replaces marker-based idempotency — always inject clean.
     // Note: not idempotent in isolation (repeated calls add trailing \n\n).
     // Safe because this runs exactly once per context pass on fresh stored messages.
-    const cleaned = mapText(msg, stripHallucinationsFromString);
+    const cleaned =
+      msg.role === "user" && typeof msg.content === "string"
+        ? { ...msg, content: stripHallucinationsFromString(msg.content) }
+        : mapText(msg, stripHallucinationsFromString);
     return appendText(cleaned, `\n\n${marker}`);
   });
 }

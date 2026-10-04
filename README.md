@@ -62,12 +62,13 @@ DCP shows the model a compact marker for each message it can compress:
 
 The marker is injected on its own line at the end of the message. Copy it exactly as shown when calling `compress`.
 
-Accepted `startId` / `endId` / `messageId` values in `range` mode:
+Accepted message references for `startId` / `endId` in range mode and `messageId` in message mode:
 
 - `m1` and `@m1@` — the bare or wrapped compact form
 - `@m1:3@` — a compact form carrying a priority
 - `m0001` — the canonical padded form
-- `b2` — a compression block anchor
+
+Range boundaries also accept `b2`-style compression block anchors.
 
 Priorities run from 1 to 5: 1-2 for the highest compression value, 3 moderate, 4-5 low.
 

@@ -148,6 +148,32 @@ describe("injectMessageIds", () => {
     expect(text).toContain("@m1@");
   });
 
+  it.each(["@m99@", "@m99:3@", "@m99:", "<dcp-message-id>m0099</dcp-message-id>"])(
+    "replaces stale %s metadata in plain-string content before injecting",
+    (staleMarker) => {
+      const state = createSessionState();
+      const message = makeUserMessageString(`hello\n\n${staleMarker}`);
+      assignMessageRefs(state, [message]);
+
+      const result = injectMessageIds(state, [message]);
+
+      expect(getMessageText(requireDefined(result[0], "result[0]"))).toBe("hello\n\n\n\n@m1@");
+      expect("content" in message && message.content).toBe(`hello\n\n${staleMarker}`);
+    },
+  );
+
+  it("preserves inline markers and emails in plain-string content", () => {
+    const state = createSessionState();
+    const message = makeUserMessageString("Literal @m99@ and person@m1@example.com");
+    assignMessageRefs(state, [message]);
+
+    const result = injectMessageIds(state, [message]);
+
+    expect(getMessageText(requireDefined(result[0], "result[0]"))).toBe(
+      "Literal @m99@ and person@m1@example.com\n\n@m1@",
+    );
+  });
+
   it("is idempotent for plain-string content messages (E9)", () => {
     const state = createSessionState();
     const messages = [makeUserMessageString("plain text content")];
