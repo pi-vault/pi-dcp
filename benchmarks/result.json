@@ -1,27 +1,27 @@
 {
-  "nodeVersion": "v24.15.0",
+  "nodeVersion": "v24.21.0",
   "iterations": 30,
   "workloads": [
     {
       "name": "clean-2000-messages",
-      "medianMs": 9.595771499999955,
-      "p95Ms": 13.41076499999997,
+      "medianMs": 11.289360499999987,
+      "p95Ms": 14.17956300000003,
       "inputEstimatedTokens": 9000,
-      "outputEstimatedTokens": 29000,
-      "reductionEstimatedTokens": -20000
+      "outputEstimatedTokens": 12992,
+      "reductionEstimatedTokens": -3992
     },
     {
       "name": "repeated-tool-pairs-2000",
-      "medianMs": 36.323711,
-      "p95Ms": 47.834327999999914,
+      "medianMs": 41.39680750000002,
+      "p95Ms": 54.01869700000009,
       "inputEstimatedTokens": 1017575,
-      "outputEstimatedTokens": 54702,
-      "reductionEstimatedTokens": 962873
+      "outputEstimatedTokens": 53977,
+      "reductionEstimatedTokens": 963598
     },
     {
       "name": "restored-nested-blocks-100",
-      "medianMs": 2.962097500000027,
-      "p95Ms": 4.638205999999627,
+      "medianMs": 3.026930999999877,
+      "p95Ms": 3.953128000000106,
       "inputEstimatedTokens": 1291,
       "outputEstimatedTokens": 120,
       "reductionEstimatedTokens": 1171

@@ -241,7 +241,8 @@ export default function createExtension(pi: ExtensionAPI): void {
           targets: Type.Array(
             Type.Object({
               messageId: Type.String({
-                description: "Message ID to compress (e.g. m0001)",
+                description:
+                  "Message reference to compress (e.g. m1, @m1@, @m1:3@). Copy the marker shown in context or use its bare mN alias. Zero-padded legacy refs are also accepted.",
               }),
               summary: Type.String({
                 description: "Complete technical summary replacing message content",
@@ -264,16 +265,16 @@ export default function createExtension(pi: ExtensionAPI): void {
         name: "compress",
         label: "Compress",
         description:
-          "Compress conversation ranges into summaries. Use message IDs (m0001, m0002...) visible in context as boundaries.",
+          "Compress conversation ranges into summaries. Use the compact message markers (m1, @m1@) visible in context as boundaries.",
         parameters: Type.Object({
           topic: Type.String({ description: "Short label (3-5 words) for display" }),
           content: Type.Array(
             Type.Object({
               startId: Type.String({
-                description: "Message or block ID marking range start (e.g. m0001, b2)",
+                description: "Message or block ID marking range start (e.g. m1, @m1@, b2)",
               }),
               endId: Type.String({
-                description: "Message or block ID marking range end (e.g. m0012, b5)",
+                description: "Message or block ID marking range end (e.g. m12, @m12@, b5)",
               }),
               summary: Type.String({
                 description: "Complete technical summary replacing all content in range",

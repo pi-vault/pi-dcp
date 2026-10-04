@@ -68,7 +68,7 @@ describe("assignMessageRefs", () => {
 // ---------------------------------------------------------------------------
 
 describe("injectMessageIds", () => {
-  it("appends dcp-message-id tags to text content", () => {
+  it("appends compact markers to text content", () => {
     const state = createSessionState();
     const messages = [makeUserMessage("hello"), makeAssistantMessage("hi")];
     assignMessageRefs(state, messages);
@@ -76,10 +76,47 @@ describe("injectMessageIds", () => {
     const result = injectMessageIds(state, messages);
 
     const userText = getMessageText(requireDefined(result[0], "result[0]"));
-    expect(userText).toContain("<dcp-message-id>m0001</dcp-message-id>");
+    expect(userText).toContain("@m1@");
+    expect(userText).not.toContain("<dcp-message-id>");
 
     const assistantText = getMessageText(requireDefined(result[1], "result[1]"));
-    expect(assistantText).toContain("<dcp-message-id>m0002</dcp-message-id>");
+    expect(assistantText).toContain("@m2@");
+    expect(assistantText).not.toContain("<dcp-message-id>");
+  });
+
+  it("keeps stored refs canonical while showing compact markers", () => {
+    const state = createSessionState();
+    const messages = [makeUserMessage("hello"), makeAssistantMessage("hi")];
+    assignMessageRefs(state, messages);
+
+    injectMessageIds(state, messages);
+
+    expect(state.messageIds.byIndex.get(0)).toBe("m0001");
+    expect(state.messageIds.byIndex.get(1)).toBe("m0002");
+    expect([...state.messageIds.byRawId.values()]).toEqual(["m0001", "m0002"]);
+    expect([...state.messageIds.byRef.keys()]).toEqual(["m0001", "m0002"]);
+  });
+
+  it("places the marker as a standalone line after two newlines", () => {
+    const state = createSessionState();
+    const messages = [makeUserMessage("hello")];
+    assignMessageRefs(state, messages);
+
+    const result = injectMessageIds(state, messages);
+    const text = getMessageText(requireDefined(result[0], "result[0]"));
+
+    expect(text).toBe("hello\n\n@m1@");
+  });
+
+  it("replaces stale compact markers before injecting", () => {
+    const state = createSessionState();
+    const messages: AgentMessage[] = [makeAssistantMessage("Response\n\n@m99@")];
+
+    assignMessageRefs(state, messages);
+    const result = injectMessageIds(state, messages);
+
+    const text = getMessageText(requireDefined(result[0], "result[0]"));
+    expect(text).toBe("Response\n\n\n\n@m1@");
   });
 
   it("is idempotent — does not double-inject", () => {
@@ -91,7 +128,7 @@ describe("injectMessageIds", () => {
     const second = injectMessageIds(state, first);
 
     const text = getMessageText(requireDefined(second[0], "second[0]"));
-    const matches = text.match(/<dcp-message-id>/g);
+    const matches = text.match(/@m1@/g);
     expect(matches).toHaveLength(1);
   });
 
@@ -108,7 +145,33 @@ describe("injectMessageIds", () => {
     expect(Array.isArray("content" in injected ? injected.content : undefined)).toBe(true);
     const text = getMessageText(injected);
     expect(text).toContain("plain text content");
-    expect(text).toContain("<dcp-message-id>m0001</dcp-message-id>");
+    expect(text).toContain("@m1@");
+  });
+
+  it.each(["@m99@", "@m99:3@", "@m99:", "<dcp-message-id>m0099</dcp-message-id>"])(
+    "replaces stale %s metadata in plain-string content before injecting",
+    (staleMarker) => {
+      const state = createSessionState();
+      const message = makeUserMessageString(`hello\n\n${staleMarker}`);
+      assignMessageRefs(state, [message]);
+
+      const result = injectMessageIds(state, [message]);
+
+      expect(getMessageText(requireDefined(result[0], "result[0]"))).toBe("hello\n\n\n\n@m1@");
+      expect("content" in message && message.content).toBe(`hello\n\n${staleMarker}`);
+    },
+  );
+
+  it("preserves inline markers and emails in plain-string content", () => {
+    const state = createSessionState();
+    const message = makeUserMessageString("Literal @m99@ and person@m1@example.com");
+    assignMessageRefs(state, [message]);
+
+    const result = injectMessageIds(state, [message]);
+
+    expect(getMessageText(requireDefined(result[0], "result[0]"))).toBe(
+      "Literal @m99@ and person@m1@example.com\n\n@m1@",
+    );
   });
 
   it("is idempotent for plain-string content messages (E9)", () => {
@@ -120,7 +183,7 @@ describe("injectMessageIds", () => {
     const second = injectMessageIds(state, first);
 
     const text = getMessageText(requireDefined(second[0], "second[0]"));
-    const matches = text.match(/<dcp-message-id>/g);
+    const matches = text.match(/@m1@/g);
     expect(matches).toHaveLength(1);
   });
 
@@ -152,9 +215,9 @@ describe("injectMessageIds", () => {
     const userText = getMessageText(requireDefined(result[0], "result[0]"));
     const assistantText = getMessageText(requireDefined(result[1], "result[1]"));
 
-    expect(userText).toContain("<dcp-message-id>m0001</dcp-message-id>");
+    expect(userText).toContain("@m1@");
     expect(userText).not.toContain("m0099");
-    expect(assistantText).toContain("<dcp-message-id>m0002</dcp-message-id>");
+    expect(assistantText).toContain("@m2@");
     expect(assistantText).not.toContain("m0100");
   });
 
@@ -166,7 +229,7 @@ describe("injectMessageIds", () => {
     const result = injectMessageIds(state, messages);
 
     const text = getMessageText(requireDefined(result[0], "result[0]"));
-    expect(text).toContain("<dcp-message-id>m0001</dcp-message-id>");
+    expect(text).toContain("@m1@");
     expect(text).not.toContain("m0050");
   });
 });
@@ -176,7 +239,7 @@ describe("injectMessageIds", () => {
 // ---------------------------------------------------------------------------
 
 describe("injectMessageIds with priorityMap", () => {
-  it("injects priority attribute when priorityMap is provided", () => {
+  it("injects a compact priority marker when priorityMap is provided", () => {
     const state = createSessionState();
     const messages = [makeUserMessage("a".repeat(400)), makeAssistantMessage("b".repeat(100))];
     assignMessageRefs(state, messages);
@@ -185,13 +248,13 @@ describe("injectMessageIds with priorityMap", () => {
     const result = injectMessageIds(state, messages, priorityMap);
 
     const userText = getMessageText(requireDefined(result[0], "result[0]"));
-    expect(userText).toMatch(/<dcp-message-id priority="\d">m0001<\/dcp-message-id>/);
+    expect(userText).toMatch(/@m1:[1-5]@$/m);
 
     const assistantText = getMessageText(requireDefined(result[1], "result[1]"));
-    expect(assistantText).toMatch(/<dcp-message-id priority="\d">m0002<\/dcp-message-id>/);
+    expect(assistantText).toMatch(/@m2:[1-5]@$/m);
   });
 
-  it("omits priority attribute when priorityMap is undefined", () => {
+  it("omits the priority segment when priorityMap is undefined", () => {
     const state = createSessionState();
     const messages = [makeUserMessage("hello")];
     assignMessageRefs(state, messages);
@@ -199,11 +262,11 @@ describe("injectMessageIds with priorityMap", () => {
     const result = injectMessageIds(state, messages);
 
     const text = getMessageText(requireDefined(result[0], "result[0]"));
-    expect(text).toContain("<dcp-message-id>m0001</dcp-message-id>");
-    expect(text).not.toContain("priority=");
+    expect(text).toContain("@m1@");
+    expect(text).not.toMatch(/@m1:/);
   });
 
-  it("is idempotent with priority attributes", () => {
+  it("is idempotent with priority markers", () => {
     const state = createSessionState();
     const messages = [makeUserMessage("hello")];
     assignMessageRefs(state, messages);
@@ -213,7 +276,7 @@ describe("injectMessageIds with priorityMap", () => {
     const second = injectMessageIds(state, first, priorityMap);
 
     const text = getMessageText(requireDefined(second[0], "second[0]"));
-    const matches = text.match(/<dcp-message-id/g);
+    const matches = text.match(/@m1:[1-5]@/g);
     expect(matches).toHaveLength(1);
   });
 });

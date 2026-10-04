@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import type { CompressionBlock, DcpSnapshotBlockV1, DcpSnapshotV1, SessionState } from "./types.ts";
 import { resetSessionState } from "./state.ts";
-import { parseMessageRef } from "../utils/message-ids.ts";
+import { isCanonicalMessageRef, parseMessageRef } from "../utils/message-ids.ts";
 
 function sorted<T>(values: Iterable<T>, compare: (a: T, b: T) => number): T[] {
   return [...values].sort(compare);
@@ -103,7 +103,9 @@ function parsePairs(value: unknown): Array<[string, string]> {
       entry.length === 2 &&
       isString(entry[0]) &&
       isString(entry[1]) &&
-      (parseMessageRef(entry[1]) ?? 0) > 0
+      // Canonical-only: compact aliases are a model-facing input protocol and are
+      // never accepted from (or written back to) a version-1 snapshot.
+      isCanonicalMessageRef(entry[1])
     ) {
       byKey.set(entry[0], entry[1]);
     }

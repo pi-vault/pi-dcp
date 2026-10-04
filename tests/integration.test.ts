@@ -167,9 +167,9 @@ describe("integration", () => {
     expect(toolResult2).toBeDefined();
     expect(toolResult2?.content[0].text).toContain("src/index.ts");
 
-    // Messages should have dcp-message-id tags
+    // Messages should carry compact markers
     const userMsg = result.messages.find((m) => m.role === "user");
-    expect(userMsg?.content[0].text).toContain("<dcp-message-id>");
+    expect(userMsg?.content[0].text).toContain("@m1@");
   });
 
   it("protects the newest raw user turn while pruning older duplicate output", async () => {

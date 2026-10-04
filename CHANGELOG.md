@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 2026-10-04 - [0.8.0]
+
+### Added
+
+- Compact model-facing message markers. Each injectable user/assistant message ends with a standalone `@mN@` line, or `@mN:P@` when a compression priority from 1 to 5 is assigned. Metadata overhead on a 2,000-message clean workload fell from roughly 20,000 estimated tokens to about 4,000.
+- `compress` accepts every supported reference form. `range` mode takes `m1`, `m0001`, `@m1@`, and `@m1:3@` alongside `b1`-style block refs; `message` mode takes the same message forms in `messageId`. A parsed index is normalized back to its canonical padded reference before it is compared with session state, so a copied `@m12:3@` resolves to the same stored message as `m0012` rather than merely parsing.
+- Deterministic benchmark token gates in `tests/benchmark.test.ts`: injected-marker overhead on the clean workload must stay at or below 6,000 tokens, and the repeated-tool and nested-block reduction ratios must stay within five percentage points of their retained baselines, expressed as exact fractions rather than rounded percentages.
+
+### Changed
+
+- Stored and persisted references remain canonical. `parseMessageRef` is still canonical-only, `messageIds` and version-1 snapshots keep the padded `m0001` form, and the snapshot version is unchanged. No stored map is migrated.
+- Snapshot `byRawId` pairs are validated with the strict canonical predicate instead of a permissive boundary parser, making the persistence boundary explicit. A compact persisted ref is discarded rather than normalized; the snapshot's declared `nextRefIndex` stays authoritative.
+- Compact marker sanitization is line-bounded. A marker is removed only when it occupies a whole line, in complete or truncated form, under LF or CRLF, with optional horizontal whitespace. Inline markers, `person@m1@example.com`, `@mention`, and marker text inside a sentence are preserved, and surrounding prose is not concatenated across a removed line. Compact cleanup runs before the legacy XML fallbacks, which remain active.
+- Model-facing copy describes the compact protocol. The system prompt teaches `@mN@`, `@mN:P@`, and `<dcp-system-reminder>` as injected metadata that must not be output; the message-mode tool description explains priority values; tool parameter descriptions and unavailable-ID errors use `m1` / `@m1@` examples while keeping `bN` block examples and the pruned/unavailable explanation.
+
+### Removed
+
+- The `<dcp-message-id>` XML formatter. Injection now emits compact markers, and the XML tag no longer appears in model-visible text. Legacy XML marker sanitization of stored assistant output is unchanged.
+
 ## 2026-10-03 - [0.7.0]
 
 ### Added

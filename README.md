@@ -42,6 +42,38 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
 - **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
+## What's new in 0.8.0
+
+- **Compact message markers replace verbose XML tags** — each injectable user/assistant message now ends with a standalone `@mN@` line, or `@mN:P@` when a compression priority is assigned. On a 2,000-message clean workload this cut metadata overhead from roughly 20,000 estimated tokens to about 4,000.
+- **Every accepted tool input still resolves to the same message** — `compress` accepts `m1`, `m0001`, `@m1@`, and `@m1:3@` in `range` mode, and `m2`, `m0002`, `@m2@`, `@m2:1@` in `message` mode, alongside `b1`-style block refs. Input is normalized to the stored canonical reference before lookup, so the accepted formats are interchangeable rather than merely parseable.
+- **Stored and persisted references stay canonical** — `messageIds` and version-1 snapshots continue to use the padded `m0001` form. Nothing is migrated: a snapshot pair is validated as canonical and discarded if it is not, and `nextRefIndex` remains authoritative.
+- **Safer marker sanitization** — a marker is removed only when it occupies a whole line (complete or truncated, LF or CRLF, with optional indentation). Inline markers, `person@m1@example.com`, `@mention`, and marker text inside a sentence are left alone. Legacy XML marker cleanup remains active.
+- **Benchmark token gates are release-blocking** — deterministic token budgets for all three workloads are asserted in `tests/benchmark.test.ts`. Elapsed-time reporting stays informational.
+
+## Message markers and IDs
+
+DCP shows the model a compact marker for each message it can compress:
+
+| Form           | Meaning                             |
+| -------------- | ----------------------------------- |
+| `@m12@`        | Message 12, no priority assigned    |
+| `@m12:3@`      | Message 12, compression priority 3  |
+| `b3`           | Compression block 3                 |
+
+The marker is injected on its own line at the end of the message. Copy it exactly as shown when calling `compress`.
+
+Accepted message references for `startId` / `endId` in range mode and `messageId` in message mode:
+
+- `m1` and `@m1@` — the bare or wrapped compact form
+- `@m1:3@` — a compact form carrying a priority
+- `m0001` — the canonical padded form
+
+Range boundaries also accept `b2`-style compression block anchors.
+
+Priorities run from 1 to 5: 1-2 for the highest compression value, 3 moderate, 4-5 low.
+
+Compact input is exact, case-sensitive, and whitespace-free. `m01`, `@m0001@`, `@m1@ `, and `m1:3` are rejected. What DCP stores and persists is always the padded canonical `m0001`; the compact form exists only so the model-facing text stays short.
+
 ## What's new in 0.7.0
 
 - **Pi-native file paths are protected** — `read`, `write`, and `edit` tool arguments now use Pi's `path` field (and legacy `filePath`), with Windows separators normalized before glob matching. Nested calls made by tools such as `codemode` are inspected too, so a parent tool result is protected when any direct or nested file path matches `protectedFilePatterns`.
@@ -229,21 +261,31 @@ pnpm release:check
 
 ### Benchmarks
 
-`pnpm benchmark` runs three deterministic workloads through the production DCP pipeline and writes one JSON report to stdout. The retained [`benchmarks/result.json`](benchmarks/result.json) was recorded on Node 24.15.0 with 30 timed iterations per workload, after one untimed warm-up.
+`pnpm benchmark` runs three deterministic workloads through the production DCP pipeline and writes one JSON report to stdout. The retained [`benchmarks/result.json`](benchmarks/result.json) was recorded on Node 24.21.0 with 30 timed iterations per workload, after one untimed warm-up.
 
 Each timed iteration includes cloning the fixture, creating fresh session state, cloning the default configuration, restoring persisted state when applicable, running the pipeline, projecting the transformed messages, and estimating input and output tokens.
 
 | Workload                     | What it exercises                                                     | Median   | p95      | Input tokens | Output tokens | Reduction |
 | ---------------------------- | --------------------------------------------------------------------- | -------- | -------- | ------------ | ------------- | --------- |
-| `clean-2000-messages`        | Baseline pipeline processing for alternating user/assistant messages  | 9.60 ms  | 13.41 ms | 9,000        | 29,000        | -20,000   |
-| `repeated-tool-pairs-2000`   | Deduplication, stale-error input purging, and protected write results | 36.32 ms | 47.83 ms | 1,017,575    | 54,702        | 962,873   |
-| `restored-nested-blocks-100` | Snapshot restoration and relationship rebuilding for nested blocks    | 2.96 ms  | 4.64 ms  | 1,291        | 120           | 1,171     |
+| `clean-2000-messages`        | Baseline pipeline processing for alternating user/assistant messages  | 11.29 ms | 14.18 ms | 9,000        | 12,992        | -3,992    |
+| `repeated-tool-pairs-2000`   | Deduplication, stale-error input purging, and protected write results | 41.40 ms | 54.02 ms | 1,017,575    | 53,977        | 963,598   |
+| `restored-nested-blocks-100` | Snapshot restoration and relationship rebuilding for nested blocks    | 3.03 ms  | 3.95 ms  | 1,291        | 120           | 1,171     |
 
-The clean workload intentionally reports a negative reduction: no content is pruned, while DCP adds stable message-ID metadata to all 2,000 messages. It is a baseline for pipeline and metadata overhead, not a token-savings case.
+The clean workload intentionally reports a negative reduction: no content is pruned, while DCP adds compact message markers to all 2,000 messages. It is a baseline for pipeline and metadata overhead, not a token-savings case. Compact markers reduced that overhead from -20,000 to -3,992 estimated tokens.
 
-The repeated-tool workload reduces the estimate by 94.6%. It models 2,000 assistant/tool-result pairs with repeated reads, stale failures, and unique writes. Production strategies replace superseded read output and stale failed-call arguments while preserving protected write output, error diagnostics, and complete tool-call ownership.
+The repeated-tool workload reduces the estimate by 94.7%. It models 2,000 assistant/tool-result pairs with repeated reads, stale failures, and unique writes. Production strategies replace superseded read output and stale failed-call arguments while preserving protected write output, error diagnostics, and complete tool-call ownership.
 
 The restored-nesting workload reduces the estimate by 90.7%. It restores 100 persisted compression blocks arranged as ten nested chains, rebuilds their runtime relationships from real `compress` call/result owners, and leaves the ten outer blocks active.
+
+**Enforced token gates.** `tests/benchmark.test.ts` asserts three deterministic budgets, so a token regression fails `pnpm check` rather than waiting for a human to read a report:
+
+- `clean-2000-messages` — marker overhead (`output - input`) must stay at or below 6,000 tokens.
+- `repeated-tool-pairs-2000` — the reduction ratio must stay within 5 percentage points of the retained `962873 / 1017575` baseline.
+- `restored-nested-blocks-100` — the reduction ratio must stay within 5 percentage points of the retained `1171 / 1291` baseline.
+
+The ratios are compared as exact fractions rather than rounded percentages, so the tolerance is precisely five percentage points.
+
+**Informational timing.** `medianMs` and `p95Ms` are reported for comparison only and are not gated. Elapsed times vary with hardware and system load; compare timing reports only from the same machine and Node version.
 
 Report fields:
 
@@ -252,9 +294,7 @@ Report fields:
 - `inputEstimatedTokens` and `outputEstimatedTokens` use DCP's lightweight character-based estimator, not provider billing tokens.
 - `reductionEstimatedTokens` is exactly input minus output, so it may be negative.
 
-Fixtures and token estimates are deterministic, but elapsed times vary with hardware and system load. Compare timing reports only from the same machine and Node version; the benchmark is informational and does not enforce a release threshold.
-
-To refresh the retained evidence:
+To refresh the retained evidence, capture the report and update [`benchmarks/result.json`](benchmarks/result.json) with it:
 
 ```bash
 pnpm benchmark > benchmarks/result.json
