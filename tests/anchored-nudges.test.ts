@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createSessionState } from "../src/state/state.ts";
 import { assignMessageRefs, injectCompressNudges } from "../src/messages/inject.ts";
 import { makeDefaultConfig, resetTestTimestamp } from "./helpers.ts";
+import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 function userMsg(text: string, ts: number): AgentMessage {
@@ -45,9 +46,10 @@ describe("anchored nudge system", () => {
       percent: 60,
     });
 
-    // Anchor should be stored using the key format "role:timestamp:counter"
-    expect(state.nudges.turnAnchors.size).toBe(1);
+    // Both halves of the eligible pair are stored.
+    expect(state.nudges.turnAnchors.size).toBe(2);
     expect(state.nudges.turnAnchors.has("user:3000:0")).toBe(true);
+    expect(state.nudges.turnAnchors.has("assistant:2000:0")).toBe(true);
   });
 
   it("does not add anchor within nudgeFrequency distance of existing anchor", () => {
@@ -102,14 +104,16 @@ describe("anchored nudge system", () => {
       percent: 60,
     });
 
-    expect(state.nudges.turnAnchors.size).toBe(2);
+    expect(state.nudges.turnAnchors.size).toBe(3);
     expect(state.nudges.turnAnchors.has("user:4000:0")).toBe(true);
+    expect(state.nudges.turnAnchors.has("assistant:3000:0")).toBe(true);
   });
 
   it("injects nudge text at all anchored positions", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({
       nudgeFrequency: 1,
+      nudgeForce: "strong",
     });
 
     const messages: AgentMessage[] = [
@@ -157,7 +161,7 @@ describe("anchored nudge system", () => {
 
   it("does not inject into messages that already have nudge text", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig({ nudgeFrequency: 1 });
+    const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "strong" });
 
     const messages: AgentMessage[] = [
       userMsg("already has <dcp-system-reminder>nudge</dcp-system-reminder>", 1000),
@@ -184,7 +188,7 @@ describe("anchored nudge system", () => {
     // Simulate an anchor from a previous (now-compacted) message
     state.nudges.turnAnchors.add("user:9999:0");
 
-    const messages: AgentMessage[] = [userMsg("msg1", 1000)];
+    const messages: AgentMessage[] = [assistantMsg("prior", 500), userMsg("msg1", 1000)];
     assignMessageRefs(state, messages);
 
     const result = injectCompressNudges(state, config, messages, {
@@ -193,9 +197,10 @@ describe("anchored nudge system", () => {
       percent: 60,
     });
 
-    // Stale anchor should not crash anything; new anchor should be added
+    // Stale anchor should not crash anything; new pair should be added
     expect(state.nudges.turnAnchors.has("user:1000:0")).toBe(true);
-    // The text should have nudge on message at index 0
+    expect(state.nudges.turnAnchors.has("assistant:500:0")).toBe(true);
+    // Soft mode injects into the assistant half of the pair
     const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).toContain("dcp-system-reminder");
   });
@@ -235,8 +240,8 @@ describe("anchored nudge system", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ nudgeFrequency: 1 });
 
-    // Pre-populate a turn anchor from a previous pass
-    state.nudges.turnAnchors.add("user:1000:0");
+    // Pre-populate a soft (assistant) turn anchor from a previous pass
+    state.nudges.turnAnchors.add("assistant:2000:0");
 
     // Last injectable message is assistant, not enough iterations → nudgeType is undefined
     const messages: AgentMessage[] = [
@@ -252,18 +257,19 @@ describe("anchored nudge system", () => {
     });
 
     // Pre-existing anchor should still be applied even though no new nudge fires
-    const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
+    const text = (result[1] as unknown as { content: Array<{ text: string }> }).content[0].text;
     expect(text).toContain("dcp-system-reminder");
   });
 
   it("anchor set in pass 1 injects at non-last position in pass 2", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig({ nudgeFrequency: 1 });
+    const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "strong" });
 
-    // Pass 1: two-message array, last is user → turn nudge anchors at "user:2000:0"
-    const msgA = userMsg("first user", 1000);
-    const msgB = userMsg("second user", 2000);
-    const passOneMessages = [msgA, msgB];
+    // Pass 1: user → assistant → user, last is user → pair anchored at assistant:1000 and user:2000
+    const msgA = userMsg("first user", 500);
+    const msgB = assistantMsg("first assistant", 1000);
+    const msgC = userMsg("second user", 2000);
+    const passOneMessages = [msgA, msgB, msgC];
     assignMessageRefs(state, passOneMessages);
     injectCompressNudges(state, config, passOneMessages, {
       tokens: 60000,
@@ -272,10 +278,10 @@ describe("anchored nudge system", () => {
     });
     expect(state.nudges.turnAnchors.has("user:2000:0")).toBe(true);
 
-    // Pass 2: extend array — msgB (index 1) is no longer the last message
-    const msgC = assistantMsg("assistant response", 3000);
-    const msgD = userMsg("third user", 4000);
-    const passTwoMessages = [msgA, msgB, msgC, msgD];
+    // Pass 2: extend array — msgC (index 2) is no longer the last message
+    const msgD = assistantMsg("later assistant", 3000);
+    const msgE = userMsg("third user", 4000);
+    const passTwoMessages = [msgA, msgB, msgC, msgD, msgE];
     assignMessageRefs(state, passTwoMessages);
     const result = injectCompressNudges(state, config, passTwoMessages, {
       tokens: 60000,
@@ -283,8 +289,172 @@ describe("anchored nudge system", () => {
       percent: 60,
     });
 
-    // msgB (index 1) should still have nudge text from the persisted anchor
-    const textB = (result[1] as unknown as { content: Array<{ text: string }> }).content[0].text;
-    expect(textB).toContain("dcp-system-reminder");
+    // msgC (index 2) should still have nudge text from the persisted anchor
+    const textC = (result[2] as unknown as { content: Array<{ text: string }> }).content[0].text;
+    expect(textC).toContain("dcp-system-reminder");
+  });
+
+  it.each(["strong", "soft"] as const)(
+    "stores both pair keys and injects into the %s role only",
+    (nudgeForce) => {
+      const state = createSessionState();
+      const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce });
+      const messages: AgentMessage[] = [assistantMsg("prior", 1000), userMsg("latest", 2000)];
+      assignMessageRefs(state, messages);
+
+      const result = injectCompressNudges(state, config, messages, {
+        tokens: 60000,
+        contextWindow: 100000,
+        percent: 60,
+      });
+
+      expect(state.nudges.turnAnchors.has("assistant:1000:0")).toBe(true);
+      expect(state.nudges.turnAnchors.has("user:2000:0")).toBe(true);
+
+      const assistantText = (result[0] as unknown as { content: Array<{ text: string }> })
+        .content[0].text;
+      const userText = (result[1] as unknown as { content: Array<{ text: string }> }).content[0]
+        .text;
+      if (nudgeForce === "strong") {
+        expect(userText).toContain("Evaluate the conversation");
+        expect(assistantText).not.toContain("dcp-system-reminder");
+      } else {
+        expect(assistantText).toContain("Evaluate the conversation");
+        expect(userText).not.toContain("dcp-system-reminder");
+      }
+    },
+  );
+
+  it("creates no turn anchor and injects nothing for a user-only conversation", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "soft" });
+    const messages: AgentMessage[] = [userMsg("only user", 1000)];
+    assignMessageRefs(state, messages);
+
+    const result = injectCompressNudges(state, config, messages, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+
+    expect(state.nudges.turnAnchors.size).toBe(0);
+    const text = (result[0] as unknown as { content: Array<{ text: string }> }).content[0].text;
+    expect(text).not.toContain("dcp-system-reminder");
+  });
+
+  it("prepends a synthetic text part before a tool-only assistant call", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "soft" });
+    const toolCall = { type: "toolCall", id: "call-1", name: "read", arguments: { path: "a" } };
+    const messages: AgentMessage[] = [
+      {
+        role: "assistant",
+        content: [toolCall],
+        stopReason: "toolUse",
+        usage: { inputTokens: 0, outputTokens: 0 },
+        timestamp: 1000,
+      } as unknown as AgentMessage,
+      userMsg("latest", 2000),
+    ];
+    assignMessageRefs(state, messages);
+
+    const result = injectCompressNudges(state, config, messages, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+
+    const content = (result[0] as unknown as { content: Array<Record<string, unknown>> }).content;
+    expect(content[0]).toMatchObject({ type: "text" });
+    expect(String(content[0].text)).toContain("Evaluate the conversation");
+    expect(content[1]).toBe(toolCall);
+  });
+
+  it("measures frequency against user-role turn anchors only", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ nudgeFrequency: 3 });
+    const messages: AgentMessage[] = [
+      userMsg("u1", 1000),
+      assistantMsg("a1", 2000),
+      userMsg("u2", 3000),
+      assistantMsg("a2", 4000),
+      userMsg("u3", 5000),
+    ];
+    assignMessageRefs(state, messages);
+    state.nudges.turnAnchors.add("user:1000:0");
+    state.nudges.turnAnchors.add("assistant:4000:0");
+
+    injectCompressNudges(state, config, messages, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+
+    // The assistant half at index 3 must not suppress the new pair; the user
+    // anchor at index 0 is 4 messages away (>= 3).
+    expect(state.nudges.turnAnchors.has("user:5000:0")).toBe(true);
+  });
+
+  it("keeps soft role filtering stable across a version-1 snapshot restore", () => {
+    const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "soft" });
+    const first = createSessionState();
+    first.sessionId = "session";
+    const initial = [assistantMsg("prior", 1000), userMsg("latest", 2000)];
+    assignMessageRefs(first, initial);
+    injectCompressNudges(first, config, initial, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+    const snapshot = serializeDcpSnapshot(first);
+    if (!snapshot) throw new Error("expected snapshot");
+
+    const restored = createSessionState();
+    expect(restoreDcpSnapshot(snapshot, restored, "session")).toBe(true);
+    expect(restored.nudges.turnAnchors.has("assistant:1000:0")).toBe(true);
+    expect(restored.nudges.turnAnchors.has("user:2000:0")).toBe(true);
+
+    const fresh = [assistantMsg("prior", 1000), userMsg("latest", 2000)];
+    assignMessageRefs(restored, fresh);
+    const result = injectCompressNudges(restored, config, fresh, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+
+    const assistantText = (result[0] as unknown as { content: Array<{ text: string }> }).content[0]
+      .text;
+    const userText = (result[1] as unknown as { content: Array<{ text: string }> }).content[0].text;
+    expect(assistantText).toContain("Evaluate the conversation");
+    expect(userText).not.toContain("dcp-system-reminder");
+  });
+
+  it("moves injection to the user without adding keys when force switches to strong", () => {
+    const state = createSessionState();
+    const softConfig = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "soft" });
+    const softMessages = [assistantMsg("prior", 1000), userMsg("latest", 2000)];
+    assignMessageRefs(state, softMessages);
+    injectCompressNudges(state, softConfig, softMessages, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+    const keys = [...state.nudges.turnAnchors].sort();
+
+    const strongConfig = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "strong" });
+    const strongMessages = [assistantMsg("prior", 1000), userMsg("latest", 2000)];
+    assignMessageRefs(state, strongMessages);
+    const result = injectCompressNudges(state, strongConfig, strongMessages, {
+      tokens: 60000,
+      contextWindow: 100000,
+      percent: 60,
+    });
+
+    expect([...state.nudges.turnAnchors].sort()).toEqual(keys);
+    const assistantText = (result[0] as unknown as { content: Array<{ text: string }> }).content[0]
+      .text;
+    const userText = (result[1] as unknown as { content: Array<{ text: string }> }).content[0].text;
+    expect(userText).toContain("Evaluate the conversation");
+    expect(assistantText).not.toContain("dcp-system-reminder");
   });
 });

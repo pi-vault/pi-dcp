@@ -168,19 +168,14 @@ export function injectCompressNudges(
     const targetKey = getKeyForIndex(state, targetIndex);
 
     if (targetKey) {
-      const anchorSet =
-        nudgeType === "contextLimit"
-          ? state.nudges.contextLimitAnchors
-          : nudgeType === "turn"
-            ? state.nudges.turnAnchors
-            : state.nudges.iterationAnchors;
-
       // Context limit nudges always anchor (ignore frequency)
       if (nudgeType === "contextLimit") {
-        anchorSet.add(targetKey);
+        state.nudges.contextLimitAnchors.add(targetKey);
+      } else if (nudgeType === "turn") {
+        addTurnPairIfAllowed(state, config, messages, targetIndex);
       } else {
         addAnchorIfAllowed(
-          anchorSet,
+          state.nudges.iterationAnchors,
           targetKey,
           targetIndex,
           state,
@@ -192,7 +187,7 @@ export function injectCompressNudges(
   }
 
   // --- Application Stage ---
-  return applyAnchoredNudges(state, messages, runtimePrompts);
+  return applyAnchoredNudges(state, config, messages, runtimePrompts);
 }
 
 /**
@@ -252,10 +247,52 @@ function addAnchorIfAllowed(
 }
 
 /**
+ * Store an eligible user turn together with the nearest earlier assistant.
+ * Frequency is measured only against existing user-role turn anchors so the
+ * assistant half of a pair never suppresses a later pair.
+ */
+function addTurnPairIfAllowed(
+  state: SessionState,
+  config: DcpConfig,
+  messages: AgentMessage[],
+  targetIndex: number,
+): void {
+  const userKey = getKeyForIndex(state, targetIndex);
+  if (!userKey || state.nudges.turnAnchors.has(userKey)) return;
+
+  let assistantIndex = -1;
+  for (let i = targetIndex - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      assistantIndex = i;
+      break;
+    }
+  }
+  if (assistantIndex === -1) return;
+
+  const assistantKey = getKeyForIndex(state, assistantIndex);
+  if (!assistantKey) return;
+
+  const keyToIndex = buildKeyToIndexMap(state, messages.length);
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (const existingKey of state.nudges.turnAnchors) {
+    const existingIndex = keyToIndex.get(existingKey);
+    if (existingIndex === undefined) continue;
+    if (messages[existingIndex]?.role !== "user") continue;
+    closestDistance = Math.min(closestDistance, Math.abs(targetIndex - existingIndex));
+  }
+
+  if (closestDistance < config.compress.nudgeFrequency) return;
+
+  state.nudges.turnAnchors.add(assistantKey);
+  state.nudges.turnAnchors.add(userKey);
+}
+
+/**
  * Inject nudge text at all anchored message positions.
  */
 function applyAnchoredNudges(
   state: SessionState,
+  config: DcpConfig,
   messages: AgentMessage[],
   runtimePrompts?: RuntimePrompts,
 ): AgentMessage[] {
@@ -266,11 +303,17 @@ function applyAnchoredNudges(
     const key = getKeyForIndex(state, i);
     if (!key) continue;
 
+    const msg = result[i];
+    if (msg.role !== "user" && msg.role !== "assistant") continue;
+
     let nudgeText: string | undefined;
 
     if (state.nudges.contextLimitAnchors.has(key)) {
       nudgeText = runtimePrompts?.contextLimitNudge ?? CONTEXT_LIMIT_NUDGE;
     } else if (state.nudges.turnAnchors.has(key)) {
+      const force = config.compress.nudgeForce;
+      if (force === "strong" && msg.role !== "user") continue;
+      if (force === "soft" && msg.role !== "assistant") continue;
       nudgeText = runtimePrompts?.turnNudge ?? TURN_NUDGE;
     } else if (state.nudges.iterationAnchors.has(key)) {
       nudgeText = runtimePrompts?.iterationNudge ?? ITERATION_NUDGE;
@@ -278,17 +321,50 @@ function applyAnchoredNudges(
 
     if (!nudgeText) continue;
 
-    const msg = result[i];
-    if (msg.role !== "user" && msg.role !== "assistant") continue;
-
     // Skip if already has nudge text
     if (hasExistingNudge(msg)) continue;
 
-    result[i] = appendText(msg, `\n\n${nudgeText}`);
+    result[i] = appendNudgeText(msg, nudgeText);
     changed = true;
   }
 
   return changed ? result : messages;
+}
+
+/**
+ * Append nudge text to a message. Messages with a text part reuse appendText;
+ * assistant messages containing only tool calls receive a synthetic text part
+ * inserted before the first tool call.
+ */
+function appendNudgeText(msg: AgentMessage, text: string): AgentMessage {
+  if (!("content" in msg)) return msg;
+  if (hasTextPart(msg)) return appendText(msg, `\n\n${text}`);
+  if (!Array.isArray(msg.content)) return msg;
+
+  const content = msg.content as unknown[];
+  const toolCallIndex = content.findIndex(
+    (part) =>
+      typeof part === "object" &&
+      part !== null &&
+      (part as unknown as Record<string, unknown>).type === "toolCall",
+  );
+  if (toolCallIndex === -1) return msg;
+
+  const newContent = [...content];
+  newContent.splice(toolCallIndex, 0, { type: "text", text });
+  return { ...msg, content: newContent } as AgentMessage;
+}
+
+function hasTextPart(msg: AgentMessage): boolean {
+  if (!("content" in msg)) return false;
+  if (typeof msg.content === "string") return true;
+  if (!Array.isArray(msg.content)) return false;
+  return (msg.content as unknown[]).some(
+    (part) =>
+      typeof part === "object" &&
+      part !== null &&
+      (part as unknown as Record<string, unknown>).type === "text",
+  );
 }
 
 function hasExistingNudge(msg: AgentMessage): boolean {
