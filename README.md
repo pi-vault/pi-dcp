@@ -42,14 +42,13 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
 - **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
-## What's new in 0.6.1
+## What's new in 0.7.0
 
-- Repository checks are warning-free and enforced as such: `pnpm lint` now runs `biome lint --error-on-warnings`, so a lint warning fails the build instead of scrolling past. Non-null assertions, explicit `any`, and unused imports in production and test code were removed using typed test helpers.
-- Removed dead manual-trigger state: the unused `pendingManualTrigger` field and the unreachable `compress-pending` manual mode are gone. `manualMode` is now exactly `false | "active"`. Version-1 snapshot compatibility is unchanged — snapshots serialize and restore both values exactly as before.
-- `pnpm analyze:sessions` now reports prompt-cache evidence: per-corpus and per-file token and cost totals (`input`, `output`, `cacheRead`, `cacheWrite`, optional `cacheWrite1h` and `reasoning`, provider-reported `totalTokens`, and each cost component), a response-latency summary, and separate `malformedUsage` / `malformedLatency` diagnostics. Usage is collected from every Pi carrier: assistant messages, standalone usage entries, tool results, compactions, and branch summaries.
-- Session reports are now identifier-free. Files are identified only by a one-based `fileIndex`; input paths, basenames, provider/model names, usage kinds, and notes are never retained.
-
-No pruning policy changed in this release. Incremental pruning timing and strategy eligibility are unchanged.
+- **Pi-native file paths are protected** — `read`, `write`, and `edit` tool arguments now use Pi's `path` field (and legacy `filePath`), with Windows separators normalized before glob matching. Nested calls made by tools such as `codemode` are inspected too, so a parent tool result is protected when any direct or nested file path matches `protectedFilePatterns`.
+- **Unsafe context limits are rejected** — `maxContextLimit` / `minContextLimit` and their per-model entries accept only positive integers or percentages greater than 0 and at most 100. Invalid fields are dropped with a warning instead of aborting startup.
+- **Configuration layers fall back independently** — an invalid global field keeps the built-in default, and an invalid project field inherits the valid global value rather than resetting it. Unknown keys and invalid values are reported with a source-qualified JSON pointer.
+- **Configuration problems are visible once per reload** — each problem is written to the DCP log even when debug logging is off, and an interactive session shows exactly one warning notification with the problem count and the participating config paths.
+- **`nudgeForce` selects the role** — `strong` injects the turn nudge into the user message; `soft` injects it into the assistant message, including a synthetic text part prepended before a tool-only assistant call. Both halves of an eligible user/assistant pair are anchored without changing the version-1 snapshot shape, and older user-only version-1 anchors are upgraded when their messages reappear.
 
 ## Commands
 
@@ -95,6 +94,8 @@ Files: `system.md`, `context-limit-nudge.md`, `turn-nudge.md`, `iteration-nudge.
 ## Configuration
 
 Create `<agentDir>/extensions/dcp.json` (normally `~/.pi/agent/extensions/dcp.json`) to override defaults. On each session start, DCP merges built-in defaults, this global file, and `<ctx.cwd>/.pi/dcp.json` when Pi marks the project trusted. Nested objects merge recursively; arrays replace earlier arrays. Untrusted project configuration is ignored, and a previously registered compression tool safely reports that DCP is disabled after a later disable.
+
+Configuration is sanitized field-by-field. Invalid, unsafe, or unknown fields are dropped with a warning that names the source file and JSON pointer; valid siblings are retained, and an invalid project value inherits the valid global value instead of resetting it. The shipped schema rejects unknown properties in declared configuration objects while keeping per-model maps open. Startup never aborts because of configuration. Each reload writes every problem to the DCP log even when `debug` is `false` and, in an interactive session, shows a single warning notification containing the problem count and the participating config paths.
 
 You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor tooling or config validation workflows.
 
@@ -152,10 +153,10 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 
 - `enabled` — set to `false` to disable the extension entirely without uninstalling.
 - `disabledModels` — exact, case-sensitive `provider/modelId` keys for which DCP processing, mutating commands, and the active `compress` tool are disabled.
-- `debug` — when `true`, writes per-session logs to `{sessionDir}/dcp/logs/YYYY-MM-DD.log`.
+- `debug` — when `true`, writes operational per-session logs to `{sessionDir}/dcp/logs/YYYY-MM-DD.log`. Configuration warnings are always written there so headless sessions retain diagnostics.
 - `nudgeNotification` — notification verbosity: `"off"`, `"minimal"`, or `"detailed"`.
 - `nudgeNotificationType` — notification delivery: `"toast"` or `"status"`.
-- `protectedFilePatterns` — file-path globs whose related tool outputs should never be pruned.
+- `protectedFilePatterns` — file-path globs whose related tool outputs should never be pruned. Direct arguments from Pi's `read`, `write`, and `edit` tools (`path`, plus legacy `filePath` on any tool) and nested calls recorded on a tool result are both checked; candidate paths are normalized to `/` separators before matching.
 
 Protected tool and file patterns use Node's `path.posix.matchesGlob` semantics: `/` is the path separator, and supported patterns include `*`, `**`, `?`, and character classes such as `[abc]` and `[0-9]`. Wildcards continue to match leading-dot path segments for compatibility with earlier pi-dcp releases.
 
@@ -185,11 +186,11 @@ For a session using `openai-codex/gpt-5.6-sol`, DCP leaves messages unchanged, r
 - `permission` — runtime allow/deny gate for the `compress` tool; `dcp:permission` toggles it in-session.
 - `showCompression` — when `true`, detailed notifications include the compression summary text.
 - `maxContextPercent` / `minContextPercent` — legacy percentage thresholds.
-- `maxContextLimit` / `minContextLimit` — accept either absolute token counts or percentage strings such as `"80%"`.
-- `modelMaxLimits` / `modelMinLimits` — per-model overrides keyed by `provider/modelId`.
+- `maxContextLimit` / `minContextLimit` — accept a positive integer token count or a percentage string greater than 0 and at most 100 (for example `"80%"`). Anything else is dropped with a warning.
+- `modelMaxLimits` / `modelMinLimits` — per-model overrides keyed by `provider/modelId`; each value follows the same context-limit rules as the global limits.
 - `nudgeFrequency` — minimum messages between non-urgent nudges.
 - `iterationNudgeThreshold` — assistant iterations without user input before an iteration nudge fires.
-- `nudgeForce` — nudge strength: `"soft"` or `"strong"`.
+- `nudgeForce` — nudge strength. `"strong"` injects the turn nudge into the user message; `"soft"` injects it into the assistant message.
 - `protectedTools` — Node glob patterns for tool outputs preserved during compression.
 - `protectUserMessages` — append user message text to compression summaries.
 - `protectTags` — preserve `<protect>...</protect>` tag content in summaries.

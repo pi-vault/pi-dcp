@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { syncToolCache, buildToolIdList } from "../src/state/tool-cache.ts";
+import { getFilePathsFromNestedCalls } from "../src/strategies/protected-patterns.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { requireDefined } from "./helpers.ts";
@@ -153,6 +154,7 @@ describe("tool-cache", () => {
         error: undefined,
         userTurn: 1,
         tokenCount: 50,
+        filePaths: [],
         assistantIndex: undefined,
         resultIndex: undefined,
       });
@@ -213,6 +215,88 @@ describe("tool-cache", () => {
       const entry = requireDefined(state.toolParameters.get("call1"), "call1 entry");
       expect(entry.assistantIndex).toBe(0);
       expect(entry.resultIndex).toBeUndefined();
+    });
+
+    it("aggregates normalized direct and nested file paths", () => {
+      const state = createSessionState();
+      const nestedResult = {
+        role: "toolResult",
+        toolCallId: "parent",
+        toolName: "codemode",
+        content: [{ type: "text" as const, text: "done" }],
+        isError: false,
+        nestedCalls: {
+          complete: false,
+          calls: [
+            { id: "n1", name: "read", arguments: { path: "secrets/token.txt" }, status: "ok" },
+            { id: "n2", name: "edit", arguments: { path: "src\\config.ts" }, status: "ok" },
+            { id: "n3", name: "read", arguments: { path: "secrets/token.txt" }, status: "ok" },
+            { id: "n4", name: "write", argumentsBytes: 42, status: "unfinished" },
+          ],
+        },
+        timestamp: Date.now(),
+      } satisfies AgentMessage;
+
+      const messages: AgentMessage[] = [
+        makeAssistantWithToolCall("parent", "codemode", { script: "..." }),
+        nestedResult,
+      ];
+
+      syncToolCache(state, messages);
+
+      const entry = requireDefined(state.toolParameters.get("parent"), "parent entry");
+      expect(entry.filePaths).toEqual(["secrets/token.txt", "src/config.ts"]);
+    });
+
+    it("orders direct parent paths before nested result paths", () => {
+      const state = createSessionState();
+      const messages: AgentMessage[] = [
+        makeAssistantWithToolCall("parent", "read", { path: "src/parent.ts" }),
+        {
+          role: "toolResult",
+          toolCallId: "parent",
+          toolName: "read",
+          content: [{ type: "text", text: "done" }],
+          isError: false,
+          nestedCalls: {
+            complete: true,
+            calls: [{ id: "n1", name: "read", arguments: { path: "src/child.ts" }, status: "ok" }],
+          },
+          timestamp: Date.now(),
+        } satisfies AgentMessage,
+      ];
+
+      syncToolCache(state, messages);
+
+      const entry = requireDefined(state.toolParameters.get("parent"), "parent entry");
+      expect(entry.filePaths).toEqual(["src/parent.ts", "src/child.ts"]);
+    });
+  });
+
+  describe("getFilePathsFromNestedCalls", () => {
+    it("returns [] for undefined, arrays, non-objects, and records without calls", () => {
+      expect(getFilePathsFromNestedCalls(undefined)).toEqual([]);
+      expect(getFilePathsFromNestedCalls(null)).toEqual([]);
+      expect(getFilePathsFromNestedCalls([])).toEqual([]);
+      expect(getFilePathsFromNestedCalls("nope")).toEqual([]);
+      expect(getFilePathsFromNestedCalls({})).toEqual([]);
+      expect(getFilePathsFromNestedCalls({ calls: "nope" })).toEqual([]);
+    });
+
+    it("keeps well-formed siblings and ignores malformed call elements", () => {
+      expect(
+        getFilePathsFromNestedCalls({
+          complete: false,
+          calls: [
+            null,
+            [],
+            { name: "read" },
+            { name: "read", arguments: null },
+            { name: "read", arguments: [] },
+            { name: "write", arguments: { path: "a.ts" } },
+          ],
+        }),
+      ).toEqual(["a.ts"]);
     });
   });
 

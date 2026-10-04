@@ -432,6 +432,114 @@ describe("runStrategies", () => {
     const result = runStrategies(state, config);
     expect(result.pruned).toBe(0);
   });
+
+  it("protects repeated parent calls whose nested results touch protected paths", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.protectedFilePatterns = ["secrets/**"];
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "parent-1",
+        tool: "codemode",
+        parameters: { script: "same" },
+        filePaths: ["secrets/token.txt"],
+        status: "completed",
+        userTurn: 1,
+        tokenCount: 100,
+      },
+      {
+        id: "parent-2",
+        tool: "codemode",
+        parameters: { script: "same" },
+        filePaths: ["secrets/token.txt"],
+        status: "completed",
+        userTurn: 2,
+        tokenCount: 100,
+      },
+    ]);
+
+    runStrategies(state, config);
+    expect(state.prune.tools.has("parent-1")).toBe(false);
+    expect(state.prune.tools.has("parent-2")).toBe(false);
+  });
+
+  it("deduplicates parent calls whose nested results miss protected paths", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.protectedFilePatterns = ["secrets/**"];
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "parent-1",
+        tool: "codemode",
+        parameters: { script: "same" },
+        filePaths: ["src/config.ts"],
+        status: "completed",
+        userTurn: 1,
+        tokenCount: 100,
+      },
+      {
+        id: "parent-2",
+        tool: "codemode",
+        parameters: { script: "same" },
+        filePaths: ["src/config.ts"],
+        status: "completed",
+        userTurn: 2,
+        tokenCount: 100,
+      },
+    ]);
+
+    runStrategies(state, config);
+    expect(state.prune.tools.has("parent-1")).toBe(true);
+    expect(state.prune.tools.has("parent-2")).toBe(false);
+  });
+
+  it("protects stale failed inputs whose nested results touch protected paths", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.protectedFilePatterns = ["secrets/**"];
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "err-1",
+        tool: "codemode",
+        parameters: { script: "boom" },
+        filePaths: ["secrets/token.txt"],
+        status: "error",
+        userTurn: 1,
+        tokenCount: 200,
+      },
+    ]);
+
+    runStrategies(state, config);
+    expect(state.prune.tools.has("err-1")).toBe(false);
+  });
+
+  it("purges stale failed inputs whose nested results miss protected paths", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.protectedFilePatterns = ["secrets/**"];
+    state.currentUserTurn = 10;
+
+    seedToolCache(state, [
+      {
+        id: "err-1",
+        tool: "codemode",
+        parameters: { script: "boom" },
+        filePaths: ["src/config.ts"],
+        status: "error",
+        userTurn: 1,
+        tokenCount: 200,
+      },
+    ]);
+
+    runStrategies(state, config);
+    expect(state.prune.tools.has("err-1")).toBe(true);
+  });
 });
 
 describe("sweepAll", () => {
@@ -601,5 +709,49 @@ describe("sweepAll", () => {
     expect(state.stats.pruneTokenCounter).toBe(100);
     expect(state.stats.totalPruneTokens).toBe(100);
     expect(state.stats.toolsPruned).toBe(1);
+  });
+
+  it("preserves completed parent calls whose nested results touch protected paths", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.protectedFilePatterns = ["secrets/**"];
+
+    seedToolCache(state, [
+      {
+        id: "parent-1",
+        tool: "codemode",
+        parameters: { script: "same" },
+        filePaths: ["secrets/token.txt"],
+        status: "completed",
+        userTurn: 1,
+        tokenCount: 100,
+      },
+    ]);
+
+    const result = sweepAll(state, config);
+    expect(result.pruned).toBe(0);
+    expect(state.prune.tools.has("parent-1")).toBe(false);
+  });
+
+  it("sweeps completed parent calls whose nested results miss protected paths", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    config.protectedFilePatterns = ["secrets/**"];
+
+    seedToolCache(state, [
+      {
+        id: "parent-1",
+        tool: "codemode",
+        parameters: { script: "same" },
+        filePaths: ["src/config.ts"],
+        status: "completed",
+        userTurn: 1,
+        tokenCount: 100,
+      },
+    ]);
+
+    const result = sweepAll(state, config);
+    expect(result.pruned).toBe(1);
+    expect(state.prune.tools.has("parent-1")).toBe(true);
   });
 });

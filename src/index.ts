@@ -184,8 +184,18 @@ export default function createExtension(pi: ExtensionAPI): void {
     const result = loadConfig(configFilePath, projectConfigPath);
     Object.assign(config, result.config);
     logger = new Logger(config.debug, logDir);
-    for (const w of result.warnings) {
-      logger.info("config", w);
+    for (const warning of result.warnings) {
+      logger.warnAlways("config", warning);
+    }
+    if (ctx.hasUI && result.warnings.length > 0) {
+      const count = result.warnings.length;
+      const paths = [configFilePath, projectConfigPath].filter(
+        (value): value is string => typeof value === "string",
+      );
+      ctx.ui.notify(
+        `DCP: ${count} configuration problem${count === 1 ? "" : "s"} in ${paths.join(" and ")}. Check the DCP log for details.`,
+        "warning",
+      );
     }
   }
 

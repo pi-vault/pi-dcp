@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { DcpConfig } from "../src/config.ts";
 import type { SessionState } from "../src/state/types.ts";
+import { getFilePathsFromParameters } from "../src/strategies/protected-patterns.ts";
 
 /**
  * Assert a required value is present. Replaces non-null assertions in tests with
@@ -128,12 +129,14 @@ export function seedToolCache(
     status: "completed" | "error";
     userTurn: number;
     tokenCount: number;
+    filePaths?: string[];
   }>,
 ): void {
   for (const e of entries) {
     state.toolParameters.set(e.id, {
       tool: e.tool,
       parameters: e.parameters,
+      filePaths: e.filePaths ?? getFilePathsFromParameters(e.tool, e.parameters),
       status: e.status,
       error: undefined,
       userTurn: e.userTurn,

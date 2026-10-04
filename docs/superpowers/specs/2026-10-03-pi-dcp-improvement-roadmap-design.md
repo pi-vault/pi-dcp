@@ -2,7 +2,10 @@
 
 **Date:** 2026-10-03
 
-**Status:** Approved in chat; reordered from simplest to most complex
+**Revised:** 2026-10-04
+
+**Status:** Approved in chat; reordered from simplest to most complex; Phase 2 clarified after
+implementation-readiness review
 
 ## Purpose
 
@@ -25,8 +28,10 @@ complexity:
 - Preserve support for existing JSON configuration; JSONC is explicitly out of scope.
 - New releases must read existing version-1 snapshots, padded message IDs, and legacy XML markers.
 - Keep canonical persisted message references as `m0001`, `m0002`, and so on.
-- Use the current Pi checkout as the API authority. OpenCode DCP is behavioral inspiration only;
-  do not copy its AGPL source.
+- Use the current Pi checkout as the API authority. Phase 2 targets the Pi 1.0.1 message types at
+  revision `83692682f`; host-provided packages remain `"*"` peers while development dependencies
+  and the lockfile track that API. OpenCode DCP is behavioral inspiration only; do not copy its
+  AGPL source.
 - Do not add OpenCode-specific adapters, authentication, auto-update, or sandbox infrastructure.
 - Keep incremental deduplication and stale-error pruning behavior unchanged until cache evidence
   demonstrates a better policy.
@@ -65,16 +70,19 @@ documented instead of patched speculatively.
 
 ### Protected paths
 
-Pi's built-in file tools use `path`, while pi-dcp currently recognizes only `filePath`. Direct tool
-calls must recognize both keys and normalize backslashes to forward slashes before glob matching.
-The legacy key remains supported for compatibility.
+Pi's built-in `read`, `write`, and `edit` tools use `path`, while pi-dcp currently recognizes only
+`filePath`. Direct calls to those three tools must recognize `path`; the legacy `filePath` key
+remains supported for all tools. Candidate paths are normalized from backslashes to forward slashes
+before glob matching, but `matchesGlob` itself retains its POSIX-oriented contract. A generic
+`path` argument on an unrelated tool is not assumed to identify a file.
 
 Pi records calls made by orchestration tools under
 `toolResult.nestedCalls.calls[].{name,arguments}`. The tool cache must aggregate paths from the
 parent call and every well-formed nested call. If any aggregated path matches
 `protectedFilePatterns`, deduplication, stale-error purging, and manual sweep must preserve the
 parent tool result. Missing, truncated, or malformed nested arguments are ignored without losing
-valid paths from other calls.
+valid paths from other calls. Pi may omit `arguments` when its bounded nested-call record exceeds a
+size limit and marks such records with `complete: false`; this is expected input, not a fatal error.
 
 ### Configuration
 
@@ -82,18 +90,22 @@ An absolute context limit is a positive finite integer. A percentage is a decima
 `%` whose numeric value is greater than zero and no greater than 100. The same rule applies to
 global and per-model min/max limits.
 
-Unknown top-level and nested keys are detected before TypeBox cleaning. Invalid optional map
-entries are removed so resolution falls back to the global limit; invalid required fields revert
-to their field defaults. Each configuration reload shows at most one summarized UI warning, while
-the logger retains individual file paths and validation messages. A bad configuration must never
-abort session startup.
+Unknown top-level and nested keys are detected before TypeBox cleaning. Global and trusted-project
+layers are sanitized independently before merging: an invalid global field inherits the built-in
+default, while an invalid project field inherits the valid global value. Invalid optional map
+entries are removed individually so valid siblings remain and resolution falls back through the
+same layer order. Every diagnostic identifies the source file and JSON-pointer path. Each
+configuration reload shows at most one summarized UI warning, while the logger retains individual
+warnings. A bad configuration must never abort session startup.
 
 ### Nudge force
 
 When a user turn crosses the minimum threshold, pi-dcp records both that user message and the
 preceding assistant message as a pair. `nudgeForce: "strong"` injects the turn nudge on the user
 message; `"soft"` injects it on the preceding assistant message. If no preceding assistant exists,
-soft mode skips that turn nudge. Context-limit and iteration nudges retain their existing behavior.
+the turn nudge is skipped. A preceding assistant message containing only tool calls receives a
+synthetic text part before its first tool call so soft mode still injects visibly. Context-limit and
+iteration nudges retain their existing behavior, and the version-1 snapshot shape is unchanged.
 
 ## Phase 3: Compact Markers
 

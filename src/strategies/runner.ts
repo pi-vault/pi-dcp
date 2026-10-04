@@ -1,10 +1,6 @@
 import { BASE_PROTECTED_TOOLS, type DcpConfig } from "../config.ts";
 import type { SessionState } from "../state/types.ts";
-import {
-  isToolNameProtected,
-  getFilePathsFromParameters,
-  isFilePathProtected,
-} from "./protected-patterns.ts";
+import { isToolNameProtected, isFilePathProtected } from "./protected-patterns.ts";
 import { createToolSignature } from "./deduplication.ts";
 import { estimatePurgedInputSavings, isStaleError } from "./purge-errors.ts";
 
@@ -50,11 +46,7 @@ export function runStrategies(state: SessionState, config: DcpConfig): StrategyR
       if (!entry) continue;
       if (isToolNameProtected(entry.tool, protectedTools)) continue;
 
-      const filePaths = getFilePathsFromParameters(
-        entry.tool,
-        entry.parameters as Record<string, unknown>,
-      );
-      if (isFilePathProtected(filePaths, config.protectedFilePatterns)) continue;
+      if (isFilePathProtected(entry.filePaths, config.protectedFilePatterns)) continue;
 
       const sig = createToolSignature(entry.tool, entry.parameters);
       const group = groups.get(sig) ?? [];
@@ -102,11 +94,7 @@ export function runStrategies(state: SessionState, config: DcpConfig): StrategyR
       if (isToolNameProtected(entry.tool, protectedTools)) continue;
       if (!isStaleError(entry, state.currentUserTurn, turnThreshold)) continue;
 
-      const filePaths = getFilePathsFromParameters(
-        entry.tool,
-        entry.parameters as Record<string, unknown>,
-      );
-      if (isFilePathProtected(filePaths, config.protectedFilePatterns)) continue;
+      if (isFilePathProtected(entry.filePaths, config.protectedFilePatterns)) continue;
 
       const tokens = estimatePurgedInputSavings(entry.parameters);
       state.prune.tools.set(callId, tokens);
@@ -139,11 +127,7 @@ export function sweepAll(state: SessionState, config: DcpConfig): StrategyResult
     if (isToolNameProtected(entry.tool, protectedTools)) continue;
     if (entry.status !== "completed") continue;
 
-    const filePaths = getFilePathsFromParameters(
-      entry.tool,
-      entry.parameters as Record<string, unknown>,
-    );
-    if (isFilePathProtected(filePaths, config.protectedFilePatterns)) continue;
+    if (isFilePathProtected(entry.filePaths, config.protectedFilePatterns)) continue;
     if (
       config.turnProtection > 0 &&
       state.currentUserTurn - entry.userTurn < config.turnProtection

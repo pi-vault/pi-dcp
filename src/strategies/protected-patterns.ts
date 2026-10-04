@@ -69,18 +69,69 @@ export function isToolNameProtected(toolName: string, protectedPatterns: string[
   return protectedPatterns.some((pattern) => matchesGlob(toolName, pattern));
 }
 
+const PI_FILE_PATH_TOOLS = new Set(["read", "write", "edit"]);
+
+function normalizeFilePath(path: string): string {
+  return path.replaceAll("\\", "/");
+}
+
 export function getFilePathsFromParameters(
-  _toolName: string,
+  toolName: string,
   parameters: Record<string, unknown>,
 ): string[] {
   const paths: string[] = [];
-  if (typeof parameters.filePath === "string") {
-    paths.push(parameters.filePath);
+  const seen = new Set<string>();
+
+  const pushPath = (value: unknown): void => {
+    if (typeof value !== "string") return;
+    const normalized = normalizeFilePath(value);
+    if (normalized.length === 0 || seen.has(normalized)) return;
+    seen.add(normalized);
+    paths.push(normalized);
+  };
+
+  if (PI_FILE_PATH_TOOLS.has(toolName)) {
+    pushPath(parameters.path);
+  }
+  pushPath(parameters.filePath);
+
+  return paths;
+}
+
+/**
+ * Extract normalized file paths from a tool result's bounded nested-call record.
+ * Accepts only a non-array record with a `calls` array; malformed records are ignored.
+ */
+export function getFilePathsFromNestedCalls(nestedCalls: unknown): string[] {
+  if (typeof nestedCalls !== "object" || nestedCalls === null || Array.isArray(nestedCalls)) {
+    return [];
+  }
+
+  const calls = (nestedCalls as Record<string, unknown>).calls;
+  if (!Array.isArray(calls)) return [];
+
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const call of calls) {
+    if (typeof call !== "object" || call === null || Array.isArray(call)) continue;
+    const record = call as Record<string, unknown>;
+    if (typeof record.name !== "string") continue;
+    const args = record.arguments;
+    if (typeof args !== "object" || args === null || Array.isArray(args)) continue;
+
+    for (const path of getFilePathsFromParameters(record.name, args as Record<string, unknown>)) {
+      if (seen.has(path)) continue;
+      seen.add(path);
+      paths.push(path);
+    }
   }
   return paths;
 }
 
 export function isFilePathProtected(filePaths: string[], patterns: string[]): boolean {
   if (filePaths.length === 0 || patterns.length === 0) return false;
-  return filePaths.some((fp) => patterns.some((p) => matchesGlob(fp, p)));
+  return filePaths.some((fp) => {
+    const normalized = normalizeFilePath(fp);
+    return patterns.some((p) => matchesGlob(normalized, p));
+  });
 }

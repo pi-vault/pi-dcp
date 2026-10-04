@@ -87,6 +87,52 @@ describe("protected-patterns", () => {
       expect(paths).toEqual(["/tmp/foo.ts"]);
     });
 
+    it("extracts Pi-native path for read, write, and edit", () => {
+      expect(getFilePathsFromParameters("read", { path: "src/secret.ts" })).toEqual([
+        "src/secret.ts",
+      ]);
+      expect(getFilePathsFromParameters("write", { path: "src/secret.ts" })).toEqual([
+        "src/secret.ts",
+      ]);
+      expect(getFilePathsFromParameters("edit", { path: "src/secret.ts" })).toEqual([
+        "src/secret.ts",
+      ]);
+    });
+
+    it("normalizes Windows separators in Pi-native paths", () => {
+      expect(getFilePathsFromParameters("edit", { path: "src\\secret.ts" })).toEqual([
+        "src/secret.ts",
+      ]);
+    });
+
+    it("accepts legacy filePath for every tool", () => {
+      expect(getFilePathsFromParameters("legacy-tool", { filePath: "legacy/file.ts" })).toEqual([
+        "legacy/file.ts",
+      ]);
+    });
+
+    it("ignores a generic path on non-file tools", () => {
+      expect(getFilePathsFromParameters("custom-tool", { path: "not-a-file-selector" })).toEqual(
+        [],
+      );
+    });
+
+    it("processes path before filePath and drops empty or duplicate values", () => {
+      expect(
+        getFilePathsFromParameters("read", {
+          path: "src/a.ts",
+          filePath: "src/b.ts",
+        }),
+      ).toEqual(["src/a.ts", "src/b.ts"]);
+      expect(
+        getFilePathsFromParameters("read", {
+          path: "src/a.ts",
+          filePath: "src\\a.ts",
+        }),
+      ).toEqual(["src/a.ts"]);
+      expect(getFilePathsFromParameters("read", { path: "", filePath: "" })).toEqual([]);
+    });
+
     it("returns empty for tools without file paths", () => {
       const paths = getFilePathsFromParameters("bash", { command: "ls" });
       expect(paths).toEqual([]);
@@ -107,6 +153,11 @@ describe("protected-patterns", () => {
     it("returns false for empty paths or patterns", () => {
       expect(isFilePathProtected([], ["src/**"])).toBe(false);
       expect(isFilePathProtected(["/tmp/a"], [])).toBe(false);
+    });
+
+    it("normalizes candidate separators without changing glob semantics", () => {
+      expect(matchesGlob("src\\config.ts", "src/**/*.ts")).toBe(false);
+      expect(isFilePathProtected(["src\\config.ts"], ["src/**/*.ts"])).toBe(true);
     });
   });
 });

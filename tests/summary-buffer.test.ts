@@ -84,6 +84,7 @@ describe("injectCompressNudges with summaryBuffer", () => {
       maxContextPercent: 80,
       minContextPercent: 50,
       summaryBuffer: true,
+      nudgeForce: "strong",
     });
 
     // Simulate 600 summary tokens from active blocks

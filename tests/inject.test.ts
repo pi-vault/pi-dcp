@@ -276,9 +276,9 @@ describe("injectCompressNudges", () => {
     expect(text).toContain("CRITICAL WARNING");
   });
 
-  it("injects TURN_NUDGE when last message is user and percent >= minContextPercent", () => {
+  it("injects TURN_NUDGE into the user when last message is user and force is strong", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig({ nudgeFrequency: 1 }); // minContextPercent: 50, maxContextPercent: 80
+    const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "strong" }); // minContextPercent: 50, maxContextPercent: 80
     const messages = [makeAssistantMessage("previous"), makeUserMessage("new user msg")];
     assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
@@ -313,8 +313,8 @@ describe("injectCompressNudges", () => {
 
   it("is idempotent — does not double-inject nudge", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig({ nudgeFrequency: 1 });
-    const messages = [makeUserMessage("hello")];
+    const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "strong" });
+    const messages = [makeAssistantMessage("previous"), makeUserMessage("hello")];
     assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
 
@@ -386,14 +386,17 @@ describe("injectCompressNudges", () => {
 
   it("handles user messages with plain-string content for nudge injection (E9)", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig({ nudgeFrequency: 1 });
-    const messages = [makeUserMessageString("plain user message")];
+    const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "strong" });
+    const messages = [
+      makeAssistantMessage("previous"),
+      makeUserMessageString("plain user message"),
+    ];
     assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };
 
     const result = injectCompressNudges(state, config, messages, usage);
 
-    const injected = requireDefined(result[0], "result[0]");
+    const injected = requireDefined(result[1], "result[1]");
     expect("content" in injected).toBe(true);
     expect(Array.isArray("content" in injected ? injected.content : undefined)).toBe(true);
     const text = getMessageText(injected);
@@ -426,7 +429,7 @@ describe("injectCompressNudges", () => {
 
   it("uses custom turn nudge text from runtimePrompts", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig({ nudgeFrequency: 1 }); // minContextPercent: 50, maxContextPercent: 80
+    const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "strong" }); // minContextPercent: 50, maxContextPercent: 80
     const messages = [makeAssistantMessage("previous"), makeUserMessage("new user msg")];
     assignMessageRefs(state, messages);
     const usage: ContextUsage = { tokens: 110000, contextWindow: 200000, percent: 55 };

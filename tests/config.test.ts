@@ -8,6 +8,9 @@ import {
   BASE_PROTECTED_TOOLS,
   DEFAULT_CONFIG,
 } from "../src/config.ts";
+import { isContextOverLimits } from "../src/utils/context-limits.ts";
+import { createSessionState } from "../src/state/state.ts";
+import { CompressConfigSchema, DcpConfigSchema } from "../src/config-schema.ts";
 
 describe("config loading", () => {
   let tempDir: string;
@@ -192,8 +195,9 @@ describe("config loading", () => {
     fs.writeFileSync(configPath, '{"__proto__":{"dcpPolluted":true}}');
 
     try {
-      loadConfig(configPath);
+      const { warnings } = loadConfig(configPath);
       expect(({} as Record<string, unknown>).dcpPolluted).toBeUndefined();
+      expect(warnings.some((warning) => warning.includes(`${configPath}#/__proto__`))).toBe(true);
     } finally {
       delete (Object.prototype as Record<string, unknown>).dcpPolluted;
     }
@@ -305,8 +309,41 @@ describe("config validation warnings", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(configPath, JSON.stringify({ compress: { maxContextPercent: 150 } }));
     const { config, warnings } = loadConfig(configPath);
-    expect(warnings.some((w) => w.includes("maxContextPercent"))).toBe(true);
+    expect(
+      warnings.some((warning) => warning.includes(`${configPath}#/compress/maxContextPercent`)),
+    ).toBe(true);
     expect(config.compress.maxContextPercent).toBe(80); // reset to default
+  });
+
+  it("inherits a valid global percentage after an invalid project override", () => {
+    const globalPath = path.join(tempDir, "global.json");
+    const projectPath = path.join(tempDir, "project.json");
+    fs.writeFileSync(globalPath, JSON.stringify({ compress: { maxContextPercent: 90 } }));
+    fs.writeFileSync(projectPath, JSON.stringify({ compress: { maxContextPercent: 150 } }));
+
+    const { config, warnings } = loadConfig(globalPath, projectPath);
+
+    expect(config.compress.maxContextPercent).toBe(90);
+    expect(
+      warnings.some((warning) => warning.includes(`${projectPath}#/compress/maxContextPercent`)),
+    ).toBe(true);
+  });
+
+  it("reports both source pointers for a cross-layer percentage conflict", () => {
+    const globalPath = path.join(tempDir, "global.json");
+    const projectPath = path.join(tempDir, "project.json");
+    fs.writeFileSync(globalPath, JSON.stringify({ compress: { maxContextPercent: 70 } }));
+    fs.writeFileSync(projectPath, JSON.stringify({ compress: { minContextPercent: 75 } }));
+
+    const { config, warnings } = loadConfig(globalPath, projectPath);
+    const conflict = warnings.find(
+      (warning) => warning.includes("must be greater than") && warning.includes(globalPath),
+    );
+
+    expect(config.compress.maxContextPercent).toBe(DEFAULT_CONFIG.compress.maxContextPercent);
+    expect(config.compress.minContextPercent).toBe(DEFAULT_CONFIG.compress.minContextPercent);
+    expect(conflict).toContain(`${globalPath}#/compress/maxContextPercent`);
+    expect(conflict).toContain(`${projectPath}#/compress/minContextPercent`);
   });
 
   it("warns about invalid enum values", () => {
@@ -315,6 +352,125 @@ describe("config validation warnings", () => {
     const { config, warnings } = loadConfig(configPath);
     expect(warnings.length).toBeGreaterThan(0);
     expect(config.nudgeNotificationType).toBe("status"); // reset to default
+  });
+});
+
+describe("configuration layer sanitization", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-config-sanitize-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function writeLayer(name: string, value: unknown): string {
+    const file = path.join(tempDir, name);
+    fs.writeFileSync(file, JSON.stringify(value));
+    return file;
+  }
+
+  it.each([1, 200000, "0.5%", "100%"])("accepts valid maxContextLimit %s", (value) => {
+    const file = writeLayer("global.json", { compress: { maxContextLimit: value } });
+    const { config, warnings } = loadConfig(file);
+    expect(config.compress.maxContextLimit).toBe(value);
+    expect(warnings).toEqual([]);
+  });
+
+  it.each([0, -1, 1.5, "bogus", "0%", "100.1%"])("rejects invalid maxContextLimit %s", (value) => {
+    const file = writeLayer("global.json", { compress: { maxContextLimit: value } });
+    const { config, warnings } = loadConfig(file);
+    expect(config.compress.maxContextLimit).toBe(DEFAULT_CONFIG.compress.maxContextLimit);
+    const matches = warnings.filter(
+      (warning) => warning.includes(file) && warning.includes("#/compress/maxContextLimit"),
+    );
+    expect(matches).toHaveLength(1);
+  });
+
+  it("removes one invalid per-model limit and keeps a valid sibling", () => {
+    const file = writeLayer("global.json", {
+      compress: { modelMaxLimits: { "provider/valid": 100000, "provider/invalid": "bogus" } },
+    });
+    const { config } = loadConfig(file);
+    expect(config.compress.modelMaxLimits).toEqual({ "provider/valid": 100000 });
+  });
+
+  it("uses the global maximum for a removed per-model key", () => {
+    const file = writeLayer("global.json", {
+      compress: {
+        maxContextLimit: 300000,
+        modelMaxLimits: { "provider/kept": 500000, "provider/removed": "bogus" },
+      },
+    });
+    const { config } = loadConfig(file);
+    const state = createSessionState();
+    state.modelProvider = "provider";
+    state.modelId = "removed";
+    state.modelContextWindow = 1_000_000;
+
+    const result = isContextOverLimits(config, state, {
+      tokens: 350000,
+      contextWindow: 1_000_000,
+      percent: 35,
+    });
+
+    expect(result.overMaxLimit).toBe(true);
+  });
+
+  it("uses the built-in default when the global maximum is invalid", () => {
+    const file = writeLayer("global.json", { compress: { maxContextLimit: "bogus" } });
+    const { config } = loadConfig(file);
+    expect(config.compress.maxContextLimit).toBe(DEFAULT_CONFIG.compress.maxContextLimit);
+  });
+
+  it("inherits a valid global maximum after an invalid project maximum", () => {
+    const global = writeLayer("global.json", { compress: { maxContextLimit: 300000 } });
+    const project = writeLayer("project.json", { compress: { maxContextLimit: 0 } });
+    const { config } = loadConfig(global, project);
+    expect(config.compress.maxContextLimit).toBe(300000);
+  });
+
+  it("inherits a valid global per-model entry after an invalid project override", () => {
+    const global = writeLayer("global.json", {
+      compress: { modelMaxLimits: { "provider/model": 400000 } },
+    });
+    const project = writeLayer("project.json", {
+      compress: { modelMaxLimits: { "provider/model": "bogus" } },
+    });
+    const { config } = loadConfig(global, project);
+    expect(config.compress.modelMaxLimits).toEqual({ "provider/model": 400000 });
+  });
+
+  it("warns for unknown keys with source-qualified pointers", () => {
+    const global = writeLayer("global.json", {
+      unknownTop: true,
+      compress: { mode: "message", unknownNested: true },
+    });
+    const project = writeLayer("project.json", {
+      strategies: { deduplication: { turnProtection: 5, unknownStrategy: true } },
+    });
+    const { config, warnings } = loadConfig(global, project);
+
+    expect(warnings.some((w) => w.includes(`${global}#/unknownTop`))).toBe(true);
+    expect(warnings.some((w) => w.includes(`${global}#/compress/unknownNested`))).toBe(true);
+    expect(
+      warnings.some((w) => w.includes(`${project}#/strategies/deduplication/unknownStrategy`)),
+    ).toBe(true);
+
+    expect("unknownTop" in config).toBe(false);
+    expect("unknownNested" in config.compress).toBe(false);
+    expect("unknownStrategy" in config.strategies.deduplication).toBe(false);
+
+    expect(config.compress.mode).toBe("message");
+    expect(config.strategies.deduplication.turnProtection).toBe(5);
+  });
+
+  it("escapes RFC 6901 pointer segments in warnings", () => {
+    const file = writeLayer("global.json", { "a~b/c": true });
+    const { warnings } = loadConfig(file);
+    expect(warnings.some((w) => w.includes(`${file}#/a~0b~1c`))).toBe(true);
   });
 });
 
@@ -355,5 +511,12 @@ describe("isDcpEnabledForModel", () => {
 describe("BASE_PROTECTED_TOOLS", () => {
   it('includes "subagent"', () => {
     expect(BASE_PROTECTED_TOOLS).toContain("subagent");
+  });
+});
+
+describe("configuration schema", () => {
+  it("rejects unknown properties in declared configuration objects", () => {
+    expect(DcpConfigSchema).toMatchObject({ additionalProperties: false });
+    expect(CompressConfigSchema).toMatchObject({ additionalProperties: false });
   });
 });

@@ -106,6 +106,8 @@ export interface CompressionBlock {
 export interface ToolParameterEntry {
   tool: string;
   parameters: unknown;
+  /** Unique normalized file paths from direct arguments and nested tool calls. */
+  filePaths: string[];
   status: "pending" | "running" | "completed" | "error" | undefined;
   error: string | undefined;
   userTurn: number;

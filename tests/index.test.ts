@@ -9,6 +9,7 @@ import { createSessionState } from "../src/state/state.ts";
 import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 import { assignMessageRefs } from "../src/messages/inject.ts";
 import { makeAssistantMessage, getMessageText, requireMessage, requireDefined } from "./helpers.ts";
+import { Logger } from "../src/logger.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
 const disabledModel = { provider: "openai-codex", id: "gpt-5.6-sol" };
@@ -979,6 +980,104 @@ describe("dcp extension", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("configuration warning lifecycle", () => {
+  function writeInvalidConfig(): string {
+    const configDir = path.join(agentDir, "extensions");
+    fs.mkdirSync(configDir, { recursive: true });
+    const configPath = path.join(configDir, "dcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        unknownTop: true,
+        compress: {
+          maxContextLimit: "bogus",
+          minContextLimit: 0,
+          modelMaxLimits: { "provider/model": "nope" },
+        },
+      }),
+    );
+    return configPath;
+  }
+
+  it("notifies once with a count and path while logging each problem", async () => {
+    const configPath = writeInvalidConfig();
+    const loggerWarnSpy = vi.spyOn(Logger.prototype, "warnAlways");
+    try {
+      const { api, handlers } = createMockApi();
+      createExtension(api);
+      const notify = vi.fn();
+      const ctx = {
+        ...sessionContext(enabledModel),
+        hasUI: true,
+        ui: { notify, setStatus: vi.fn() },
+      };
+
+      await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).toHaveBeenCalledWith(
+        expect.stringContaining("configuration problems"),
+        "warning",
+      );
+      const message = notify.mock.calls[0]?.[0] as string;
+      expect(message).toContain("4");
+      expect(message).toContain(configPath);
+      expect(loggerWarnSpy).toHaveBeenCalledTimes(4);
+    } finally {
+      loggerWarnSpy.mockRestore();
+    }
+  });
+
+  it("logs without notifying when the UI is unavailable", async () => {
+    const configPath = writeInvalidConfig();
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const notify = vi.fn();
+    const sessionDir = path.join(agentDir, "session");
+    const baseContext = sessionContext(enabledModel);
+    const ctx = {
+      ...baseContext,
+      sessionManager: {
+        ...baseContext.sessionManager,
+        getSessionDir: () => sessionDir,
+      },
+      hasUI: false,
+      ui: { notify, setStatus: vi.fn() },
+    };
+
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+
+    expect(notify).not.toHaveBeenCalled();
+    const logDir = path.join(sessionDir, "dcp", "logs");
+    const logFiles = fs.readdirSync(logDir);
+    expect(logFiles).toHaveLength(1);
+    const log = fs.readFileSync(path.join(logDir, logFiles[0]), "utf8");
+    expect(log).toContain(`${configPath}#/unknownTop`);
+    expect(log.match(/ WARN {2}config:/g)).toHaveLength(4);
+  });
+
+  it("continues startup when the configuration warning log is unwritable", async () => {
+    writeInvalidConfig();
+    const unusableSessionDir = path.join(agentDir, "session-file");
+    fs.writeFileSync(unusableSessionDir, "not a directory");
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const baseContext = sessionContext(enabledModel);
+    const ctx = {
+      ...baseContext,
+      sessionManager: {
+        ...baseContext.sessionManager,
+        getSessionDir: () => unusableSessionDir,
+      },
+      hasUI: false,
+    };
+
+    await expect(
+      registeredHandler(handlers, "session_start")({ reason: "new" }, ctx),
+    ).resolves.toBeUndefined();
   });
 });
 

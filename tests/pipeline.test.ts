@@ -290,7 +290,7 @@ describe("runPipeline", () => {
 
   it("ignores pruned nudge anchors when enforcing frequency", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig({ nudgeFrequency: 5 });
+    const config = makeDefaultConfig({ nudgeFrequency: 5, nudgeForce: "strong" });
     const messages = [
       makeUserMessage("covered anchor", 1),
       makeAssistantMessage("covered assistant", 2),
