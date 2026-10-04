@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState } from "../state/types.ts";
-import { parseBoundaryId } from "../utils/message-ids.ts";
+import { formatMessageRef, parseBoundaryId } from "../utils/message-ids.ts";
 
 /** Return the first message index in the newest protected user turns. */
 export function getProtectedTurnStart(messages: AgentMessage[], turns: number): number | undefined {
@@ -19,7 +19,9 @@ export function resolveBoundaryIndex(state: SessionState, boundaryId: string): n
   if (!parsed) return undefined;
 
   if (parsed.type === "message") {
-    const ref = boundaryId;
+    // Normalize every accepted form (m1, m0001, @m1@, @m1:3@) to the canonical
+    // ref before comparing with state — never compare the raw tool argument.
+    const ref = formatMessageRef(parsed.index);
     // Reverse-lookup: find the index that maps to this ref in the runtime cache.
     // byRef now maps ref->rawId (not ref->index), so we scan byIndex instead.
     for (const [idx, r] of state.messageIds.byIndex) {

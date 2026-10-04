@@ -34,8 +34,24 @@ export function parseBlockRef(ref: string): number | undefined {
   const match = /^b(\d+)$/.exec(ref);
   if (!match) return undefined;
   const n = parseInt(match[1], 10);
-  if (n <= 0) return undefined;
+  if (!Number.isSafeInteger(n) || n <= 0) return undefined;
   return n;
+}
+
+/**
+ * Compact, model-facing message forms accepted as tool input.
+ * Exact and whitespace-free: `m1` and `@m1@`, plus an optional 1-5 priority.
+ * Partial padding (`m01`), wrapped padded refs (`@m0001@`), and zero are rejected.
+ */
+const COMPACT_MESSAGE = /^(?:m([1-9]\d*)|@m([1-9]\d*)(?::[1-5])?@)$/;
+
+/** Parse a bare or wrapped compact message reference. Canonical-only refs never match. */
+function parseCompactMessageRef(id: string): number | undefined {
+  const match = COMPACT_MESSAGE.exec(id);
+  if (!match) return undefined;
+  const index = parseInt(match[1] ?? match[2], 10);
+  if (!Number.isSafeInteger(index) || index <= 0) return undefined;
+  return index;
 }
 
 export type ParsedBoundaryId =
@@ -43,7 +59,7 @@ export type ParsedBoundaryId =
   | { type: "block"; blockId: number };
 
 export function parseBoundaryId(id: string): ParsedBoundaryId | undefined {
-  const msgIndex = parseMessageRef(id);
+  const msgIndex = parseMessageRef(id) ?? parseCompactMessageRef(id);
   if (msgIndex !== undefined) return { type: "message", index: msgIndex };
 
   const blockId = parseBlockRef(id);
@@ -52,9 +68,28 @@ export function parseBoundaryId(id: string): ParsedBoundaryId | undefined {
   return undefined;
 }
 
-export function formatMessageIdTag(ref: string, attrs?: { priority?: number }): string {
-  if (attrs?.priority !== undefined) {
-    return `<dcp-message-id priority="${attrs.priority}">${ref}</dcp-message-id>`;
+/** Strict predicate for the canonical padded form (`m0001`) used in state and snapshots. */
+export function isCanonicalMessageRef(ref: string): boolean {
+  return parseMessageRef(ref) !== undefined;
+}
+
+const MAX_PRIORITY = 5;
+
+/**
+ * Render the compact marker shown to the model for a canonical ref: `@m1@`,
+ * or `@m1:3@` when a priority is present. Compact markers are display-only —
+ * stored and persisted refs stay canonical.
+ */
+export function formatMessageMarker(ref: string, priority?: number): string {
+  const index = parseMessageRef(ref);
+  if (index === undefined) {
+    throw new RangeError(`formatMessageMarker requires a canonical message ref, got ${ref}`);
   }
-  return `<dcp-message-id>${ref}</dcp-message-id>`;
+
+  if (priority === undefined) return `@m${index}@`;
+
+  if (!Number.isInteger(priority) || priority < 1 || priority > MAX_PRIORITY) {
+    throw new RangeError(`formatMessageMarker priority must be an integer 1-${MAX_PRIORITY}`);
+  }
+  return `@m${index}:${priority}@`;
 }

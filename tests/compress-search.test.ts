@@ -44,6 +44,25 @@ describe("compress/search", () => {
       expect(resolveBoundaryIndex(state, "m0006")).toBe(5);
     });
 
+    it("normalizes every accepted message form to the stored canonical ref", () => {
+      const state = createSessionState();
+      state.messageIds.byIndex.set(0, "m0001");
+
+      expect(resolveBoundaryIndex(state, "m1")).toBe(0);
+      expect(resolveBoundaryIndex(state, "m0001")).toBe(0);
+      expect(resolveBoundaryIndex(state, "@m1@")).toBe(0);
+      expect(resolveBoundaryIndex(state, "@m1:3@")).toBe(0);
+    });
+
+    it("does not resolve compact forms that have no stored canonical ref", () => {
+      const state = createSessionState();
+      state.messageIds.byIndex.set(5, "m0006");
+
+      expect(resolveBoundaryIndex(state, "m1")).toBeUndefined();
+      expect(resolveBoundaryIndex(state, "@m1@")).toBeUndefined();
+      expect(resolveBoundaryIndex(state, "m1:3")).toBeUndefined();
+    });
+
     it("resolves block ref to anchor index", () => {
       const state = createSessionState();
       state.prune.messages.activeByAnchorIndex.set(3, 1);
