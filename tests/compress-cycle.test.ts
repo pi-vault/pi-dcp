@@ -56,16 +56,16 @@ describe("full compression cycle", () => {
 
     const filtered1 = runContextPipeline(state, rawMessages);
 
-    // All 5 messages visible, each with correct ref tag
+    // All 5 messages visible, each with a compact marker
     expect(filtered1.length).toBe(5);
-    expect(textOf(filtered1[0])).toContain("m0001");
-    expect(textOf(filtered1[2])).toContain("m0003");
-    expect(textOf(filtered1[4])).toContain("m0005");
+    expect(textOf(filtered1[0])).toContain("@m1@");
+    expect(textOf(filtered1[2])).toContain("@m3@");
+    expect(textOf(filtered1[4])).toContain("@m5@");
 
-    // --- Model calls compress: m0001..m0002 (hello + hi there) ---
+    // --- Model calls compress with the markers it was shown: @m1@..@m2@ ---
     handleCompress(state, config, rawMessages, "compress-call-1", {
       topic: "Greeting",
-      content: [{ startId: "m0001", endId: "m0002", summary: "User greeted, assistant responded" }],
+      content: [{ startId: "@m1@", endId: "@m2@", summary: "User greeted, assistant responded" }],
       mode: "range",
     });
 
@@ -83,33 +83,37 @@ describe("full compression cycle", () => {
     const filtered2 = runContextPipeline(state, rawMessages2);
 
     // Indices 0-1 replaced by summary, indices 2-6 survive
-    // Expected: [summary, do_task_A+m0003, task_A_done+m0004, do_task_B+m0005, compress_call+m0006, result+m0007]
+    // Expected: [summary, do_task_A+@m3@, task_A_done+@m4@, do_task_B+@m5@, compress_call+@m6@, result+@m7@]
     expect(filtered2.length).toBe(6);
 
     // Summary is a synthetic message (no m-ref tag, has block header)
     const summaryText = textOf(filtered2[0]);
     expect(summaryText).toContain("Compressed Block");
-    expect(summaryText).not.toContain("<dcp-message-id>");
+    expect(summaryText).not.toMatch(/@m\d+@/);
 
     // Surviving messages retain their original raw-index refs
     const msg1Text = textOf(filtered2[1]);
-    expect(msg1Text).toContain("m0003"); // raw index 2 → "m0003"
+    expect(msg1Text).toContain("@m3@"); // raw index 2 → "@m3@"
     expect(msg1Text).toContain("do task A");
 
     const msg2Text = textOf(filtered2[2]);
-    expect(msg2Text).toContain("m0004"); // raw index 3 → "m0004"
+    expect(msg2Text).toContain("@m4@"); // raw index 3 → "@m4@"
 
-    // --- Model calls second compress: m0003..m0004 (do task A + task A done) ---
-    // Verify these refs resolve to the correct RAW indices
-    expect(resolveBoundaryIndex(state, "m0003")).toBe(2);
-    expect(resolveBoundaryIndex(state, "m0004")).toBe(3);
+    // --- Model calls second compress with the compact markers it was shown ---
+    // Every accepted form resolves to the same canonical RAW index
+    for (const form of ["m3", "m0003", "@m3@", "@m3:2@"]) {
+      expect(resolveBoundaryIndex(state, form)).toBe(2);
+    }
+    for (const form of ["m4", "m0004", "@m4@", "@m4:2@"]) {
+      expect(resolveBoundaryIndex(state, form)).toBe(3);
+    }
 
     handleCompress(state, config, rawMessages2, "compress-call-2", {
       topic: "Task A",
       content: [
         {
-          startId: "m0003",
-          endId: "m0004",
+          startId: "@m3@",
+          endId: "@m4@",
           summary: "User asked for task A, assistant completed it",
         },
       ],
@@ -143,7 +147,7 @@ describe("full compression cycle", () => {
 
     // The remaining real messages have their original refs
     const task_b = textOf(filtered3[2]);
-    expect(task_b).toContain("m0005");
+    expect(task_b).toContain("@m5@");
     expect(task_b).toContain("do task B");
   });
 

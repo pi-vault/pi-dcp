@@ -238,7 +238,7 @@ function normalizeEntries(
       if (startIndex === undefined) {
         throw new Error(
           `startId ${entry.startId} is not available. It may have been pruned or compressed. ` +
-            `Choose a message ID (m0001) or block ref (b1) visible in the current context.`,
+            `Choose a message marker (m1 or @m1@) or block ref (b1) visible in the current context.`,
         );
       }
 
@@ -246,7 +246,7 @@ function normalizeEntries(
       if (endIndex === undefined) {
         throw new Error(
           `endId ${entry.endId} is not available. It may have been pruned or compressed. ` +
-            `Choose a message ID (m0001) or block ref (b1) visible in the current context.`,
+            `Choose a message marker (m1 or @m1@) or block ref (b1) visible in the current context.`,
         );
       }
 
@@ -274,7 +274,7 @@ function normalizeEntries(
     if (index === undefined) {
       throw new Error(
         `messageId ${target.messageId} is not available. It may have been pruned or compressed. ` +
-          `Choose a message ID (m0001) visible in the current context.`,
+          `Choose a message marker (m1 or @m1@) visible in the current context.`,
       );
     }
 

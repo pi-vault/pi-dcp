@@ -42,7 +42,7 @@ describe("runPipeline", () => {
     expect(state.nudges.iterationAnchors).toEqual(new Set());
   });
 
-  it("sanitizes a persisted transposed message-id suffix before canonical injection", () => {
+  it("sanitizes a persisted transposed message-id suffix before compact injection", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
     const messages: AgentMessage[] = [
@@ -56,8 +56,8 @@ describe("runPipeline", () => {
     expect(text).toContain("**Creating the GitHub PR**");
     expect(text).not.toContain("m0112");
     expect(text).not.toContain("dpc-message-id");
-    expect(text.match(/<dcp-message-id/g)).toHaveLength(1);
-    expect(text).toContain("m0002");
+    expect(text.match(/@m2@/g)).toHaveLength(1);
+    expect(text).not.toContain("m0002");
   });
 
   it("injects message IDs into user messages", () => {
@@ -71,9 +71,9 @@ describe("runPipeline", () => {
 
     const result = runPipeline(state, config, messages, undefined);
 
-    // User messages should have message ID tags injected
+    // User messages should have a compact marker injected
     const firstUser = getMessageText(requireMessage(result.messages[0], "result.messages[0]"));
-    expect(firstUser).toContain("<dcp-message-id");
+    expect(firstUser).toContain("@m1@");
   });
 
   it("deduplicates tool outputs across turns", () => {

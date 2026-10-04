@@ -159,8 +159,12 @@ async function selectModel(
   );
 }
 
+/** Extract the model-visible compact marker from each message and restate it canonically. */
 function messageRefs(result: { messages: Array<{ content?: Array<{ text?: string }> }> }) {
-  return result.messages.map((message) => message.content?.[0]?.text?.match(/m\d+/)?.[0]);
+  return result.messages.map((message) => {
+    const match = message.content?.[0]?.text?.match(/@m(\d+)(?::[1-5])?@/);
+    return match ? `m${match[1].padStart(4, "0")}` : undefined;
+  });
 }
 
 describe("dcp extension", () => {
@@ -202,7 +206,97 @@ describe("dcp extension", () => {
     const sp = (result as { systemPrompt: string }).systemPrompt;
     expect(sp).toContain("Original prompt.");
     expect(sp).toContain("compress");
-    expect(sp).toContain("dcp-message-id");
+    expect(sp).toContain("@mN@");
+    expect(sp).toContain("@mN:P@");
+    expect(sp).not.toContain("<dcp-message-id>");
+  });
+
+  it("system prompt teaches compact markers and nudges as injected metadata", async () => {
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+
+    const handler = handlers.get("before_agent_start")?.[0];
+    const result = await (handler as (...args: unknown[]) => Promise<unknown>)(
+      { systemPrompt: undefined, prompt: "user input" },
+      {},
+    );
+
+    const sp = (result as { systemPrompt: string }).systemPrompt;
+    expect(sp).toContain("@mN@");
+    expect(sp).toContain("@mN:P@");
+    expect(sp).toContain("<dcp-system-reminder>");
+  });
+
+  it("range tool description uses compact examples and keeps block refs", async () => {
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+      { reason: "start" },
+      sessionContext(),
+    );
+
+    const tool = tools.get("compress") as { description: string; parameters: unknown };
+    const schema = JSON.stringify(tool.parameters);
+
+    expect(tool.description).toContain("m1");
+    expect(tool.description).toContain("@m1@");
+    expect(schema).toContain("b2");
+    expect(schema).toContain("@m1@");
+    expect(`${tool.description}${schema}`).not.toContain("m0001");
+  });
+
+  it("message tool description uses compact examples", async () => {
+    fs.mkdirSync(path.join(agentDir, "extensions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(agentDir, "extensions", "dcp.json"),
+      JSON.stringify({ compress: { mode: "message" } }),
+    );
+
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+      { reason: "start" },
+      sessionContext(),
+    );
+
+    const tool = tools.get("compress") as { description: string; parameters: unknown };
+    const schema = JSON.stringify(tool.parameters);
+
+    expect(tool.description).toContain("@mN:P@");
+    expect(schema).toContain("@m1@");
+    expect(`${tool.description}${schema}`).not.toContain("m0001");
+  });
+
+  it("unavailable-ID guidance points at compact markers, not padded refs", async () => {
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+      { reason: "start" },
+      sessionContext(),
+    );
+
+    const tool = tools.get("compress") as {
+      execute: (
+        id: string,
+        params: Record<string, unknown>,
+        signal: unknown,
+        onUpdate: unknown,
+        ctx: unknown,
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      tool.execute(
+        "call-1",
+        {
+          topic: "topic",
+          content: [{ startId: "m9999", endId: "m9999", summary: "summary" }],
+        },
+        undefined,
+        undefined,
+        sessionContext(),
+      ),
+    ).rejects.toThrow(/m1 or @m1@/);
   });
 
   it("before_agent_start works when systemPrompt is undefined", async () => {
@@ -272,7 +366,7 @@ describe("dcp extension", () => {
     expect(message.content[0]?.text).toBe("**Creating the GitHub PR**");
   });
 
-  it("context handler tags messages with dcp-message-id", async () => {
+  it("context handler tags messages with compact markers", async () => {
     const { api, handlers } = createMockApi();
     createExtension(api);
 
@@ -316,8 +410,9 @@ describe("dcp extension", () => {
     const userText = getMessageText(requireMessage(resultMessages[0], "resultMessages[0]"));
     const assistantText = getMessageText(requireMessage(resultMessages[1], "resultMessages[1]"));
 
-    expect(userText).toContain("<dcp-message-id>m0001</dcp-message-id>");
-    expect(assistantText).toContain("<dcp-message-id>m0002</dcp-message-id>");
+    expect(userText).toContain("@m1@");
+    expect(assistantText).toContain("@m2@");
+    expect(userText).not.toContain("<dcp-message-id>");
   });
 
   it("context handler injects CONTEXT_LIMIT_NUDGE when tokens >= maxContextLimit", async () => {
@@ -856,8 +951,8 @@ describe("dcp extension", () => {
 
     expect(messageRefs(result)).toEqual(messageRefs(liveResult));
     expect(result.messages).toEqual(liveResult.messages);
-    expect(result.messages[1]?.content[0]?.text).toContain("m0002");
-    expect(result.messages[2]?.content[0]?.text).toContain("m0004");
+    expect(result.messages[1]?.content[0]?.text).toContain("@m2@");
+    expect(result.messages[2]?.content[0]?.text).toContain("@m4@");
   });
 
   it("skips state writes when growing context changes only message IDs", async () => {

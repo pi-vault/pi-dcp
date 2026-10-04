@@ -26,6 +26,38 @@ describe("message_end strip logic", () => {
     expect(textPart.text).toBe("Result ");
   });
 
+  it("strips a standalone compact marker line from assistant content", () => {
+    const msg = makeAssistantMessage("Here is the answer\n\n@m12@");
+
+    const stripped = mapText(msg, stripHallucinationsFromString);
+    const textPart = (stripped as unknown as { content: Array<{ text: string }> }).content[0];
+    expect(textPart.text).toBe("Here is the answer\n\n");
+  });
+
+  it("strips a standalone priority marker line from assistant content", () => {
+    const msg = makeAssistantMessage("Result\n\n@m12:3@");
+
+    const stripped = mapText(msg, stripHallucinationsFromString);
+    const textPart = (stripped as unknown as { content: Array<{ text: string }> }).content[0];
+    expect(textPart.text).toBe("Result\n\n");
+  });
+
+  it("strips a truncated compact marker line from assistant content", () => {
+    const msg = makeAssistantMessage("Result\n\n@m12:");
+
+    const stripped = mapText(msg, stripHallucinationsFromString);
+    const textPart = (stripped as unknown as { content: Array<{ text: string }> }).content[0];
+    expect(textPart.text).toBe("Result\n\n");
+  });
+
+  it("keeps inline compact markers and email addresses in assistant content", () => {
+    const msg = makeAssistantMessage("Inline @m1@ stays, and person@m1@example.com too");
+
+    const stripped = mapText(msg, stripHallucinationsFromString);
+    const textPart = (stripped as unknown as { content: Array<{ text: string }> }).content[0];
+    expect(textPart.text).toBe("Inline @m1@ stays, and person@m1@example.com too");
+  });
+
   it("returns original reference when no DCP tags present", () => {
     const msg = makeAssistantMessage("Clean text");
 

@@ -3,7 +3,7 @@ import type { ContextUsage, SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { getActiveSummaryTokenUsage } from "../compress/state.ts";
 import { isContextOverLimits } from "../utils/context-limits.ts";
-import { formatMessageRef, formatMessageIdTag, getMessageKey } from "../utils/message-ids.ts";
+import { formatMessageMarker, formatMessageRef, getMessageKey } from "../utils/message-ids.ts";
 import type { PriorityMap } from "./priority.ts";
 import { appendText, mapText } from "../utils/message-content.ts";
 import { stripHallucinationsFromString } from "./strip.ts";
@@ -54,8 +54,9 @@ export function assignMessageRefs(state: SessionState, messages: AgentMessage[])
 }
 
 /**
- * Inject <dcp-message-id> tags into message text content.
- * Returns a new array. Strips existing DCP tags before injecting fresh ones.
+ * Inject compact markers (`@m1@`, `@m1:3@`) into message text content.
+ * Returns a new array. Strips existing DCP metadata before injecting fresh markers.
+ * Stored refs stay canonical (`m0001`); only the model-facing marker is compact.
  *
  * Handles both array content and plain-string content (E9: UserMessage.content
  * can be a plain string — normalize to array form before injecting).
@@ -72,17 +73,14 @@ export function injectMessageIds(
     if (msg.role !== "user" && msg.role !== "assistant") return msg;
 
     const priorityEntry = priorityMap?.get(i);
-    const tag = formatMessageIdTag(
-      ref,
-      priorityEntry ? { priority: priorityEntry.priority } : undefined,
-    );
+    const marker = formatMessageMarker(ref, priorityEntry?.priority);
 
-    // Strip any existing (stale/partial) DCP tags before injecting fresh ones.
+    // Strip any existing (stale/partial) DCP metadata before injecting fresh markers.
     // This replaces marker-based idempotency — always inject clean.
     // Note: not idempotent in isolation (repeated calls add trailing \n\n).
     // Safe because this runs exactly once per context pass on fresh stored messages.
     const cleaned = mapText(msg, stripHallucinationsFromString);
-    return appendText(cleaned, `\n\n${tag}`);
+    return appendText(cleaned, `\n\n${marker}`);
   });
 }
 
