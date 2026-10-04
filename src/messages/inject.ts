@@ -133,6 +133,8 @@ export function injectCompressNudges(
 
   if (!overMin) return messages;
 
+  reconcileLegacyTurnAnchors(state, messages);
+
   // Anchor at the last injectable (user/assistant) message, not necessarily the absolute last.
   // toolResult and other roles cannot receive nudge text.
   let targetIndex = -1;
@@ -243,6 +245,29 @@ function addAnchorIfAllowed(
 
   if (closestDistance >= frequency) {
     anchorSet.add(targetKey);
+  }
+}
+
+/**
+ * Version-1 snapshots written before paired turn anchors stored only the user
+ * half. Recover the matching assistant key from the current message sequence so
+ * soft nudges remain visible without changing the persisted snapshot version.
+ */
+function reconcileLegacyTurnAnchors(state: SessionState, messages: AgentMessage[]): void {
+  let precedingAssistantKey: string | undefined;
+
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    if (message.role === "assistant") {
+      precedingAssistantKey = getKeyForIndex(state, i);
+      continue;
+    }
+    if (message.role !== "user") continue;
+
+    const userKey = getKeyForIndex(state, i);
+    if (userKey && precedingAssistantKey && state.nudges.turnAnchors.has(userKey)) {
+      state.nudges.turnAnchors.add(precedingAssistantKey);
+    }
   }
 }
 

@@ -4,6 +4,7 @@ import { assignMessageRefs, injectCompressNudges } from "../src/messages/inject.
 import { makeDefaultConfig, resetTestTimestamp } from "./helpers.ts";
 import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { DcpSnapshotV1 } from "../src/state/types.ts";
 
 function userMsg(text: string, ts: number): AgentMessage {
   return {
@@ -78,7 +79,8 @@ describe("anchored nudge system", () => {
       percent: 60,
     });
 
-    expect(state.nudges.turnAnchors.size).toBe(1); // Still just the original
+    expect(state.nudges.turnAnchors.has("user:5000:0")).toBe(false);
+    expect(state.nudges.turnAnchors.has("assistant:2000:0")).toBe(true);
   });
 
   it("adds new anchor when distance exceeds nudgeFrequency", () => {
@@ -345,17 +347,30 @@ describe("anchored nudge system", () => {
   it("prepends a synthetic text part before a tool-only assistant call", () => {
     const state = createSessionState();
     const config = makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "soft" });
-    const toolCall = { type: "toolCall", id: "call-1", name: "read", arguments: { path: "a" } };
-    const messages: AgentMessage[] = [
-      {
-        role: "assistant",
-        content: [toolCall],
-        stopReason: "toolUse",
-        usage: { inputTokens: 0, outputTokens: 0 },
-        timestamp: 1000,
-      } as unknown as AgentMessage,
-      userMsg("latest", 2000),
-    ];
+    const toolCall = {
+      type: "toolCall" as const,
+      id: "call-1",
+      name: "read",
+      arguments: { path: "a" },
+    };
+    const toolOnlyAssistant = {
+      role: "assistant",
+      content: [toolCall],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      timestamp: 1000,
+    } satisfies AgentMessage;
+    const messages: AgentMessage[] = [toolOnlyAssistant, userMsg("latest", 2000)];
     assignMessageRefs(state, messages);
 
     const result = injectCompressNudges(state, config, messages, {
@@ -422,6 +437,56 @@ describe("anchored nudge system", () => {
       percent: 60,
     });
 
+    const assistantText = (result[0] as unknown as { content: Array<{ text: string }> }).content[0]
+      .text;
+    const userText = (result[1] as unknown as { content: Array<{ text: string }> }).content[0].text;
+    expect(assistantText).toContain("Evaluate the conversation");
+    expect(userText).not.toContain("dcp-system-reminder");
+  });
+
+  it("upgrades a legacy version-1 user-only turn anchor after restore", () => {
+    const snapshot = {
+      version: 1,
+      ownerSessionId: "session",
+      manualMode: false,
+      compressPermission: "allow",
+      stats: {
+        pruneTokenCounter: 0,
+        totalPruneTokens: 0,
+        toolsPruned: 0,
+        messagesCompressed: 0,
+      },
+      lastCompaction: 0,
+      pruneTools: [],
+      blocks: [],
+      nextBlockId: 1,
+      nextRunId: 1,
+      messageIds: {
+        byRawId: [
+          ["assistant:1000:0", "m0001"],
+          ["user:2000:0", "m0002"],
+        ],
+        nextRefIndex: 3,
+      },
+      nudges: {
+        contextLimitAnchors: [],
+        turnAnchors: ["user:2000:0"],
+        iterationAnchors: [],
+      },
+    } satisfies DcpSnapshotV1;
+    const state = createSessionState();
+    expect(restoreDcpSnapshot(snapshot, state, "session")).toBe(true);
+
+    const messages = [assistantMsg("prior", 1000), userMsg("latest", 2000)];
+    assignMessageRefs(state, messages);
+    const result = injectCompressNudges(
+      state,
+      makeDefaultConfig({ nudgeFrequency: 1, nudgeForce: "soft" }),
+      messages,
+      { tokens: 60000, contextWindow: 100000, percent: 60 },
+    );
+
+    expect(state.nudges.turnAnchors.has("assistant:1000:0")).toBe(true);
     const assistantText = (result[0] as unknown as { content: Array<{ text: string }> }).content[0]
       .text;
     const userText = (result[1] as unknown as { content: Array<{ text: string }> }).content[0].text;
