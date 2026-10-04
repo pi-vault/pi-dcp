@@ -10,6 +10,7 @@ import {
 } from "../src/config.ts";
 import { isContextOverLimits } from "../src/utils/context-limits.ts";
 import { createSessionState } from "../src/state/state.ts";
+import { CompressConfigSchema, DcpConfigSchema } from "../src/config-schema.ts";
 
 describe("config loading", () => {
   let tempDir: string;
@@ -194,8 +195,9 @@ describe("config loading", () => {
     fs.writeFileSync(configPath, '{"__proto__":{"dcpPolluted":true}}');
 
     try {
-      loadConfig(configPath);
+      const { warnings } = loadConfig(configPath);
       expect(({} as Record<string, unknown>).dcpPolluted).toBeUndefined();
+      expect(warnings.some((warning) => warning.includes(`${configPath}#/__proto__`))).toBe(true);
     } finally {
       delete (Object.prototype as Record<string, unknown>).dcpPolluted;
     }
@@ -307,8 +309,41 @@ describe("config validation warnings", () => {
     const configPath = path.join(tempDir, "dcp.json");
     fs.writeFileSync(configPath, JSON.stringify({ compress: { maxContextPercent: 150 } }));
     const { config, warnings } = loadConfig(configPath);
-    expect(warnings.some((w) => w.includes("maxContextPercent"))).toBe(true);
+    expect(
+      warnings.some((warning) => warning.includes(`${configPath}#/compress/maxContextPercent`)),
+    ).toBe(true);
     expect(config.compress.maxContextPercent).toBe(80); // reset to default
+  });
+
+  it("inherits a valid global percentage after an invalid project override", () => {
+    const globalPath = path.join(tempDir, "global.json");
+    const projectPath = path.join(tempDir, "project.json");
+    fs.writeFileSync(globalPath, JSON.stringify({ compress: { maxContextPercent: 90 } }));
+    fs.writeFileSync(projectPath, JSON.stringify({ compress: { maxContextPercent: 150 } }));
+
+    const { config, warnings } = loadConfig(globalPath, projectPath);
+
+    expect(config.compress.maxContextPercent).toBe(90);
+    expect(
+      warnings.some((warning) => warning.includes(`${projectPath}#/compress/maxContextPercent`)),
+    ).toBe(true);
+  });
+
+  it("reports both source pointers for a cross-layer percentage conflict", () => {
+    const globalPath = path.join(tempDir, "global.json");
+    const projectPath = path.join(tempDir, "project.json");
+    fs.writeFileSync(globalPath, JSON.stringify({ compress: { maxContextPercent: 70 } }));
+    fs.writeFileSync(projectPath, JSON.stringify({ compress: { minContextPercent: 75 } }));
+
+    const { config, warnings } = loadConfig(globalPath, projectPath);
+    const conflict = warnings.find(
+      (warning) => warning.includes("must be greater than") && warning.includes(globalPath),
+    );
+
+    expect(config.compress.maxContextPercent).toBe(DEFAULT_CONFIG.compress.maxContextPercent);
+    expect(config.compress.minContextPercent).toBe(DEFAULT_CONFIG.compress.minContextPercent);
+    expect(conflict).toContain(`${globalPath}#/compress/maxContextPercent`);
+    expect(conflict).toContain(`${projectPath}#/compress/minContextPercent`);
   });
 
   it("warns about invalid enum values", () => {
@@ -476,5 +511,12 @@ describe("isDcpEnabledForModel", () => {
 describe("BASE_PROTECTED_TOOLS", () => {
   it('includes "subagent"', () => {
     expect(BASE_PROTECTED_TOOLS).toContain("subagent");
+  });
+});
+
+describe("configuration schema", () => {
+  it("rejects unknown properties in declared configuration objects", () => {
+    expect(DcpConfigSchema).toMatchObject({ additionalProperties: false });
+    expect(CompressConfigSchema).toMatchObject({ additionalProperties: false });
   });
 });

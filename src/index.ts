@@ -185,7 +185,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     Object.assign(config, result.config);
     logger = new Logger(config.debug, logDir);
     for (const warning of result.warnings) {
-      logger.warn("config", warning);
+      logger.warnAlways("config", warning);
     }
     if (ctx.hasUI && result.warnings.length > 0) {
       const count = result.warnings.length;

@@ -41,8 +41,11 @@ function sanitizeNode(
     const result: Record<string, unknown> = {};
     const properties = schema.properties as Record<string, Schema>;
     for (const [key, childValue] of Object.entries(value)) {
-      if (isUnsafeKey(key)) continue;
       const childPointer = joinPointer(pointer, key);
+      if (isUnsafeKey(key)) {
+        warnAndOmit(childPointer, sourcePath, warnings, "Unsafe configuration key");
+        continue;
+      }
       const propertySchema = properties[key];
       if (propertySchema === undefined) {
         warnAndOmit(childPointer, sourcePath, warnings, "Unknown configuration key");
@@ -67,7 +70,10 @@ function sanitizeNode(
     if (valueSchema === undefined) return value;
     const result: Record<string, unknown> = {};
     for (const [key, childValue] of Object.entries(value)) {
-      if (isUnsafeKey(key)) continue;
+      if (isUnsafeKey(key)) {
+        warnAndOmit(joinPointer(pointer, key), sourcePath, warnings, "Unsafe configuration key");
+        continue;
+      }
       const sanitized = sanitizeNode(
         valueSchema,
         childValue,

@@ -66,6 +66,10 @@ export function loadConfig(
 ): { config: DcpConfig; warnings: string[] } {
   const warnings: string[] = [];
   const merged = structuredClone(DEFAULT_CONFIG) as Record<string, unknown>;
+  const percentSources = {
+    maxContextPercent: "built-in defaults",
+    minContextPercent: "built-in defaults",
+  };
 
   for (const filePath of [configFilePath, projectConfigPath]) {
     if (!filePath) continue;
@@ -77,35 +81,36 @@ export function loadConfig(
         filePath,
       );
       warnings.push(...layerWarnings);
+      const compress = sanitized.compress;
+      if (isPlainObject(compress)) {
+        if (Object.hasOwn(compress, "maxContextPercent")) {
+          percentSources.maxContextPercent = filePath;
+        }
+        if (Object.hasOwn(compress, "minContextPercent")) {
+          percentSources.minContextPercent = filePath;
+        }
+      }
       deepMerge(merged, sanitized);
     }
   }
 
   const config = merged as unknown as DcpConfig;
 
-  // Post-validation range fixes (semantic constraints TypeBox can't express).
-  // These run on the merged result, so label them as cross-layer diagnostics.
-  if (config.compress.maxContextPercent > 100) {
-    warnings.push(
-      `Merged configuration: maxContextPercent (${config.compress.maxContextPercent}) exceeds 100, reset to default`,
-    );
-    config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
-  }
-  if (config.compress.minContextPercent > 100) {
-    warnings.push(
-      `Merged configuration: minContextPercent (${config.compress.minContextPercent}) exceeds 100, reset to default`,
-    );
-    config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
-  }
+  // The ordering constraint can span two layers, so report the effective source
+  // of each participating value after the independently sanitized layers merge.
   if (config.compress.maxContextPercent <= config.compress.minContextPercent) {
     warnings.push(
-      `Merged configuration: maxContextPercent (${config.compress.maxContextPercent}) must be greater than minContextPercent (${config.compress.minContextPercent}), reset to defaults`,
+      `${percentSources.maxContextPercent}#/compress/maxContextPercent and ${percentSources.minContextPercent}#/compress/minContextPercent: maxContextPercent (${config.compress.maxContextPercent}) must be greater than minContextPercent (${config.compress.minContextPercent}), reset to defaults`,
     );
     config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
     config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
   }
 
   return { config, warnings };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseConfigFile(filePath: string): { value?: Record<string, unknown>; warning?: string } {

@@ -107,11 +107,13 @@
         "maxContextPercent": {
           "type": "number",
           "default": 80,
+          "maximum": 100,
           "description": "Legacy: max context percentage threshold"
         },
         "minContextPercent": {
           "type": "number",
           "default": 50,
+          "maximum": 100,
           "description": "Legacy: min context percentage threshold"
         },
         "maxContextLimit": {
@@ -227,7 +229,8 @@
           "default": true,
           "description": "Exclude active summary tokens from threshold comparison to prevent cascading"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "manualMode": {
       "type": "object",
@@ -251,7 +254,8 @@
           "default": true,
           "description": "Run automatic strategies even in manual mode"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "strategies": {
       "type": "object",
@@ -278,7 +282,8 @@
               "minimum": 0,
               "description": "Protect duplicate tool outputs from pruning for N turns after invocation. 0 disables."
             }
-          }
+          },
+          "additionalProperties": false
         },
         "purgeErrors": {
           "type": "object",
@@ -302,9 +307,11 @@
               "default": [],
               "description": "Tool names excluded from failed-input purging (Node path.posix.matchesGlob patterns)"
             }
-          }
+          },
+          "additionalProperties": false
         }
-      }
+      },
+      "additionalProperties": false
     },
     "experimental": {
       "type": "object",
@@ -319,7 +326,9 @@
           "default": false,
           "description": "Enable filesystem-based prompt overrides"
         }
-      }
+      },
+      "additionalProperties": false
     }
-  }
+  },
+  "additionalProperties": false
 }

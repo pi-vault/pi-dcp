@@ -18,6 +18,10 @@ export class Logger {
     this.write("WARN", source, message, data);
   }
 
+  warnAlways(source: string, message: string, data?: Record<string, unknown>): void {
+    this.write("WARN", source, message, data, true);
+  }
+
   error(source: string, message: string, data?: Record<string, unknown>): void {
     this.write("ERROR", source, message, data);
   }
@@ -27,14 +31,13 @@ export class Logger {
     source: string,
     message: string,
     data?: Record<string, unknown>,
+    force = false,
   ): void {
-    if (!this.enabled || !this.logDir) return;
+    if ((!this.enabled && !force) || !this.logDir) return;
 
     const now = new Date();
     const timestamp = now.toISOString();
     const dateStr = timestamp.slice(0, 10);
-
-    fs.mkdirSync(this.logDir, { recursive: true });
 
     let line = `${timestamp} ${level.padEnd(5)} ${source}: ${message}`;
     if (data) {
@@ -44,6 +47,12 @@ export class Logger {
       line += ` | ${pairs}`;
     }
 
-    fs.appendFileSync(path.join(this.logDir, `${dateStr}.log`), `${line}\n`);
+    try {
+      fs.mkdirSync(this.logDir, { recursive: true });
+      fs.appendFileSync(path.join(this.logDir, `${dateStr}.log`), `${line}\n`);
+    } catch {
+      // Logging is best-effort and must never interrupt extension behavior.
+      return;
+    }
   }
 }

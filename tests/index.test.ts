@@ -1004,7 +1004,7 @@ describe("configuration warning lifecycle", () => {
 
   it("notifies once with a count and path while logging each problem", async () => {
     const configPath = writeInvalidConfig();
-    const loggerWarnSpy = vi.spyOn(Logger.prototype, "warn");
+    const loggerWarnSpy = vi.spyOn(Logger.prototype, "warnAlways");
     try {
       const { api, handlers } = createMockApi();
       createExtension(api);
@@ -1032,25 +1032,52 @@ describe("configuration warning lifecycle", () => {
   });
 
   it("logs without notifying when the UI is unavailable", async () => {
+    const configPath = writeInvalidConfig();
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const notify = vi.fn();
+    const sessionDir = path.join(agentDir, "session");
+    const baseContext = sessionContext(enabledModel);
+    const ctx = {
+      ...baseContext,
+      sessionManager: {
+        ...baseContext.sessionManager,
+        getSessionDir: () => sessionDir,
+      },
+      hasUI: false,
+      ui: { notify, setStatus: vi.fn() },
+    };
+
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+
+    expect(notify).not.toHaveBeenCalled();
+    const logDir = path.join(sessionDir, "dcp", "logs");
+    const logFiles = fs.readdirSync(logDir);
+    expect(logFiles).toHaveLength(1);
+    const log = fs.readFileSync(path.join(logDir, logFiles[0]), "utf8");
+    expect(log).toContain(`${configPath}#/unknownTop`);
+    expect(log.match(/ WARN {2}config:/g)).toHaveLength(4);
+  });
+
+  it("continues startup when the configuration warning log is unwritable", async () => {
     writeInvalidConfig();
-    const loggerWarnSpy = vi.spyOn(Logger.prototype, "warn");
-    try {
-      const { api, handlers } = createMockApi();
-      createExtension(api);
-      const notify = vi.fn();
-      const ctx = {
-        ...sessionContext(enabledModel),
-        hasUI: false,
-        ui: { notify, setStatus: vi.fn() },
-      };
+    const unusableSessionDir = path.join(agentDir, "session-file");
+    fs.writeFileSync(unusableSessionDir, "not a directory");
+    const { api, handlers } = createMockApi();
+    createExtension(api);
+    const baseContext = sessionContext(enabledModel);
+    const ctx = {
+      ...baseContext,
+      sessionManager: {
+        ...baseContext.sessionManager,
+        getSessionDir: () => unusableSessionDir,
+      },
+      hasUI: false,
+    };
 
-      await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
-
-      expect(notify).not.toHaveBeenCalled();
-      expect(loggerWarnSpy).toHaveBeenCalledTimes(4);
-    } finally {
-      loggerWarnSpy.mockRestore();
-    }
+    await expect(
+      registeredHandler(handlers, "session_start")({ reason: "new" }, ctx),
+    ).resolves.toBeUndefined();
   });
 });
 
