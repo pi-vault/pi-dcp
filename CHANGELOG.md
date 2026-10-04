@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 2026-10-03 - [0.7.0]
+
+### Added
+
+- Pi-native `path` support for `read`, `write`, and `edit`, plus protection for file paths recorded in a tool result's nested calls. Paths are normalized to `/` separators before glob matching, so Windows-style separators protect correctly without changing glob semantics.
+
+### Changed
+
+- `maxContextLimit` / `minContextLimit` and per-model limit entries now accept only positive integers or percentages greater than 0 and at most 100. Invalid values are dropped with a source-qualified warning; an invalid project value inherits the valid global value instead of resetting to the built-in default.
+- Configuration is sanitized one layer at a time: unknown keys and invalid fields are omitted, valid siblings are retained, and every problem is reported with its originating absolute path and RFC 6901-escaped JSON pointer.
+- Each configuration reload writes every problem to the DCP log and shows at most one interactive warning containing the problem count and participating config paths.
+- Compression turn nudges now anchor both the eligible user message and the nearest preceding assistant message. `nudgeForce: "strong"` renders in the user role; `nudgeForce: "soft"` renders in the assistant role, including a synthetic text part inserted before a tool-only assistant call. The version-1 snapshot shape is unchanged.
+
 ## 2026-10-03 - [0.6.1]
 
 ### Added
