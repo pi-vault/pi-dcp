@@ -6,6 +6,7 @@ import {
   runBenchmarkSuite,
   type BenchmarkReport,
 } from "../scripts/benchmark.ts";
+import { requireDefined } from "./helpers.ts";
 
 describe("benchmark workloads", () => {
   it("builds 2,000 clean user and assistant messages", () => {
@@ -65,5 +66,43 @@ describe("benchmark workloads", () => {
         workload.inputEstimatedTokens - workload.outputEstimatedTokens,
       );
     }
+  });
+
+  describe("token gates", () => {
+    // Retained v0.7.0 baselines, expressed as exact ratios rather than rounded
+    // percentages, so the five-percentage-point limit is enforced precisely.
+    const REPEATED_BASELINE = 962_873 / 1_017_575;
+    const NESTED_BASELINE = 1_171 / 1_291;
+    const RATIO_TOLERANCE = 0.05;
+
+    function byName(report: BenchmarkReport) {
+      return new Map(report.workloads.map((workload) => [workload.name, workload]));
+    }
+
+    it("keeps injected marker overhead under 6,000 tokens on a clean workload", () => {
+      const clean = requireDefined(
+        byName(runBenchmarkSuite(1)).get("clean-2000-messages"),
+        "clean",
+      );
+      expect(clean.outputEstimatedTokens - clean.inputEstimatedTokens).toBeLessThanOrEqual(6_000);
+    });
+
+    it("preserves the repeated-tool reduction ratio within 5 points of the baseline", () => {
+      const repeated = requireDefined(
+        byName(runBenchmarkSuite(1)).get("repeated-tool-pairs-2000"),
+        "repeated",
+      );
+      const ratio = repeated.reductionEstimatedTokens / repeated.inputEstimatedTokens;
+      expect(ratio).toBeGreaterThanOrEqual(REPEATED_BASELINE - RATIO_TOLERANCE);
+    });
+
+    it("preserves the nested-block reduction ratio within 5 points of the baseline", () => {
+      const nested = requireDefined(
+        byName(runBenchmarkSuite(1)).get("restored-nested-blocks-100"),
+        "nested",
+      );
+      const ratio = nested.reductionEstimatedTokens / nested.inputEstimatedTokens;
+      expect(ratio).toBeGreaterThanOrEqual(NESTED_BASELINE - RATIO_TOLERANCE);
+    });
   });
 });
