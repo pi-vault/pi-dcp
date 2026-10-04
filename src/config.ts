@@ -10,6 +10,7 @@ import {
   type ExperimentalConfig,
   type StrategiesConfig,
 } from "./config-schema.ts";
+import { sanitizeConfigLayer } from "./config-validation.ts";
 
 // Re-export types so existing imports from config.ts continue to work
 export type {
@@ -70,60 +71,35 @@ export function loadConfig(
     if (!filePath) continue;
     const parsed = parseConfigFile(filePath);
     if (parsed.warning) warnings.push(parsed.warning);
-    if (parsed.value) deepMerge(merged, parsed.value);
-  }
-
-  // Deep merge raw user config over defaults so partial nested objects
-  // (e.g. { compress: { mode: "message" } }) don't wipe sibling defaults.
-  // Clean unknown properties first
-  Value.Clean(DcpConfigSchema, merged);
-
-  // Validate and reset invalid values to defaults.
-  // Union types produce multiple errors for the same path (one per branch);
-  // deduplicate so each property emits at most one warning.
-  if (!Value.Check(DcpConfigSchema, merged)) {
-    const seenPaths = new Set<string>();
-    for (const error of Value.Errors(DcpConfigSchema, merged)) {
-      if (!error.instancePath) continue; // skip empty-path container errors
-      if (seenPaths.has(error.instancePath)) continue; // deduplicate Union branches
-      seenPaths.add(error.instancePath);
-      warnings.push(`Config error at ${error.instancePath}: ${error.message}`);
-      const defaultValue = getByPath(
-        DEFAULT_CONFIG as unknown as Record<string, unknown>,
-        error.instancePath,
+    if (parsed.value) {
+      const { value: sanitized, warnings: layerWarnings } = sanitizeConfigLayer(
+        parsed.value,
+        filePath,
       );
-      if (defaultValue !== undefined) {
-        setByPath(merged, error.instancePath, structuredClone(defaultValue));
-      }
+      warnings.push(...layerWarnings);
+      deepMerge(merged, sanitized);
     }
-  }
-
-  const disabledModels = merged.disabledModels;
-  if (
-    !Array.isArray(disabledModels) ||
-    disabledModels.some((modelKey) => typeof modelKey !== "string")
-  ) {
-    merged.disabledModels = [];
   }
 
   const config = merged as unknown as DcpConfig;
 
-  // Post-validation range fixes (semantic constraints TypeBox can't express)
+  // Post-validation range fixes (semantic constraints TypeBox can't express).
+  // These run on the merged result, so label them as cross-layer diagnostics.
   if (config.compress.maxContextPercent > 100) {
     warnings.push(
-      `maxContextPercent (${config.compress.maxContextPercent}) exceeds 100, reset to default`,
+      `Merged configuration: maxContextPercent (${config.compress.maxContextPercent}) exceeds 100, reset to default`,
     );
     config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
   }
   if (config.compress.minContextPercent > 100) {
     warnings.push(
-      `minContextPercent (${config.compress.minContextPercent}) exceeds 100, reset to default`,
+      `Merged configuration: minContextPercent (${config.compress.minContextPercent}) exceeds 100, reset to default`,
     );
     config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
   }
   if (config.compress.maxContextPercent <= config.compress.minContextPercent) {
     warnings.push(
-      `maxContextPercent (${config.compress.maxContextPercent}) must be greater than minContextPercent (${config.compress.minContextPercent}), reset to defaults`,
+      `Merged configuration: maxContextPercent (${config.compress.maxContextPercent}) must be greater than minContextPercent (${config.compress.minContextPercent}), reset to defaults`,
     );
     config.compress.maxContextPercent = DEFAULT_CONFIG.compress.maxContextPercent;
     config.compress.minContextPercent = DEFAULT_CONFIG.compress.minContextPercent;
@@ -168,32 +144,4 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
       target[key] = srcVal;
     }
   }
-}
-
-/**
- * Get a value from a nested object using a JSON Pointer path (e.g. "/compress/mode").
- */
-function getByPath(obj: Record<string, unknown>, path: string): unknown {
-  const parts = path.split("/").filter(Boolean);
-  let current: unknown = obj;
-  for (const part of parts) {
-    if (current === null || typeof current !== "object") return undefined;
-    current = (current as Record<string, unknown>)[part];
-  }
-  return current;
-}
-
-/**
- * Set a value in a nested object using a JSON Pointer path (e.g. "/compress/mode").
- */
-function setByPath(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const parts = path.split("/").filter(Boolean);
-  if (parts.length === 0) return;
-  let current: Record<string, unknown> = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const next = current[parts[i]];
-    if (next === null || typeof next !== "object") return;
-    current = next as Record<string, unknown>;
-  }
-  current[parts[parts.length - 1]] = value;
 }

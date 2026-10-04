@@ -36,6 +36,14 @@ describe("resolveContextTokenLimit", () => {
     expect(resolveContextTokenLimit("0%", 200000)).toBeUndefined();
     expect(resolveContextTokenLimit("150%", 200000)).toBeUndefined();
   });
+
+  it("accepts a fractional percentage at the low end", () => {
+    expect(resolveContextTokenLimit("0.5%", 200000)).toBe(1000);
+  });
+
+  it("rejects a percentage just above 100", () => {
+    expect(resolveContextTokenLimit("100.1%", 200000)).toBeUndefined();
+  });
 });
 
 describe("isContextOverLimits", () => {

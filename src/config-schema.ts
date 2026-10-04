@@ -34,6 +34,19 @@ export const PurgeErrorsConfigSchema = Type.Object({
   }),
 });
 
+export const ContextLimitSchema = Type.Union(
+  [
+    Type.Integer({ minimum: 1 }),
+    Type.String({
+      pattern: "^\\d+(?:\\.\\d+)?%$",
+    }),
+  ],
+  {
+    description:
+      "Context limit as a positive token count or a percentage string like '80%' (exclusive of 0, at most 100)",
+  },
+);
+
 export const CompressConfigSchema = Type.Object({
   mode: Type.Union([Type.Literal("range"), Type.Literal("message")], {
     default: "range",
@@ -57,25 +70,15 @@ export const CompressConfigSchema = Type.Object({
     default: 50,
     description: "Legacy: min context percentage threshold",
   }),
-  maxContextLimit: Type.Optional(
-    Type.Union([Type.Number(), Type.String()], {
-      description:
-        "Max context limit (absolute token count or percentage string like '80%'). Default: 200000",
-    }),
-  ),
-  minContextLimit: Type.Optional(
-    Type.Union([Type.Number(), Type.String()], {
-      description:
-        "Min context limit (absolute token count or percentage string like '50%'). Default: 100000",
-    }),
-  ),
+  maxContextLimit: Type.Optional(ContextLimitSchema),
+  minContextLimit: Type.Optional(ContextLimitSchema),
   modelMaxLimits: Type.Optional(
-    Type.Record(Type.String(), Type.Union([Type.Number(), Type.String()]), {
+    Type.Record(Type.String(), ContextLimitSchema, {
       description: "Per-model max context limits keyed by 'provider/modelId'",
     }),
   ),
   modelMinLimits: Type.Optional(
-    Type.Record(Type.String(), Type.Union([Type.Number(), Type.String()]), {
+    Type.Record(Type.String(), ContextLimitSchema, {
       description: "Per-model min context limits keyed by 'provider/modelId'",
     }),
   ),
