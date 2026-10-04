@@ -104,6 +104,7 @@ describe("prune", () => {
         error: "command not found",
         userTurn: 0,
         tokenCount: 40,
+        filePaths: [],
         assistantIndex: 0,
         resultIndex: 1,
       });

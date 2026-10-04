@@ -1,6 +1,10 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState, ToolParameterEntry } from "./types.ts";
 import { countMessageTokens } from "../utils/tokens.ts";
+import {
+  getFilePathsFromNestedCalls,
+  getFilePathsFromParameters,
+} from "../strategies/protected-patterns.ts";
 
 /**
  * Scan messages and populate state.toolParameters with metadata for each tool call.
@@ -17,7 +21,13 @@ export function syncToolCache(state: SessionState, messages: AgentMessage[]): vo
   // First pass: collect tool results with token counts and indices
   const resultsByCallId = new Map<
     string,
-    { isError: boolean; errorText?: string; tokenCount: number; index: number }
+    {
+      isError: boolean;
+      errorText?: string;
+      tokenCount: number;
+      index: number;
+      nestedFilePaths: string[];
+    }
   >();
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -27,6 +37,7 @@ export function syncToolCache(state: SessionState, messages: AgentMessage[]): vo
       errorText: msg.isError ? extractToolResultText(msg) : undefined,
       tokenCount: countMessageTokens(msg),
       index: i,
+      nestedFilePaths: getFilePathsFromNestedCalls(msg.nestedCalls),
     });
   }
 
@@ -47,9 +58,18 @@ export function syncToolCache(state: SessionState, messages: AgentMessage[]): vo
 
       const callId = p.id as string;
       const result = resultsByCallId.get(callId);
+      const parameters =
+        typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments)
+          ? (p.arguments as Record<string, unknown>)
+          : {};
+      const directFilePaths = getFilePathsFromParameters(
+        (p.name as string) ?? "unknown",
+        parameters,
+      );
       const entry: ToolParameterEntry = {
         tool: (p.name as string) ?? "unknown",
         parameters: p.arguments ?? {},
+        filePaths: uniquePaths([...directFilePaths, ...(result?.nestedFilePaths ?? [])]),
         status: result ? (result.isError ? "error" : "completed") : "pending",
         error: result?.errorText,
         userTurn: state.currentUserTurn,
@@ -97,4 +117,15 @@ function extractToolResultText(msg: AgentMessage): string | undefined {
     }
   }
   return texts.join("\n") || undefined;
+}
+
+function uniquePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const path of paths) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    result.push(path);
+  }
+  return result;
 }

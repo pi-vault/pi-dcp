@@ -473,6 +473,7 @@ describe("expandRangeForToolChains with cached indices", () => {
       error: undefined,
       userTurn: 1,
       tokenCount: 100,
+      filePaths: [],
       assistantIndex: 10, // beyond messages length
       resultIndex: 11,
     });

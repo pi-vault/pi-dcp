@@ -16,6 +16,7 @@ describe("sweep command", () => {
       error: undefined,
       userTurn: 1,
       tokenCount: 200,
+      filePaths: [],
       assistantIndex: undefined,
       resultIndex: undefined,
     });
@@ -27,6 +28,7 @@ describe("sweep command", () => {
       error: undefined,
       userTurn: 1,
       tokenCount: 100,
+      filePaths: [],
       assistantIndex: undefined,
       resultIndex: undefined,
     });
@@ -48,6 +50,7 @@ describe("sweep command", () => {
       error: undefined,
       userTurn: 1,
       tokenCount: 200,
+      filePaths: [],
       assistantIndex: undefined,
       resultIndex: undefined,
     });
@@ -67,6 +70,7 @@ describe("sweep command", () => {
       error: undefined,
       userTurn: 1,
       tokenCount: 20,
+      filePaths: [],
       assistantIndex: undefined,
       resultIndex: undefined,
     });
@@ -77,6 +81,7 @@ describe("sweep command", () => {
       error: undefined,
       userTurn: 1,
       tokenCount: 20,
+      filePaths: [],
       assistantIndex: undefined,
       resultIndex: undefined,
     });
@@ -98,6 +103,7 @@ describe("sweep command", () => {
       error: undefined,
       userTurn: 1,
       tokenCount: 200,
+      filePaths: [],
       assistantIndex: undefined,
       resultIndex: undefined,
     });
@@ -120,6 +126,7 @@ describe("sweep command", () => {
       error: undefined,
       userTurn: 3,
       tokenCount: 200,
+      filePaths: [],
       assistantIndex: undefined,
       resultIndex: undefined,
     });
