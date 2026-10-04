@@ -42,28 +42,14 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
 - **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
-## What's new in 0.6.0
+## What's new in 0.6.1
 
-- Disable DCP per model with the new top-level `disabledModels` array (exact, case-sensitive `provider/modelId` keys). For a disabled model, DCP leaves messages unchanged, rejects mutating commands, and removes `compress` from the active tools. Existing DCP state is preserved across disabled windows.
-- Live model switching reconciles the `compress` tool with `disabledModels` immediately when you change models mid-session; switching back to an enabled model restores it.
-- Per-model compression thresholds via `compress.modelMaxLimits` / `modelMinLimits` accept percentage strings such as `"80%"` and stay dormant while the matching model is disabled.
-- DCP state snapshots that contain only message references are skipped, so resume restores the newest valid snapshot.
-- Malformed `<dcp-message-id>` and `<dcp-system-reminder>` references are sanitized, including unicode message-like payloads and bound suffix matching.
-- `protectedFilePatterns` (and other Node-glob config) now use `path.posix.matchesGlob` with a leading-dot compatibility fallback, so existing configs that target `.pi/**` and similar patterns continue to match.
-- DCP statistics and pruning-anchor ordering stay coherent across session compaction and pruning runs.
-- Session analysis now hashes session content and validates DCP state records before reading them.
+- Repository checks are warning-free and enforced as such: `pnpm lint` now runs `biome lint --error-on-warnings`, so a lint warning fails the build instead of scrolling past. Non-null assertions, explicit `any`, and unused imports in production and test code were removed using typed test helpers.
+- Removed dead manual-trigger state: the unused `pendingManualTrigger` field and the unreachable `compress-pending` manual mode are gone. `manualMode` is now exactly `false | "active"`. Version-1 snapshot compatibility is unchanged — snapshots serialize and restore both values exactly as before.
+- `pnpm analyze:sessions` now reports prompt-cache evidence: per-corpus and per-file token and cost totals (`input`, `output`, `cacheRead`, `cacheWrite`, optional `cacheWrite1h` and `reasoning`, provider-reported `totalTokens`, and each cost component), a response-latency summary, and separate `malformedUsage` / `malformedLatency` diagnostics. Usage is collected from every Pi carrier: assistant messages, standalone usage entries, tool results, compactions, and branch summaries.
+- Session reports are now identifier-free. Files are identified only by a one-based `fileIndex`; input paths, basenames, provider/model names, usage kinds, and notes are never retained.
 
-## What's new in 0.5.0
-
-- Trusted project configuration loads from `<ctx.cwd>/.pi/dcp.json` and layers over global configuration at session start; untrusted projects fall back to the global config only.
-- `dcp:compress [focus]` sends Pi a hidden manual-compression follow-up so you can trigger a compression pass on demand.
-- Compression batches validate completely before state changes, then commit atomically; selection expands tool-call/result pairs and active blocks to a fixed point.
-- Nested compression blocks restore coherent visibility when decompressed or recompressed; savings count only visible context, without nested double-counting.
-- DCP state lives in versioned `pi-dcp-state` entries on the active Pi session branch. Resume, fork, and tree navigation recover the newest valid entry; forks inherit settings but start with fresh statistics. Legacy `dcp/state.json` sidecars are ignored.
-- Compression memberships, message indices, tool caches, and nudge positions rebuild from current messages; corrupt entries are skipped and compaction persists its reset.
-- `dcp:lifetime` scans Pi session JSONL files and totals the newest snapshot for each owning session.
-- Top-level user-turn protection preserves recent raw user turns and complete tool pairs across pruning and compression; failed tool diagnostics survive while stale failed inputs are purged.
-- Deterministic benchmark evidence (`pnpm benchmark`) covers clean messages, repeated tool pairs, and restored nested compression blocks.
+No pruning policy changed in this release. Incremental pruning timing and strategy eligibility are unchanged.
 
 ## Commands
 
@@ -231,18 +217,6 @@ DCP preserves failed tool diagnostics and purges only the historical arguments o
 
 - `allowSubAgents` — run DCP inside sub-agent child sessions.
 - `customPrompts` — load prompt overrides from the filesystem.
-
-## What's new in 0.4.0
-
-- Compression notifications can now surface summary text with `compress.showCompression`.
-- `dcp:permission` adds runtime control over compress-tool usage.
-- Deduplication can preserve recent duplicates via `turnProtection`.
-- Config validation and the shipped `dcp.schema.json` now come from the same TypeBox source of truth.
-
-## What's new in 0.4.1
-
-- Long sessions no longer repeatedly invoke the Anthropic tokenizer during context processing.
-- Per-message token estimates are restored to the lightweight character-based heuristic.
 
 ## Development and verification
 

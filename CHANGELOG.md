@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 2026-10-03 - [0.6.1]
+
+### Added
+
+- Privacy-safe prompt-cache evidence from `pnpm analyze:sessions`: `UsageTotals` and `LatencySummary` aggregates, `responseLatency`, and separate `malformedUsage` / `malformedLatency` diagnostics. Usage is read from every Pi carrier — assistant messages, standalone usage entries, tool results, compactions, and branch summaries.
+
+### Changed
+
+- `pnpm lint` now runs `biome lint --error-on-warnings`, so lint warnings fail the build. All 57 warnings were resolved with types and explicit control flow rather than suppressions; no rule was weakened.
+- `SessionState.manualMode` narrowed to `false | "active"`, pinned by a type-level test. Version-1 snapshot compatibility is unchanged.
+- Session reports are identifier-free: each file is reported by a one-based `fileIndex` instead of its path, and input paths, basenames, provider/model names, usage kinds, and notes are no longer retained.
+
+### Removed
+
+- Dead manual-trigger state: the unused `pendingManualTrigger` field and the unreachable `compress-pending` manual mode. No command, handler, serializer, or restorer consumed either.
+
+### Notes
+
+- No pruning policy changed in this release. Incremental pruning timing and strategy eligibility are unchanged; this release only collects the evidence that a future change would require.
+
 ## 2026-08-28 - [0.6.0]
 
 ### Added
