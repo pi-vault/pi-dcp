@@ -7,13 +7,14 @@ import {
 import type { ContextUsage } from "../src/state/types.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { CONTEXT_LIMIT_NUDGE, TURN_NUDGE, ITERATION_NUDGE } from "../src/prompts/nudges.ts";
 import {
   makeUserMessage,
   makeUserMessageString,
   makeAssistantMessage,
   makeDefaultConfig,
   resetTestTimestamp,
+  getMessageText,
+  requireDefined,
 } from "./helpers.ts";
 import { buildPriorityMap } from "../src/messages/priority.ts";
 
@@ -74,10 +75,10 @@ describe("injectMessageIds", () => {
 
     const result = injectMessageIds(state, messages);
 
-    const userText = (result[0] as any).content[0].text as string;
+    const userText = getMessageText(requireDefined(result[0], "result[0]"));
     expect(userText).toContain("<dcp-message-id>m0001</dcp-message-id>");
 
-    const assistantText = (result[1] as any).content[0].text as string;
+    const assistantText = getMessageText(requireDefined(result[1], "result[1]"));
     expect(assistantText).toContain("<dcp-message-id>m0002</dcp-message-id>");
   });
 
@@ -89,7 +90,7 @@ describe("injectMessageIds", () => {
     const first = injectMessageIds(state, messages);
     const second = injectMessageIds(state, first);
 
-    const text = (second[0] as any).content[0].text as string;
+    const text = getMessageText(requireDefined(second[0], "second[0]"));
     const matches = text.match(/<dcp-message-id>/g);
     expect(matches).toHaveLength(1);
   });
@@ -102,8 +103,10 @@ describe("injectMessageIds", () => {
     const result = injectMessageIds(state, messages);
 
     // Content should be converted to array form
-    expect(Array.isArray((result[0] as any).content)).toBe(true);
-    const text = (result[0] as any).content[0].text as string;
+    const injected = requireDefined(result[0], "result[0]");
+    expect("content" in injected).toBe(true);
+    expect(Array.isArray("content" in injected ? injected.content : undefined)).toBe(true);
+    const text = getMessageText(injected);
     expect(text).toContain("plain text content");
     expect(text).toContain("<dcp-message-id>m0001</dcp-message-id>");
   });
@@ -116,7 +119,7 @@ describe("injectMessageIds", () => {
     const first = injectMessageIds(state, messages);
     const second = injectMessageIds(state, first);
 
-    const text = (second[0] as any).content[0].text as string;
+    const text = getMessageText(requireDefined(second[0], "second[0]"));
     const matches = text.match(/<dcp-message-id>/g);
     expect(matches).toHaveLength(1);
   });
@@ -146,8 +149,8 @@ describe("injectMessageIds", () => {
     const result = injectMessageIds(state, messages);
 
     // Should have fresh m0001/m0002 tags, not the stale m0099/m0100
-    const userText = (result[0] as any).content[0].text as string;
-    const assistantText = (result[1] as any).content[0].text as string;
+    const userText = getMessageText(requireDefined(result[0], "result[0]"));
+    const assistantText = getMessageText(requireDefined(result[1], "result[1]"));
 
     expect(userText).toContain("<dcp-message-id>m0001</dcp-message-id>");
     expect(userText).not.toContain("m0099");
@@ -162,7 +165,7 @@ describe("injectMessageIds", () => {
     assignMessageRefs(state, messages);
     const result = injectMessageIds(state, messages);
 
-    const text = (result[0] as any).content[0].text as string;
+    const text = getMessageText(requireDefined(result[0], "result[0]"));
     expect(text).toContain("<dcp-message-id>m0001</dcp-message-id>");
     expect(text).not.toContain("m0050");
   });
@@ -181,10 +184,10 @@ describe("injectMessageIds with priorityMap", () => {
     const priorityMap = buildPriorityMap(state, messages);
     const result = injectMessageIds(state, messages, priorityMap);
 
-    const userText = (result[0] as any).content[0].text as string;
+    const userText = getMessageText(requireDefined(result[0], "result[0]"));
     expect(userText).toMatch(/<dcp-message-id priority="\d">m0001<\/dcp-message-id>/);
 
-    const assistantText = (result[1] as any).content[0].text as string;
+    const assistantText = getMessageText(requireDefined(result[1], "result[1]"));
     expect(assistantText).toMatch(/<dcp-message-id priority="\d">m0002<\/dcp-message-id>/);
   });
 
@@ -195,7 +198,7 @@ describe("injectMessageIds with priorityMap", () => {
 
     const result = injectMessageIds(state, messages);
 
-    const text = (result[0] as any).content[0].text as string;
+    const text = getMessageText(requireDefined(result[0], "result[0]"));
     expect(text).toContain("<dcp-message-id>m0001</dcp-message-id>");
     expect(text).not.toContain("priority=");
   });
@@ -209,7 +212,7 @@ describe("injectMessageIds with priorityMap", () => {
     const first = injectMessageIds(state, messages, priorityMap);
     const second = injectMessageIds(state, first, priorityMap);
 
-    const text = (second[0] as any).content[0].text as string;
+    const text = getMessageText(requireDefined(second[0], "second[0]"));
     const matches = text.match(/<dcp-message-id/g);
     expect(matches).toHaveLength(1);
   });
@@ -266,7 +269,9 @@ describe("injectCompressNudges", () => {
 
     const result = injectCompressNudges(state, config, messages, usage);
 
-    const text = (result[result.length - 1] as any).content[0].text as string;
+    const text = getMessageText(
+      requireDefined(result[result.length - 1], "result[result.length - 1]"),
+    );
     expect(text).toContain("<dcp-system-reminder>");
     expect(text).toContain("CRITICAL WARNING");
   });
@@ -280,7 +285,9 @@ describe("injectCompressNudges", () => {
 
     const result = injectCompressNudges(state, config, messages, usage);
 
-    const text = (result[result.length - 1] as any).content[0].text as string;
+    const text = getMessageText(
+      requireDefined(result[result.length - 1], "result[result.length - 1]"),
+    );
     expect(text).toContain("Evaluate the conversation for compressible ranges");
   });
 
@@ -298,7 +305,9 @@ describe("injectCompressNudges", () => {
 
     const result = injectCompressNudges(state, config, messages, usage);
 
-    const text = (result[result.length - 1] as any).content[0].text as string;
+    const text = getMessageText(
+      requireDefined(result[result.length - 1], "result[result.length - 1]"),
+    );
     expect(text).toContain("iterating for a while");
   });
 
@@ -312,7 +321,9 @@ describe("injectCompressNudges", () => {
     const first = injectCompressNudges(state, config, messages, usage);
     const second = injectCompressNudges(state, config, first, usage);
 
-    const text = (second[second.length - 1] as any).content[0].text as string;
+    const text = getMessageText(
+      requireDefined(second[second.length - 1], "second[second.length - 1]"),
+    );
     const matches = text.match(/<dcp-system-reminder>/g);
     expect(matches).toHaveLength(1);
   });
@@ -367,7 +378,9 @@ describe("injectCompressNudges", () => {
     const result = injectCompressNudges(state, config, messages, usage);
 
     // Only 2 assistant messages since user — should NOT trigger at threshold 3
-    const text = (result[result.length - 1] as any).content[0].text as string;
+    const text = getMessageText(
+      requireDefined(result[result.length - 1], "result[result.length - 1]"),
+    );
     expect(text).not.toContain("iterating for a while");
   });
 
@@ -380,8 +393,10 @@ describe("injectCompressNudges", () => {
 
     const result = injectCompressNudges(state, config, messages, usage);
 
-    expect(Array.isArray((result[0] as any).content)).toBe(true);
-    const text = (result[0] as any).content[0].text as string;
+    const injected = requireDefined(result[0], "result[0]");
+    expect("content" in injected).toBe(true);
+    expect(Array.isArray("content" in injected ? injected.content : undefined)).toBe(true);
+    const text = getMessageText(injected);
     expect(text).toContain("plain user message");
     expect(text).toContain("<dcp-system-reminder>");
   });
@@ -402,7 +417,9 @@ describe("injectCompressNudges", () => {
 
     const result = injectCompressNudges(state, config, messages, usage, customPrompts);
 
-    const text = (result[result.length - 1] as any).content[0].text as string;
+    const text = getMessageText(
+      requireDefined(result[result.length - 1], "result[result.length - 1]"),
+    );
     expect(text).toContain("CUSTOM CONTEXT LIMIT NUDGE");
     expect(text).not.toContain("CRITICAL WARNING");
   });
@@ -423,7 +440,9 @@ describe("injectCompressNudges", () => {
 
     const result = injectCompressNudges(state, config, messages, usage, customPrompts);
 
-    const text = (result[result.length - 1] as any).content[0].text as string;
+    const text = getMessageText(
+      requireDefined(result[result.length - 1], "result[result.length - 1]"),
+    );
     expect(text).toContain("CUSTOM TURN NUDGE");
     expect(text).not.toContain("Evaluate the conversation");
   });
@@ -449,7 +468,9 @@ describe("injectCompressNudges", () => {
 
     const result = injectCompressNudges(state, config, messages, usage, customPrompts);
 
-    const text = (result[result.length - 1] as any).content[0].text as string;
+    const text = getMessageText(
+      requireDefined(result[result.length - 1], "result[result.length - 1]"),
+    );
     expect(text).toContain("CUSTOM ITERATION NUDGE");
     expect(text).not.toContain("iterating for a while");
   });
@@ -463,7 +484,9 @@ describe("injectCompressNudges", () => {
 
     const result = injectCompressNudges(state, config, messages, usage, undefined);
 
-    const text = (result[result.length - 1] as any).content[0].text as string;
+    const text = getMessageText(
+      requireDefined(result[result.length - 1], "result[result.length - 1]"),
+    );
     expect(text).toContain("CRITICAL WARNING");
   });
 });

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
+import { requireDefined } from "./helpers.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-integration-test-${Date.now()}-${Math.random()}`);
 
@@ -9,7 +10,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => agentDir,
 }));
 
-type Handler = (...args: any[]) => unknown;
+type Handler = (...args: unknown[]) => unknown;
 type OutputMessage = {
   role: string;
   toolCallId?: string;
@@ -33,7 +34,7 @@ function createMockApi() {
       list.push(handler);
       handlers.set(event, list);
     },
-    registerTool(def: any) {
+    registerTool(def: { name: string }) {
       tools.set(def.name, def);
       if (!activeToolNames.includes(def.name)) activeToolNames.push(def.name);
     },
@@ -81,7 +82,7 @@ describe("integration", () => {
       ui: { setStatus: () => {}, notify: () => {} },
     };
 
-    const startHandlers = handlers.get("session_start")!;
+    const startHandlers = requireDefined(handlers.get("session_start"), "session_start handlers");
     for (const h of startHandlers) {
       await h({ reason: "new" }, mockCtx);
     }
@@ -144,18 +145,16 @@ describe("integration", () => {
       },
     ];
 
-    const contextHandlers = handlers.get("context")!;
-    let result: any;
+    const contextHandlers = requireDefined(handlers.get("context"), "context handlers");
+    let result: ContextResult | undefined;
     for (const h of contextHandlers) {
-      result = await h({ messages: structuredClone(messages) }, mockCtx);
+      result = (await h({ messages: structuredClone(messages) }, mockCtx)) as ContextResult;
     }
-
-    expect(result).toBeDefined();
-    expect(result.messages).toBeDefined();
+    if (!result) throw new Error("context handler returned no result");
 
     // The older duplicate glob call (c1) should have its output pruned
     const toolResult1 = result.messages.find(
-      (m: any) => m.role === "toolResult" && m.toolCallId === "c1",
+      (m) => m.role === "toolResult" && m.toolCallId === "c1",
     );
     if (toolResult1) {
       expect(toolResult1.content[0].text).toContain("[Output removed");
@@ -163,14 +162,14 @@ describe("integration", () => {
 
     // The newer glob call (c2) should be untouched
     const toolResult2 = result.messages.find(
-      (m: any) => m.role === "toolResult" && m.toolCallId === "c2",
+      (m) => m.role === "toolResult" && m.toolCallId === "c2",
     );
     expect(toolResult2).toBeDefined();
-    expect(toolResult2.content[0].text).toContain("src/index.ts");
+    expect(toolResult2?.content[0].text).toContain("src/index.ts");
 
     // Messages should have dcp-message-id tags
-    const userMsg = result.messages.find((m: any) => m.role === "user");
-    expect(userMsg.content[0].text).toContain("<dcp-message-id>");
+    const userMsg = result.messages.find((m) => m.role === "user");
+    expect(userMsg?.content[0].text).toContain("<dcp-message-id>");
   });
 
   it("protects the newest raw user turn while pruning older duplicate output", async () => {
@@ -349,7 +348,7 @@ describe("integration", () => {
     };
 
     // Start session first
-    const startHandlers = handlers.get("session_start")!;
+    const startHandlers = requireDefined(handlers.get("session_start"), "session_start handlers");
     for (const h of startHandlers) {
       await h({ reason: "new" }, mockCtx);
     }
@@ -362,15 +361,16 @@ describe("integration", () => {
       },
     ];
 
-    const contextHandlers = handlers.get("context")!;
-    let result: any;
+    const contextHandlers = requireDefined(handlers.get("context"), "context handlers");
+    let result: ContextResult | undefined;
     for (const h of contextHandlers) {
-      result = await h({ messages: structuredClone(messages) }, mockCtx);
+      result = (await h({ messages: structuredClone(messages) }, mockCtx)) as ContextResult;
     }
+    if (!result) throw new Error("context handler returned no result");
 
     // Should have injected a critical context warning nudge
     const lastMsg = result.messages[result.messages.length - 1];
-    const text = lastMsg.content[0].text;
+    const text = lastMsg?.content[0].text;
     expect(text).toContain("CRITICAL WARNING");
     expect(text).toContain("<dcp-system-reminder>");
   });

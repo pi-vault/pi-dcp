@@ -1,6 +1,6 @@
 {
   "name": "@pi-vault/pi-dcp",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "description": "Pi extension for dynamic context pruning — incremental tool output pruning and conversation compression",
   "author": "Lanh Hoang <lanhhoang@users.noreply.github.com>",
@@ -25,7 +25,7 @@
   "scripts": {
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "lint": "biome lint .",
+    "lint": "biome lint --error-on-warnings .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "benchmark": "tsx scripts/benchmark.ts",

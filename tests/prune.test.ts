@@ -3,6 +3,7 @@ import { pruneToolOutputs, applyPruning } from "../src/messages/prune.ts";
 import { allocateBlockId, allocateRunId, applyCompressionState } from "../src/compress/state.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { getMessageText } from "./helpers.ts";
 
 function makeToolResult(
   toolCallId: string,
@@ -298,15 +299,7 @@ describe("prune", () => {
       // Should have 3 messages: original[0], summary, original[4]
       expect(result.length).toBeLessThan(messages.length);
       // Summary should be present
-      const summaryMsg = result.find((m) => {
-        // biome-ignore lint/suspicious/noExplicitAny: test helper
-        const content = (m as any).content;
-        // biome-ignore lint/suspicious/noExplicitAny: test helper
-        return (
-          Array.isArray(content) &&
-          content.some((c: any) => c.type === "text" && c.text.includes("Summary of messages 1-3"))
-        );
-      });
+      const summaryMsg = result.find((m) => getMessageText(m).includes("Summary of messages 1-3"));
       expect(summaryMsg).toBeDefined();
     });
 

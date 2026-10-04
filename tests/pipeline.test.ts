@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { runPipeline } from "../src/pipeline.ts";
 import { createSessionState } from "../src/state/state.ts";
-import { makeDefaultConfig, makeUserMessage, makeAssistantMessage } from "./helpers.ts";
+import {
+  makeDefaultConfig,
+  makeUserMessage,
+  makeAssistantMessage,
+  getMessageText,
+  requireMessage,
+} from "./helpers.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ContextUsage } from "../src/state/types.ts";
 import { applyCompressionState, allocateBlockId, allocateRunId } from "../src/compress/state.ts";
@@ -66,11 +72,8 @@ describe("runPipeline", () => {
     const result = runPipeline(state, config, messages, undefined);
 
     // User messages should have message ID tags injected
-    const firstUser = (result.messages[0] as any).content as Array<{
-      type: string;
-      text: string;
-    }>;
-    expect(firstUser[0].text).toContain("<dcp-message-id");
+    const firstUser = getMessageText(requireMessage(result.messages[0], "result.messages[0]"));
+    expect(firstUser).toContain("<dcp-message-id");
   });
 
   it("deduplicates tool outputs across turns", () => {
@@ -223,11 +226,10 @@ describe("runPipeline", () => {
     const result = runPipeline(state, config, messages, usage);
 
     // Should have injected a nudge into the last user message
-    const lastUser = (result.messages[result.messages.length - 1] as any).content as Array<{
-      type: string;
-      text: string;
-    }>;
-    expect(lastUser[0].text).toContain("<dcp-system-reminder>");
+    const lastUser = getMessageText(
+      requireMessage(result.messages[result.messages.length - 1], "last result message"),
+    );
+    expect(lastUser).toContain("<dcp-system-reminder>");
   });
 
   it("keeps anchored nudges on their raw message when compression prunes earlier messages", () => {

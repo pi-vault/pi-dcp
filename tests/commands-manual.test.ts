@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { manualCommand } from "../src/commands/manual.ts";
 import { createSessionState } from "../src/state/state.ts";
+import type { SessionState } from "../src/state/types.ts";
 
 describe("manual command", () => {
   it("enables manual mode with 'on'", () => {
@@ -25,11 +26,15 @@ describe("manual command", () => {
     expect(result).toContain("active");
   });
 
-  it("reports compress-pending state", () => {
+  it("reports off when manual mode is disabled and no argument is given", () => {
     const state = createSessionState();
-    state.manualMode = "compress-pending";
+    state.manualMode = false;
     const result = manualCommand(state, "");
-    expect(result).toContain("compress-pending");
+    expect(result).toContain("off");
+  });
+
+  it("exposes manualMode as exactly false | 'active'", () => {
+    expectTypeOf<SessionState["manualMode"]>().toEqualTypeOf<false | "active">();
   });
 
   it("returns error for invalid argument", () => {

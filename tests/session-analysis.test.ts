@@ -339,3 +339,677 @@ describe("session analysis", () => {
     expect(JSON.stringify(report)).not.toContain("private-stop-reason");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cache and latency evidence
+// ---------------------------------------------------------------------------
+
+/** Build a Pi `Usage` object; `"__INF__"` expands to a literal 1e400 (JSON-infinite). */
+function usageJson(fields: Record<string, unknown>): string {
+  return JSON.stringify({
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    ...fields,
+  }).replaceAll('"__INF__"', "1e400");
+}
+
+function usage(fields: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(usageJson(fields)) as Record<string, unknown>;
+}
+
+function entry(fields: Record<string, unknown>): string {
+  return JSON.stringify({
+    type: "message",
+    id: "e",
+    parentId: null,
+    timestamp: "2026-08-22T00:00:00.000Z",
+    ...fields,
+  });
+}
+
+const zeroUsage = usage({});
+
+describe("session usage and latency evidence", () => {
+  it("aggregates every Pi usage carrier and reports one-based file ordinals", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-usage-"));
+    tempDirs.push(dir);
+
+    const firstFile = path.join(dir, "session.jsonl");
+    const firstLines = [
+      entry({ type: "session", id: "session-1", cwd: "/tmp" }),
+      entry({
+        id: "u1",
+        message: { role: "user", content: "go" },
+        timestamp: "2026-08-22T00:00:00.000Z",
+      }),
+      // assistant after a user message -> latency candidate (1200ms)
+      entry({
+        id: "a1",
+        timestamp: "2026-08-22T00:00:01.200Z",
+        message: {
+          role: "assistant",
+          stopReason: "toolUse",
+          content: [],
+          usage: usage({
+            input: 1000,
+            output: 200,
+            cacheRead: 300,
+            cacheWrite: 400,
+            totalTokens: 1500,
+            cost: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 },
+          }),
+        },
+      }),
+      // tool result with no usage -> optional absence, ignored
+      entry({
+        id: "r1",
+        timestamp: "2026-08-22T00:00:01.300Z",
+        message: { role: "toolResult", toolCallId: "c1", content: [], isError: false },
+      }),
+      // assistant after a tool result -> latency candidate (1600ms)
+      entry({
+        id: "a2",
+        timestamp: "2026-08-22T00:00:02.900Z",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [],
+          usage: usage({
+            input: 10,
+            output: 20,
+            cacheRead: 30,
+            cacheWrite: 40,
+            cacheWrite1h: 5,
+            totalTokens: 60,
+            cost: { input: 11, output: 12, cacheRead: 13, cacheWrite: 14, total: 15 },
+          }),
+        },
+      }),
+      // tool result carrying usage
+      entry({
+        id: "r2",
+        timestamp: "2026-08-22T00:00:03.000Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "c2",
+          content: [],
+          isError: false,
+          usage: usage({
+            input: 1,
+            output: 2,
+            cacheRead: 3,
+            cacheWrite: 4,
+            totalTokens: 5,
+            cost: { input: 21, output: 22, cacheRead: 23, cacheWrite: 24, total: 25 },
+          }),
+        },
+      }),
+      // standalone usage entry carrying usage
+      entry({
+        type: "usage",
+        id: "s1",
+        timestamp: "2026-08-22T00:00:03.100Z",
+        kind: "cache_warm",
+        usage: usage({
+          input: 7,
+          output: 8,
+          cacheRead: 9,
+          cacheWrite: 10,
+          reasoning: 6,
+          totalTokens: 11,
+          cost: { input: 31, output: 32, cacheRead: 33, cacheWrite: 34, total: 35 },
+        }),
+      }),
+      // compaction carrying usage
+      entry({
+        type: "compaction",
+        id: "c1",
+        timestamp: "2026-08-22T00:00:03.200Z",
+        usage: usage({
+          input: 50,
+          output: 60,
+          cacheRead: 70,
+          cacheWrite: 80,
+          totalTokens: 90,
+          cost: { input: 41, output: 42, cacheRead: 43, cacheWrite: 44, total: 45 },
+        }),
+      }),
+      // branch summary carrying positive usage and optional fields
+      entry({
+        type: "branch_summary",
+        id: "b1",
+        timestamp: "2026-08-22T00:00:03.300Z",
+        usage: usage({
+          input: 100,
+          output: 110,
+          cacheRead: 120,
+          cacheWrite: 130,
+          cacheWrite1h: 7,
+          reasoning: 8,
+          totalTokens: 140,
+          cost: { input: 51, output: 52, cacheRead: 53, cacheWrite: 54, total: 55 },
+        }),
+      }),
+      // branch summary with no usage -> optional absence, ignored
+      entry({ type: "branch_summary", id: "b2", timestamp: "2026-08-22T00:00:03.400Z" }),
+    ];
+    fs.writeFileSync(firstFile, `${firstLines.join("\n")}\n`);
+
+    const secondFile = path.join(dir, "other.jsonl");
+    const secondLines = [
+      entry({ type: "session", id: "session-2", cwd: "/tmp" }),
+      // a session header is not a latency candidate
+      entry({
+        id: "a1",
+        timestamp: "2026-08-22T00:00:00.500Z",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [],
+          usage: usage({
+            input: 2,
+            output: 3,
+            cacheRead: 4,
+            cacheWrite: 5,
+            totalTokens: 6,
+            cost: { input: 6, output: 7, cacheRead: 8, cacheWrite: 9, total: 10 },
+          }),
+        },
+      }),
+    ];
+    fs.writeFileSync(secondFile, `${secondLines.join("\n")}\n`);
+
+    const report = await analyzeSessionFiles([firstFile, secondFile]);
+
+    expect(report.files.map((f) => f.fileIndex)).toEqual([1, 2]);
+    for (const file of report.files) {
+      expect(file).not.toHaveProperty("file");
+      expect(Object.keys(file)).not.toContain("file");
+    }
+
+    expect(report.files[0]?.usage).toEqual({
+      input: 1168,
+      output: 400,
+      cacheRead: 532,
+      cacheWrite: 664,
+      cacheWrite1h: 12,
+      reasoning: 14,
+      totalTokens: 1806,
+      cost: { input: 156, output: 162, cacheRead: 168, cacheWrite: 174, total: 185 },
+    });
+    expect(report.files[0]?.responseLatency).toEqual({
+      count: 2,
+      totalMs: 2800,
+      minMs: 1200,
+      maxMs: 1600,
+    });
+    expect(report.files[0]?.malformedUsage).toBe(0);
+    expect(report.files[0]?.malformedLatency).toBe(0);
+
+    // File 2 reports no cacheWrite1h/reasoning because no valid call reported them.
+    expect(report.files[1]?.usage).toEqual({
+      input: 2,
+      output: 3,
+      cacheRead: 4,
+      cacheWrite: 5,
+      totalTokens: 6,
+      cost: { input: 6, output: 7, cacheRead: 8, cacheWrite: 9, total: 10 },
+    });
+    expect(report.files[1]?.usage).not.toHaveProperty("cacheWrite1h");
+    expect(report.files[1]?.usage).not.toHaveProperty("reasoning");
+    expect(report.files[1]?.responseLatency).toEqual({
+      count: 0,
+      totalMs: 0,
+      minMs: null,
+      maxMs: null,
+    });
+
+    expect(report.totals.usage).toEqual({
+      input: 1170,
+      output: 403,
+      cacheRead: 536,
+      cacheWrite: 669,
+      cacheWrite1h: 12,
+      reasoning: 14,
+      totalTokens: 1812,
+      cost: { input: 162, output: 169, cacheRead: 176, cacheWrite: 183, total: 195 },
+    });
+    expect(report.totals.responseLatency).toEqual({
+      count: 2,
+      totalMs: 2800,
+      minMs: 1200,
+      maxMs: 1600,
+    });
+    expect(report.totals.malformedUsage).toBe(0);
+    expect(report.totals.malformedLatency).toBe(0);
+  });
+
+  it("counts required usage once per invalid object without corrupting later totals", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-malformed-usage-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+
+    const invalid = [
+      // assistant with no usage at all
+      entry({
+        id: "a1",
+        timestamp: "2026-08-22T00:00:00.100Z",
+        message: { role: "assistant", stopReason: "stop", content: [] },
+      }),
+      // standalone usage entry with a negative required value
+      entry({
+        type: "usage",
+        id: "s1",
+        timestamp: "2026-08-22T00:00:00.200Z",
+        kind: "cache_warm",
+        usage: usage({ input: -5 }),
+      }),
+      // assistant with a nonnumeric required value
+      entry({
+        id: "a2",
+        timestamp: "2026-08-22T00:00:00.300Z",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [],
+          usage: usage({ input: "many" }),
+        },
+      }),
+      // assistant with an infinite required value
+      entry({
+        id: "a3",
+        timestamp: "2026-08-22T00:00:00.400Z",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [],
+          usage: usage({ output: "__INF__" }),
+        },
+      }),
+      // assistant missing a required cost component
+      entry({
+        id: "a4",
+        timestamp: "2026-08-22T00:00:00.500Z",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [],
+          usage: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1, totalTokens: 4, cost: {} },
+        },
+      }),
+      // a later valid entry still aggregates
+      entry({
+        id: "a5",
+        timestamp: "2026-08-22T00:00:00.600Z",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [],
+          usage: usage({
+            input: 9,
+            output: 8,
+            cacheRead: 7,
+            cacheWrite: 6,
+            totalTokens: 30,
+            cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1, total: 4 },
+          }),
+        },
+      }),
+    ];
+    fs.writeFileSync(file, `${invalid.join("\n")}\n`);
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals.malformedUsage).toBe(5);
+    // No partial values from invalid usage entered the totals.
+    expect(report.totals.usage).toEqual({
+      input: 9,
+      output: 8,
+      cacheRead: 7,
+      cacheWrite: 6,
+      totalTokens: 30,
+      cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1, total: 4 },
+    });
+  });
+
+  it("keeps absent optional totals absent and creates them on a reported zero", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-optional-usage-"));
+    tempDirs.push(dir);
+
+    const absentFile = path.join(dir, "absent.jsonl");
+    fs.writeFileSync(
+      absentFile,
+      `${entry({
+        id: "a1",
+        message: { role: "assistant", stopReason: "stop", content: [], usage: zeroUsage },
+      })}\n`,
+    );
+    const absentReport = await analyzeSessionFiles([absentFile]);
+    expect(absentReport.totals.usage).not.toHaveProperty("cacheWrite1h");
+    expect(absentReport.totals.usage).not.toHaveProperty("reasoning");
+
+    const zeroFile = path.join(dir, "zero.jsonl");
+    fs.writeFileSync(
+      zeroFile,
+      `${entry({
+        id: "a1",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [],
+          usage: usage({ cacheWrite1h: 0, reasoning: 0 }),
+        },
+      })}\n`,
+    );
+    const zeroReport = await analyzeSessionFiles([zeroFile]);
+    expect(zeroReport.totals.usage).toHaveProperty("cacheWrite1h", 0);
+    expect(zeroReport.totals.usage).toHaveProperty("reasoning", 0);
+  });
+
+  it("diagnoses invalid optional usage carriers without partial totals", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-malformed-optional-usage-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+
+    fs.writeFileSync(
+      file,
+      `${[
+        entry({
+          type: "message",
+          id: "r1",
+          message: {
+            role: "toolResult",
+            toolCallId: "c1",
+            content: [],
+            isError: false,
+            usage: usage({ input: -1 }),
+          },
+        }),
+        entry({
+          type: "compaction",
+          id: "c1",
+          usage: usage({ output: "__INF__" }),
+        }),
+        entry({
+          type: "branch_summary",
+          id: "b1",
+          usage: usage({ reasoning: -1 }),
+        }),
+        entry({
+          type: "usage",
+          id: "s1",
+          usage: usage({ input: 4, output: 5, totalTokens: 9 }),
+        }),
+      ].join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals.malformedUsage).toBe(3);
+    expect(report.totals.usage).toEqual({
+      input: 4,
+      output: 5,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 9,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    });
+  });
+
+  it("diagnoses per-record usage overflow atomically", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-overflow-usage-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    const largeUsage = (output: number) =>
+      usage({
+        input: 1e308,
+        output,
+        totalTokens: 1,
+        cost: { input: 1, output, cacheRead: 0, cacheWrite: 0, total: output + 1 },
+      });
+
+    fs.writeFileSync(
+      file,
+      `${[
+        entry({ type: "usage", id: "s1", usage: largeUsage(2) }),
+        entry({ type: "usage", id: "s2", usage: largeUsage(3) }),
+      ].join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals.malformedUsage).toBe(1);
+    expect(report.totals.usage.input).toBe(1e308);
+    expect(report.totals.usage.output).toBe(2);
+    expect(report.totals.usage.cost.output).toBe(2);
+  });
+
+  it("fails closed on corpus usage overflow without exposing input paths", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-corpus-overflow-"));
+    tempDirs.push(dir);
+    const firstFile = path.join(dir, "first-secret.jsonl");
+    const secondFile = path.join(dir, "second-secret.jsonl");
+    const largeUsage = usage({ input: 1e308 });
+    fs.writeFileSync(firstFile, `${entry({ type: "usage", id: "s1", usage: largeUsage })}\n`);
+    fs.writeFileSync(secondFile, `${entry({ type: "usage", id: "s2", usage: largeUsage })}\n`);
+
+    let caught: unknown;
+    try {
+      await analyzeSessionFiles([firstFile, secondFile]);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(RangeError);
+    const message = caught instanceof Error ? caught.message : String(caught);
+    expect(message).toContain("usage totals overflow while aggregating file 2");
+    expect(message).not.toContain(firstFile);
+    expect(message).not.toContain(secondFile);
+  });
+
+  it("aggregates latency only for user/tool-result to assistant pairs", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-latency-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    const assistant = (id: string, at: string) =>
+      entry({
+        id,
+        timestamp: at,
+        message: { role: "assistant", stopReason: "stop", content: [], usage: zeroUsage },
+      });
+
+    fs.writeFileSync(
+      file,
+      `${[
+        entry({
+          id: "u1",
+          timestamp: "2026-08-22T00:00:01.000Z",
+          message: { role: "user", content: "go" },
+        }),
+        assistant("a1", "2026-08-22T00:00:03.000Z"), // candidate: 2000ms
+        // assistant after an assistant -> not a candidate
+        assistant("a2", "2026-08-22T00:00:09.000Z"),
+        entry({
+          id: "r1",
+          timestamp: "2026-08-22T00:00:10.000Z",
+          message: { role: "toolResult", toolCallId: "c1", content: [], isError: false },
+        }),
+        assistant("a3", "2026-08-22T00:00:10.500Z"), // candidate: 500ms
+      ].join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals.responseLatency).toEqual({
+      count: 2,
+      totalMs: 2500,
+      minMs: 500,
+      maxMs: 2000,
+    });
+    expect(report.totals.malformedLatency).toBe(0);
+    expect(report.totals.malformedUsage).toBe(0);
+  });
+
+  it("counts invalid and out-of-order latency candidates as malformedLatency", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-bad-latency-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "session.jsonl");
+    const assistant = (id: string, at: string) =>
+      entry({
+        id,
+        timestamp: at,
+        message: { role: "assistant", stopReason: "stop", content: [], usage: zeroUsage },
+      });
+
+    fs.writeFileSync(
+      file,
+      `${[
+        // unparseable user timestamp -> eligible pair with an invalid timestamp
+        entry({ id: "u1", timestamp: "not-a-date", message: { role: "user", content: "go" } }),
+        assistant("a1", "2026-08-22T00:00:03.000Z"),
+        // out-of-order pair -> negative delta
+        entry({
+          id: "u2",
+          timestamp: "2026-08-22T00:00:09.000Z",
+          message: { role: "user", content: "go" },
+        }),
+        assistant("a2", "2026-08-22T00:00:04.000Z"),
+        // a valid pair still records normally
+        entry({
+          id: "u3",
+          timestamp: "2026-08-22T00:00:10.000Z",
+          message: { role: "user", content: "go" },
+        }),
+        assistant("a3", "2026-08-22T00:00:12.000Z"),
+      ].join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+
+    expect(report.totals.malformedLatency).toBe(2);
+    expect(report.totals.responseLatency).toEqual({
+      count: 1,
+      totalMs: 2000,
+      minMs: 2000,
+      maxMs: 2000,
+    });
+    expect(report.totals.malformedUsage).toBe(0);
+  });
+
+  it("emits no identifiers, paths, or content for a privacy-sensitive corpus", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-privacy-secret-"));
+    tempDirs.push(dir);
+    const secretName = "sk-live-dir-secret-name";
+    const secretFile = "sk-live-file-secret-name.jsonl";
+    const secretDir = path.join(dir, secretName);
+    fs.mkdirSync(secretDir);
+    const file = path.join(secretDir, secretFile);
+
+    const sensitive = {
+      ...state([]),
+      summary: "dcp-secret-summary",
+      token: "dcp-secret-state-token",
+    };
+    fs.writeFileSync(
+      file,
+      `${[
+        entry({ type: "session", id: "dcp-secret-session-id", cwd: "/tmp/dcp-secret-cwd" }),
+        entry({
+          id: "dcp-secret-entry-id",
+          timestamp: "2026-08-22T00:00:01.000Z",
+          message: {
+            role: "user",
+            content: "dcp-secret-message-text",
+          },
+        }),
+        entry({
+          id: "a1",
+          timestamp: "2026-08-22T00:00:02.000Z",
+          message: {
+            role: "assistant",
+            stopReason: "stop",
+            provider: "dcp-secret-provider",
+            model: "dcp-secret-model",
+            errorMessage: "dcp-secret-model-error",
+            content: [
+              {
+                type: "toolCall",
+                id: "dcp-secret-tool-call",
+                name: "read",
+                arguments: { filePath: "/tmp/dcp-secret-argument" },
+              },
+            ],
+            usage: usage({ input: 1, output: 1, cacheRead: 1, cacheWrite: 1, totalTokens: 4 }),
+          },
+        }),
+        entry({
+          type: "usage",
+          id: "u1",
+          timestamp: "2026-08-22T00:00:03.000Z",
+          kind: "dcp-secret-usage-kind",
+          note: "dcp-secret-usage-note",
+          provider: "dcp-secret-provider",
+          model: "dcp-secret-model",
+          usage: usage({ input: 2, output: 2, cacheRead: 2, cacheWrite: 2, totalTokens: 8 }),
+        }),
+        entry({
+          type: "compaction",
+          id: "c1",
+          timestamp: "2026-08-22T00:00:04.000Z",
+          summary: "dcp-secret-compaction-summary",
+        }),
+        entry({
+          type: "branch_summary",
+          id: "b1",
+          timestamp: "2026-08-22T00:00:05.000Z",
+          summary: "dcp-secret-branch-summary",
+        }),
+        entry({
+          type: "custom",
+          id: "s1",
+          timestamp: "2026-08-22T00:00:06.000Z",
+          customType: "pi-dcp-state",
+          data: sensitive,
+        }),
+      ]
+        .map((line) => (typeof line === "string" ? line : JSON.stringify(line)))
+        .join("\n")}\n`,
+    );
+
+    const report = await analyzeSessionFiles([file]);
+    const serialized = JSON.stringify(report);
+
+    for (const secret of [
+      secretName,
+      secretFile,
+      "dcp-secret-dir",
+      "dcp-secret-cwd",
+      "dcp-secret-session-id",
+      "dcp-secret-entry-id",
+      "dcp-secret-message-text",
+      "dcp-secret-tool-call",
+      "dcp-secret-argument",
+      "dcp-secret-provider",
+      "dcp-secret-model",
+      "dcp-secret-model-error",
+      "dcp-secret-usage-kind",
+      "dcp-secret-usage-note",
+      "dcp-secret-compaction-summary",
+      "dcp-secret-branch-summary",
+      "dcp-secret-summary",
+      "dcp-secret-state-token",
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
+
+    // Only a one-based ordinal identifies the file.
+    expect(report.files[0]?.fileIndex).toBe(1);
+    expect(report.totals.files).toBe(1);
+    expect(report.totals.usage.input).toBe(3);
+    expect(report.totals.responseLatency.count).toBe(1);
+  });
+});

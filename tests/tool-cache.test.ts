@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { syncToolCache, buildToolIdList } from "../src/state/tool-cache.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { requireDefined } from "./helpers.ts";
 
 function makeAssistantWithToolCall(
   toolCallId: string,
@@ -90,7 +91,7 @@ describe("tool-cache", () => {
       syncToolCache(state, messages);
 
       expect(state.toolParameters.has("call1")).toBe(true);
-      const entry = state.toolParameters.get("call1")!;
+      const entry = requireDefined(state.toolParameters.get("call1"), "call1 entry");
       expect(entry.tool).toBe("read");
       expect(entry.status).toBe("completed");
     });
@@ -104,7 +105,7 @@ describe("tool-cache", () => {
       ];
 
       syncToolCache(state, messages);
-      expect(state.toolParameters.get("call1")!.status).toBe("error");
+      expect(requireDefined(state.toolParameters.get("call1"), "call1 entry").status).toBe("error");
     });
 
     it("populates tokenCount from toolResult message content", () => {
@@ -124,7 +125,7 @@ describe("tool-cache", () => {
 
       syncToolCache(state, messages);
 
-      const entry = state.toolParameters.get("call1")!;
+      const entry = requireDefined(state.toolParameters.get("call1"), "call1 entry");
       // "a".repeat(400) uses the length/4 estimate.
       expect(entry.tokenCount).toBe(100);
     });
@@ -139,7 +140,7 @@ describe("tool-cache", () => {
 
       syncToolCache(state, messages);
 
-      const entry = state.toolParameters.get("call1")!;
+      const entry = requireDefined(state.toolParameters.get("call1"), "call1 entry");
       expect(entry.tokenCount).toBeUndefined();
     });
 
@@ -164,7 +165,12 @@ describe("tool-cache", () => {
       syncToolCache(state, messages);
       // Current raw messages replace stale cache entries.
       expect(
-        (state.toolParameters.get("call1")!.parameters as Record<string, unknown>).filePath,
+        (
+          requireDefined(state.toolParameters.get("call1"), "call1 entry").parameters as Record<
+            string,
+            unknown
+          >
+        ).filePath,
       ).toBe("/new");
     });
 
@@ -190,7 +196,7 @@ describe("tool-cache", () => {
 
       syncToolCache(state, messages);
 
-      const entry = state.toolParameters.get("call1")!;
+      const entry = requireDefined(state.toolParameters.get("call1"), "call1 entry");
       expect(entry.assistantIndex).toBe(1);
       expect(entry.resultIndex).toBe(2);
     });
@@ -204,7 +210,7 @@ describe("tool-cache", () => {
 
       syncToolCache(state, messages);
 
-      const entry = state.toolParameters.get("call1")!;
+      const entry = requireDefined(state.toolParameters.get("call1"), "call1 entry");
       expect(entry.assistantIndex).toBe(0);
       expect(entry.resultIndex).toBeUndefined();
     });
