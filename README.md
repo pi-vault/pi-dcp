@@ -47,8 +47,8 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Pi-native file paths are protected** — `read`, `write`, and `edit` tool arguments now use Pi's `path` field (and legacy `filePath`), with Windows separators normalized before glob matching. Nested calls made by tools such as `codemode` are inspected too, so a parent tool result is protected when any direct or nested file path matches `protectedFilePatterns`.
 - **Unsafe context limits are rejected** — `maxContextLimit` / `minContextLimit` and their per-model entries accept only positive integers or percentages greater than 0 and at most 100. Invalid fields are dropped with a warning instead of aborting startup.
 - **Configuration layers fall back independently** — an invalid global field keeps the built-in default, and an invalid project field inherits the valid global value rather than resetting it. Unknown keys and invalid values are reported with a source-qualified JSON pointer.
-- **Configuration problems are visible once per reload** — each problem is written to the DCP log, and an interactive session shows exactly one warning notification with the problem count and the participating config paths.
-- **`nudgeForce` selects the role** — `strong` injects the turn nudge into the user message; `soft` injects it into the assistant message, including a synthetic text part prepended before a tool-only assistant call. Both halves of an eligible user/assistant pair are anchored without changing the version-1 snapshot shape.
+- **Configuration problems are visible once per reload** — each problem is written to the DCP log even when debug logging is off, and an interactive session shows exactly one warning notification with the problem count and the participating config paths.
+- **`nudgeForce` selects the role** — `strong` injects the turn nudge into the user message; `soft` injects it into the assistant message, including a synthetic text part prepended before a tool-only assistant call. Both halves of an eligible user/assistant pair are anchored without changing the version-1 snapshot shape, and older user-only version-1 anchors are upgraded when their messages reappear.
 
 ## Commands
 
@@ -95,7 +95,7 @@ Files: `system.md`, `context-limit-nudge.md`, `turn-nudge.md`, `iteration-nudge.
 
 Create `<agentDir>/extensions/dcp.json` (normally `~/.pi/agent/extensions/dcp.json`) to override defaults. On each session start, DCP merges built-in defaults, this global file, and `<ctx.cwd>/.pi/dcp.json` when Pi marks the project trusted. Nested objects merge recursively; arrays replace earlier arrays. Untrusted project configuration is ignored, and a previously registered compression tool safely reports that DCP is disabled after a later disable.
 
-Configuration is sanitized field-by-field. Invalid or unknown fields are dropped with a warning that names the source file and JSON pointer; valid siblings are retained, and an invalid project value inherits the valid global value instead of resetting it. Startup never aborts because of configuration. Each reload writes every problem to the DCP log and, in an interactive session, shows a single warning notification containing the problem count and the participating config paths.
+Configuration is sanitized field-by-field. Invalid, unsafe, or unknown fields are dropped with a warning that names the source file and JSON pointer; valid siblings are retained, and an invalid project value inherits the valid global value instead of resetting it. The shipped schema rejects unknown properties in declared configuration objects while keeping per-model maps open. Startup never aborts because of configuration. Each reload writes every problem to the DCP log even when `debug` is `false` and, in an interactive session, shows a single warning notification containing the problem count and the participating config paths.
 
 You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor tooling or config validation workflows.
 
@@ -153,7 +153,7 @@ You can also use the shipped [`dcp.schema.json`](dcp.schema.json) for editor too
 
 - `enabled` — set to `false` to disable the extension entirely without uninstalling.
 - `disabledModels` — exact, case-sensitive `provider/modelId` keys for which DCP processing, mutating commands, and the active `compress` tool are disabled.
-- `debug` — when `true`, writes per-session logs to `{sessionDir}/dcp/logs/YYYY-MM-DD.log`.
+- `debug` — when `true`, writes operational per-session logs to `{sessionDir}/dcp/logs/YYYY-MM-DD.log`. Configuration warnings are always written there so headless sessions retain diagnostics.
 - `nudgeNotification` — notification verbosity: `"off"`, `"minimal"`, or `"detailed"`.
 - `nudgeNotificationType` — notification delivery: `"toast"` or `"status"`.
 - `protectedFilePatterns` — file-path globs whose related tool outputs should never be pruned. Direct arguments from Pi's `read`, `write`, and `edit` tools (`path`, plus legacy `filePath` on any tool) and nested calls recorded on a tool result are both checked; candidate paths are normalized to `/` separators before matching.

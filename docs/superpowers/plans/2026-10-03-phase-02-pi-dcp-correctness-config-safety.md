@@ -19,6 +19,7 @@
 - Use current Pi exported message types for valid new fixtures; do not hide host-shape mismatches behind `as unknown as`.
 - Invalid configuration warns and falls back field-by-field; it never aborts startup.
 - Automatic pruning timing, canonical IDs, compression behavior, and the version-1 persisted snapshot shape remain unchanged.
+- Existing version-1 snapshots with legacy user-only turn anchors must regain their preceding assistant anchor when the current messages make that pair identifiable.
 - Use test-driven development for each behavioral task and commit only after its focused checks pass.
 
 ## Review Focus
@@ -167,7 +168,7 @@ Expected: FAIL for permissive limit schemas, whole-merge fallback, and missing s
 
 - [ ] **Step 5: Define the shared context-limit schema**
 
-Export `ContextLimitSchema` from `src/config-schema.ts` as a union of `Type.Integer({ minimum: 1 })` and `Type.String({ pattern: "^\\d+(?:\\.\\d+)?%$" })`. Reuse it for global limits and values in both per-model records. Keep concrete defaults in `DEFAULT_CONFIG`; do not add defaults to optional schema fields.
+Export `ContextLimitSchema` from `src/config-schema.ts` as a union of `Type.Integer({ minimum: 1 })` and `Type.String({ pattern: "^\\d+(?:\\.\\d+)?%$" })`. Reuse it for global limits and values in both per-model records. Keep concrete defaults in `DEFAULT_CONFIG`; do not add defaults to optional schema fields. Set `additionalProperties: false` on declared configuration objects so the shipped schema matches runtime unknown-key handling; keep `Type.Record` maps open.
 
 - [ ] **Step 6: Implement schema-driven layer sanitization**
 
@@ -186,11 +187,11 @@ Do not use `Value.Clean` before diagnostics because it would erase the evidence 
 
 In `loadConfig`, parse and sanitize each layer independently, append its warnings, and deep-merge only its sanitized value over the accumulated config. Invalid global fields leave built-in defaults intact; invalid project fields leave global values intact; invalid map entries do not delete valid siblings or lower-layer values.
 
-Retain the existing merged checks for legacy `maxContextPercent` and `minContextPercent`, but label those cross-field warnings as merged-configuration diagnostics.
+Validate the individual legacy `maxContextPercent` and `minContextPercent` upper bounds in each layer so an invalid project value inherits a valid global value. Track the effective source of both fields and include both source paths and JSON pointers when the merged `maxContextPercent > minContextPercent` relationship fails.
 
 - [ ] **Step 8: Add failing visible-warning lifecycle tests**
 
-In `tests/index.test.ts`, spy on `Logger.prototype.warn`, start a session with multiple invalid fields, and assert:
+In `tests/index.test.ts`, spy on the logger's always-persist warning path, start a session with multiple invalid fields, and assert:
 
 ```ts
 expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
@@ -201,11 +202,11 @@ expect(ctx.ui.notify).toHaveBeenCalledWith(
 expect(loggerWarnSpy).toHaveBeenCalledTimes(problemCount);
 ```
 
-The notification must include the problem count and at least one affected config path. Add a `hasUI: false` case proving logger calls still occur and `notify` is untouched. Keep the initial module-level load silent; `session_start` owns the visible reload.
+The notification must include the problem count and at least one affected config path. Add a `hasUI: false`, `debug: false` case that reads the actual session log and proves detailed warnings persist while `notify` remains untouched. Add an unusable log-path case proving best-effort logging cannot abort startup. Keep the initial module-level load silent; `session_start` owns the visible reload.
 
 - [ ] **Step 9: Surface one summary per reload**
 
-Update `reloadConfig` in `src/index.ts` to call `logger.warn("config", warning)` for each detail. If `ctx.hasUI` and warnings are nonempty, call `ctx.ui.notify` exactly once with a concise count and the participating global/project paths. Do not expose raw config values in the UI summary.
+Update `reloadConfig` in `src/index.ts` to use an explicit always-persist logger path for each configuration detail, independent of the debug flag. If `ctx.hasUI` and warnings are nonempty, call `ctx.ui.notify` exactly once with a concise count and the participating global/project paths. Do not expose raw config values in the UI summary.
 
 - [ ] **Step 10: Run focused configuration, lifecycle, and type checks**
 
@@ -245,7 +246,7 @@ Add a user-only conversation and assert soft mode creates no turn anchor and inj
 
 - [ ] **Step 3: Add failing frequency, restoration, and force-switch tests**
 
-Assert frequency is measured against existing user-role turn anchors, not the assistant half of a pair. Serialize and restore a version-1 snapshot containing both keys, rerun with fresh message objects, and assert soft role filtering remains stable. Change the same config to `strong` and assert injection moves to the user without adding keys.
+Assert frequency is measured against existing user-role turn anchors, not the assistant half of a pair. Serialize and restore a version-1 snapshot containing both keys, rerun with fresh message objects, and assert soft role filtering remains stable. Restore a legacy version-1 snapshot containing only the user key and assert the preceding assistant key is recovered before soft rendering. Change the same config to `strong` and assert injection moves to the user without adding keys.
 
 - [ ] **Step 4: Run focused nudge tests and confirm `nudgeForce` is ignored**
 
@@ -255,7 +256,7 @@ Expected: FAIL because the current implementation stores and injects only the la
 
 - [ ] **Step 5: Store eligible turn pairs atomically**
 
-In `injectCompressNudges`, when a user turn qualifies, find the nearest earlier assistant by scanning backward; skip turn-anchor creation if none exists; calculate frequency using only existing keys whose current message role is `user`; and when allowed add the assistant and user stable keys in the same branch. Leave context-limit and iteration anchor creation unchanged.
+In `injectCompressNudges`, reconcile legacy user-only anchors against current messages before applying them. When a user turn qualifies, find the nearest earlier assistant by scanning backward; skip turn-anchor creation if none exists; calculate frequency using only existing keys whose current message role is `user`; and when allowed add the assistant and user stable keys in the same branch. Leave context-limit and iteration anchor creation unchanged.
 
 - [ ] **Step 6: Filter turn anchors by configured role during application**
 

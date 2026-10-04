@@ -14,8 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `maxContextLimit` / `minContextLimit` and per-model limit entries now accept only positive integers or percentages greater than 0 and at most 100. Invalid values are dropped with a source-qualified warning; an invalid project value inherits the valid global value instead of resetting to the built-in default.
 - Configuration is sanitized one layer at a time: unknown keys and invalid fields are omitted, valid siblings are retained, and every problem is reported with its originating absolute path and RFC 6901-escaped JSON pointer.
-- Each configuration reload writes every problem to the DCP log and shows at most one interactive warning containing the problem count and participating config paths.
-- Compression turn nudges now anchor both the eligible user message and the nearest preceding assistant message. `nudgeForce: "strong"` renders in the user role; `nudgeForce: "soft"` renders in the assistant role, including a synthetic text part inserted before a tool-only assistant call. The version-1 snapshot shape is unchanged.
+- Each configuration reload writes every problem to the DCP log, including in headless sessions with debug logging disabled, and shows at most one interactive warning containing the problem count and participating config paths. Declared schema objects now reject unknown properties, matching runtime sanitization.
+- Compression turn nudges now anchor both the eligible user message and the nearest preceding assistant message. `nudgeForce: "strong"` renders in the user role; `nudgeForce: "soft"` renders in the assistant role, including a synthetic text part inserted before a tool-only assistant call. Older user-only anchors are paired when restored; the version-1 snapshot shape is unchanged.
 
 ## 2026-10-03 - [0.6.1]
 
