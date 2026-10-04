@@ -241,7 +241,8 @@ export default function createExtension(pi: ExtensionAPI): void {
           targets: Type.Array(
             Type.Object({
               messageId: Type.String({
-                description: "Message marker to compress, exactly as shown in context (e.g. @m1@, @m1:3@). Zero-padded legacy refs are also accepted.",
+                description:
+                  "Message marker to compress, exactly as shown in context (e.g. @m1@, @m1:3@). Zero-padded legacy refs are also accepted.",
               }),
               summary: Type.String({
                 description: "Complete technical summary replacing message content",

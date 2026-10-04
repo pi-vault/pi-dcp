@@ -156,17 +156,15 @@ describe("strip", () => {
     });
 
     it("preserves email-only lines and lines with additional content", () => {
-      expect(stripHallucinationsFromString("person@m1@example.com")).toBe(
-        "person@m1@example.com",
-      );
+      expect(stripHallucinationsFromString("person@m1@example.com")).toBe("person@m1@example.com");
       expect(stripHallucinationsFromString("@m1@ trailing words")).toBe("@m1@ trailing words");
       expect(stripHallucinationsFromString("words before @m1@")).toBe("words before @m1@");
     });
 
     it("still strips legacy xml markers after compact cleanup", () => {
-      expect(stripHallucinationsFromString("a\n@m1@\nhello <dcp-message-id>m0001</dcp-message-id>")).toBe(
-        "a\n\nhello ",
-      );
+      expect(
+        stripHallucinationsFromString("a\n@m1@\nhello <dcp-message-id>m0001</dcp-message-id>"),
+      ).toBe("a\n\nhello ");
     });
   });
 
