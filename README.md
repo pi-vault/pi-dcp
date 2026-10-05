@@ -42,6 +42,16 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
 - **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
+## What's new in 0.9.0
+
+- **Lifecycle-aware tool reconciliation** — DCP registers the `compress` tool during extension creation with `defaultActive: false`, then refreshes its mode-specific schema from trusted project configuration at session start. Pi's restored loadout is authoritative: a tool you deselected stays deselected across model switches, permission toggles, definition refreshes, resume, and reload. DCP remembers a temporary suppression within the current branch and restores the tool only when every policy reason clears.
+- **Explicit fresh-session activation** — on a brand-new session where the host allows the tool and the branch declares no tool loadout, DCP selects `compress` once. It never overrides `tools`, `excludeTools`, or `noTools: "all"`, and it never reactivates the tool on resume, fork, tree navigation, or reload.
+- **Structured system prompt section** — DCP writes its instructions to the `dcp` section of Pi's structured system prompt instead of replacing the whole prompt. Other extensions' sections and any forced prompt are left untouched.
+- **One prompt snapshot per run** — custom prompt overrides reload once at the start of each agent run and are shared by the system section and every subsequent context pass until the next run. Edits made mid-run take effect on the next run.
+- **Guidance follows the selection** — compression instructions and nudges are hidden whenever `compress` is inactive or compression permission is denied. Automatic deduplication, stale-error pruning, reference assignment, and existing compression summaries keep working.
+- **Defensive authorization** — `tool_call` and the registered `execute` function reject every policy suppression reason with a clear message, even if the tool is invoked directly. Denied permission still allows automatic pruning.
+- **`dcp:compress` does not activate the tool** — the command reports that compression is unavailable when `compress` is inactive instead of silently selecting it.
+
 ## What's new in 0.8.0
 
 - **Compact message markers replace verbose XML tags** — each injectable user/assistant message now ends with a standalone `@mN@` line, or `@mN:P@` when a compression priority is assigned. On a 2,000-message clean workload this cut metadata overhead from roughly 20,000 estimated tokens to about 4,000.
@@ -110,7 +120,7 @@ All commands are also discoverable in-session via `dcp:help`.
 
 **Need to block compression temporarily?** Run `dcp:permission` to flip between `allow` and `deny`.
 
-**Need compression now?** Run `dcp:compress [focus]`. It sends Pi a hidden follow-up that asks it to use the `compress` tool; it does nothing while DCP or compression permission is disabled.
+**Need compression now?** Run `dcp:compress [focus]`. It sends Pi a hidden follow-up that asks it to use the `compress` tool; it does nothing while DCP or compression permission is disabled, or while the `compress` tool is inactive.
 
 **Need to undo a compression block?** Use `dcp:decompress <blockId>` and `dcp:recompress <blockId>`.
 

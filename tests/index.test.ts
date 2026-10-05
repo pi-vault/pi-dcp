@@ -103,22 +103,39 @@ function createMockApi(options: { activeTools?: string[] } = {}) {
   const entries: Array<{ customType: string; data: unknown }> = [];
   const commands = new Map<string, unknown>();
   const tools = new Map<string, unknown>();
+  const registeredNames = new Set<string>();
+  const knownToolNames = new Set<string>([...(options.activeTools ?? ["read"])]);
   let activeToolNames = [...(options.activeTools ?? ["read"])];
   const setActiveTools = vi.fn((names: string[]) => {
-    activeToolNames = [...names];
+    activeToolNames = names.filter((name) => knownToolNames.has(name));
   });
   const api = {
     on(event: string, handler: Handler) {
+      const wrapped: Handler = (evt, ctx) => {
+        const context = ctx as { sessionManager?: Record<string, unknown> } | undefined;
+        if (context?.sessionManager) {
+          context.sessionManager.getSessionId ??= () => "session";
+          context.sessionManager.getBranch ??= () => [];
+        }
+        return handler(evt, ctx);
+      };
       const list = handlers.get(event) ?? [];
-      list.push(handler);
+      list.push(wrapped);
       handlers.set(event, list);
     },
-    registerTool(tool: { name: string }) {
+    registerTool(tool: { name: string; defaultActive?: boolean }) {
+      const wasRegistered = tools.has(tool.name);
       tools.set(tool.name, tool);
-      if (!activeToolNames.includes(tool.name)) activeToolNames.push(tool.name);
+      registeredNames.add(tool.name);
+      knownToolNames.add(tool.name);
+      if (wasRegistered) return;
+      if (tool.defaultActive !== false) activeToolNames.push(tool.name);
     },
     getActiveTools() {
       return [...activeToolNames];
+    },
+    getAllTools() {
+      return [...registeredNames].map((name) => ({ name }));
     },
     setActiveTools,
     registerCommand(name: string, command: unknown) {
@@ -190,41 +207,41 @@ describe("dcp extension", () => {
     expect(handlers.has("before_agent_start")).toBe(true);
   });
 
-  it("before_agent_start appends DCP system prompt to existing system prompt", async () => {
-    const { api, handlers } = createMockApi();
+  it("before_agent_start sets only the DCP system prompt section", async () => {
+    const { api, handlers } = createMockApi({ activeTools: ["read", "compress"] });
     createExtension(api);
 
     const handler = handlers.get("before_agent_start")?.[0];
     expect(handler).toBeDefined();
 
+    const sections: Record<string, string> = { preamble: "Existing section" };
     const result = await (handler as (...args: unknown[]) => Promise<unknown>)(
-      { systemPrompt: "Original prompt.", prompt: "user input" },
+      { systemPrompt: "Original prompt.", systemPromptOptions: { sections }, prompt: "user input" },
       {},
     );
 
-    expect(result).toHaveProperty("systemPrompt");
-    const sp = (result as { systemPrompt: string }).systemPrompt;
-    expect(sp).toContain("Original prompt.");
-    expect(sp).toContain("compress");
-    expect(sp).toContain("@mN@");
-    expect(sp).toContain("@mN:P@");
-    expect(sp).not.toContain("<dcp-message-id>");
+    expect(result).toBeUndefined();
+    expect(sections.preamble).toBe("Existing section");
+    expect(sections.dcp).toContain("compress");
+    expect(sections.dcp).toContain("@mN@");
+    expect(sections.dcp).toContain("@mN:P@");
+    expect(sections.dcp).not.toContain("<dcp-message-id>");
   });
 
   it("system prompt teaches compact markers and nudges as injected metadata", async () => {
-    const { api, handlers } = createMockApi();
+    const { api, handlers } = createMockApi({ activeTools: ["read", "compress"] });
     createExtension(api);
 
     const handler = handlers.get("before_agent_start")?.[0];
-    const result = await (handler as (...args: unknown[]) => Promise<unknown>)(
-      { systemPrompt: undefined, prompt: "user input" },
+    const sections: Record<string, string> = {};
+    await (handler as (...args: unknown[]) => Promise<unknown>)(
+      { systemPrompt: undefined, systemPromptOptions: { sections }, prompt: "user input" },
       {},
     );
 
-    const sp = (result as { systemPrompt: string }).systemPrompt;
-    expect(sp).toContain("@mN@");
-    expect(sp).toContain("@mN:P@");
-    expect(sp).toContain("<dcp-system-reminder>");
+    expect(sections.dcp).toContain("@mN@");
+    expect(sections.dcp).toContain("@mN:P@");
+    expect(sections.dcp).toContain("<dcp-system-reminder>");
   });
 
   it("range tool description uses compact examples and keeps block refs", async () => {
@@ -301,18 +318,18 @@ describe("dcp extension", () => {
   });
 
   it("before_agent_start works when systemPrompt is undefined", async () => {
-    const { api, handlers } = createMockApi();
+    const { api, handlers } = createMockApi({ activeTools: ["read", "compress"] });
     createExtension(api);
 
     const handler = handlers.get("before_agent_start")?.[0];
+    const sections: Record<string, string> = {};
     const result = await (handler as (...args: unknown[]) => Promise<unknown>)(
-      { systemPrompt: undefined, prompt: "user input" },
+      { systemPrompt: undefined, systemPromptOptions: { sections }, prompt: "user input" },
       {},
     );
 
-    expect(result).toHaveProperty("systemPrompt");
-    const sp = (result as { systemPrompt: string }).systemPrompt;
-    expect(sp).toContain("compress");
+    expect(result).toBeUndefined();
+    expect(sections.dcp).toContain("compress");
   });
 
   it("before_agent_start honors restored compression permission", async () => {
@@ -417,7 +434,7 @@ describe("dcp extension", () => {
   });
 
   it("context handler injects CONTEXT_LIMIT_NUDGE when tokens >= maxContextLimit", async () => {
-    const { api, handlers } = createMockApi();
+    const { api, handlers } = createMockApi({ activeTools: ["read", "compress"] });
     createExtension(api);
 
     const contextHandlers = handlers.get("context") ?? [];
@@ -1178,7 +1195,7 @@ describe("configuration warning lifecycle", () => {
 });
 
 describe("static model disablement", () => {
-  it("does not change active tools when DCP is globally disabled", async () => {
+  it("suppresses a previously active compress tool when DCP is globally disabled", async () => {
     const configDir = path.join(agentDir, "extensions");
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(path.join(configDir, "dcp.json"), JSON.stringify({ enabled: false }));
@@ -1191,8 +1208,8 @@ describe("static model disablement", () => {
     await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
     await registeredHandler(handlers, "context")({ messages: [] }, ctx);
 
-    expect(activeTools()).toEqual(["read", "compress"]);
-    expect(setActiveTools).not.toHaveBeenCalled();
+    expect(activeTools()).toEqual(["read"]);
+    expect(setActiveTools).toHaveBeenCalledWith(["read"]);
   });
 
   it("passes messages through and omits the prompt for a disabled model", async () => {

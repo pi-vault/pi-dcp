@@ -24,25 +24,42 @@ function createMockApi() {
   const handlers = new Map<string, Handler[]>();
   const tools = new Map<string, unknown>();
   const commands = new Map<string, unknown>();
+  const registeredNames = new Set<string>();
+  const knownToolNames = new Set<string>(["read"]);
   let activeToolNames = ["read"];
   const sentMessages: Array<{ message: unknown; options: unknown }> = [];
   const entries: Array<{ customType: string; data: unknown }> = [];
 
   const api = {
     on(event: string, handler: Handler) {
+      const wrapped: Handler = (evt, ctx) => {
+        const context = ctx as { sessionManager?: Record<string, unknown> } | undefined;
+        if (context?.sessionManager) {
+          context.sessionManager.getSessionId ??= () => "session";
+          context.sessionManager.getBranch ??= () => [];
+        }
+        return handler(evt, ctx);
+      };
       const list = handlers.get(event) ?? [];
-      list.push(handler);
+      list.push(wrapped);
       handlers.set(event, list);
     },
-    registerTool(def: { name: string }) {
+    registerTool(def: { name: string; defaultActive?: boolean }) {
+      const wasRegistered = tools.has(def.name);
       tools.set(def.name, def);
-      if (!activeToolNames.includes(def.name)) activeToolNames.push(def.name);
+      registeredNames.add(def.name);
+      knownToolNames.add(def.name);
+      if (wasRegistered) return;
+      if (def.defaultActive !== false) activeToolNames.push(def.name);
     },
     getActiveTools() {
       return [...activeToolNames];
     },
+    getAllTools() {
+      return [...registeredNames].map((name) => ({ name }));
+    },
     setActiveTools(names: string[]) {
-      activeToolNames = [...names];
+      activeToolNames = names.filter((name) => knownToolNames.has(name));
     },
     registerCommand(name: string, def: unknown) {
       commands.set(name, def);
@@ -67,7 +84,7 @@ describe("integration", () => {
     expect(handlers.has("session_start")).toBe(true);
     expect(handlers.has("context")).toBe(true);
     expect(handlers.has("session_shutdown")).toBe(true);
-    expect(tools.has("compress")).toBe(false);
+    expect(tools.has("compress")).toBe(true);
     expect(commands.has("dcp:help")).toBe(true);
     expect(commands.has("dcp:stats")).toBe(true);
     expect(commands.has("dcp:lifetime")).toBe(true);
@@ -390,7 +407,11 @@ describe("integration", () => {
     createExtension(api);
 
     expect(commands.has("dcp:help")).toBe(true);
-    expect(tools.has("compress")).toBe(false);
+    expect(tools.has("compress")).toBe(true);
+    expect(
+      (tools.get("compress") as { parameters: { properties?: Record<string, unknown> } }).parameters
+        .properties,
+    ).toHaveProperty("content");
 
     for (const handler of handlers.get("session_start") ?? []) {
       await handler(
@@ -407,9 +428,10 @@ describe("integration", () => {
     }
 
     expect(tools.has("compress")).toBe(true);
-    expect((tools.get("compress") as { parameters: { type: string } }).parameters).toMatchObject({
-      type: "object",
-    });
+    expect(
+      (tools.get("compress") as { parameters: { properties?: Record<string, unknown> } }).parameters
+        .properties,
+    ).toHaveProperty("targets");
   });
 
   it("ignores project configuration when the project is untrusted", async () => {
@@ -418,7 +440,10 @@ describe("integration", () => {
     fs.mkdirSync(path.dirname(globalConfigPath), { recursive: true });
     fs.mkdirSync(path.join(projectCwd, ".pi"), { recursive: true });
     fs.writeFileSync(globalConfigPath, JSON.stringify({ enabled: false }));
-    fs.writeFileSync(path.join(projectCwd, ".pi", "dcp.json"), JSON.stringify({ enabled: true }));
+    fs.writeFileSync(
+      path.join(projectCwd, ".pi", "dcp.json"),
+      JSON.stringify({ enabled: true, compress: { mode: "message" } }),
+    );
 
     const { api, handlers, tools } = createMockApi();
     createExtension(api);
@@ -437,7 +462,11 @@ describe("integration", () => {
       );
     }
 
-    expect(tools.has("compress")).toBe(false);
+    // Untrusted project configuration did not change the schema to message mode.
+    expect(
+      (tools.get("compress") as { parameters: { properties?: Record<string, unknown> } }).parameters
+        .properties,
+    ).toHaveProperty("content");
   });
 
   it.each(["range", "message"] as const)(
@@ -482,6 +511,7 @@ describe("integration", () => {
     async (isStreaming) => {
       const { api, commands, sentMessages, entries } = createMockApi();
       createExtension(api);
+      api.setActiveTools(["read", "compress"]);
       const command = commands.get("dcp:compress") as
         | { handler: (args: string, ctx: unknown) => Promise<void> }
         | undefined;
@@ -568,15 +598,27 @@ describe("integration", () => {
     };
 
     await start?.({ reason: "new" }, { ...baseCtx, isProjectTrusted: () => true });
-    await expect(
-      beforeAgentStart?.({ systemPrompt: "Original", prompt: "test" }, baseCtx),
-    ).resolves.toMatchObject({ systemPrompt: "OriginalTrusted project prompt" });
+    const trustedSections: Record<string, string> = {};
+    await beforeAgentStart?.(
+      {
+        systemPrompt: "Original",
+        systemPromptOptions: { sections: trustedSections },
+        prompt: "test",
+      },
+      { ...baseCtx, isProjectTrusted: () => true },
+    );
+    expect(trustedSections.dcp).toBe("Trusted project prompt");
 
     await start?.({ reason: "new" }, { ...baseCtx, isProjectTrusted: () => false });
-    await expect(
-      beforeAgentStart?.({ systemPrompt: "Original", prompt: "test" }, baseCtx),
-    ).resolves.not.toMatchObject({
-      systemPrompt: expect.stringContaining("Trusted project prompt"),
-    });
+    const untrustedSections: Record<string, string> = {};
+    await beforeAgentStart?.(
+      {
+        systemPrompt: "Original",
+        systemPromptOptions: { sections: untrustedSections },
+        prompt: "test",
+      },
+      baseCtx,
+    );
+    expect(untrustedSections.dcp).not.toContain("Trusted project prompt");
   });
 });

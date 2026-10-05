@@ -4,8 +4,8 @@
 
 **Revised:** 2026-10-04
 
-**Status:** Approved in chat; reordered from simplest to most complex; Phase 2 clarified after
-implementation-readiness review
+**Status:** Approved in chat; reordered from simplest to most complex; Phases 2 and 4 clarified
+after implementation-readiness reviews, including Phase 4 tool-guidance and restoration decisions
 
 ## Purpose
 
@@ -129,9 +129,11 @@ their existing qualitative reductions and must not regress by more than five per
 ## Phase 4: Current Pi Lifecycle Integration
 
 The DCP system instructions are written to `event.systemPromptOptions.sections.dcp`; the extension
-does not return a complete `systemPrompt`. Custom prompts reload at the start of
-`before_agent_start`, so the prompt section and later context transformation use the same values in
-the same turn.
+does not return a complete `systemPrompt` or alter another extension's forced prompt. Custom prompts
+reload once at the start of `before_agent_start`. The resulting prompt snapshot is shared by the
+system section and every subsequent context pass until the next `before_agent_start`; edits made
+during a run become effective on the next run. Trusted-project, global, and bundled precedence
+remain unchanged.
 
 A single capability calculation supplies two related decisions:
 
@@ -140,14 +142,58 @@ A single capability calculation supplies two related decisions:
 - Model-driven compression is available only when the pipeline may run and compression permission
   is not `deny`.
 
-Compression permission controls the `compress` tool, its prompt section, and its nudges. It does
-not disable automatic deduplication or stale-error pruning, preserving current behavior. Tool
-exposure is reconciled after session restoration, model changes, permission changes, and sub-agent
-detection. If DCP removes an active tool temporarily, it restores it only when it was active before
-suppression. An already user-disabled tool remains disabled.
+`getDcpCapabilities` exposes these policy decisions as `pipelineEnabled` and `compressionEnabled`.
+Applicable suppression reasons are evaluated independently and reported in the fixed order
+`config`, `model`, `subagent`, `permission`. Active-tool selection and manual mode are not policy
+suppression reasons. Compression instructions and nudges additionally require that `compress` is
+active. A deselected tool therefore receives no guidance, while automatic deduplication, stale-error
+pruning, reference assignment, and existing compression summaries continue when the pipeline is
+eligible. Nudges retain their existing manual-mode behavior.
+
+Register the single `compress` tool during extension creation with the global mode's provisional
+schema, `defaultActive: false`, and `executionMode: "sequential"`. Session start refreshes the
+definition after loading trusted project configuration. Pi's reload path activates default-active
+extension tools, so early registration alone cannot preserve a user's inactive selection.
+
+Implicit activation happens only on this extension instance's first session-start event when the
+reason is not `reload`, the active branch has no structured system message declaring a tool loadout,
+and the host includes `compress` among configured tools. A system message with `sections`,
+`toolsAdded`, or `toolsRemoved` declares a loadout even when those collections are empty.
+This provides the fresh-session default without overriding exclusions. Perform it before policy
+suppression; a fresh denied session can
+then restore that default selection when permission allows. Never implicitly activate on subsequent
+session events, tree navigation, reload, or resume of a declared loadout.
+
+Restore branch state and establish model identity and process sub-agent status before reconciling
+exposure. Reconcile after session/tree restoration, model selection, command state changes, and
+before prompt/context processing. Command state callbacks have type
+`(ctx: ExtensionCommandContext) => void` and receive the current context so permission changes
+immediately after startup cannot use stale model identity. Cached messages are cleared on
+session/tree changes.
+
+Within a branch, remember whether the tool was active at the first suppression transition. Keep
+that value through overlapping reasons and restore only a recorded active selection when all
+reasons clear. On session/tree changes, discard previous-branch suppression memory and honor Pi's
+selected loadout. Keep this memory out of snapshots. Definition refresh, resume, and reload must
+not reactivate a host-selected inactive tool.
+
+Guard both the `tool_call` event and registered `execute` function against every policy suppression
+reason. Mutating commands require pipeline eligibility; `dcp:compress` additionally requires
+compression availability and an active tool, and never activates the tool implicitly. Informational
+commands remain available. Permission denial does not disable automatic strategies or existing
+block activation controls.
 
 The `compress` tool executes sequentially because it mutates shared session state. Public Pi
-session-manager methods are used directly rather than hidden behind `unknown` casts.
+session-manager methods are used directly rather than hidden behind `unknown` casts. A typed
+extension harness supplies checked events and fixtures; offline public-SDK contract tests cover
+registration, selection, and structured prompts. Refactor characterization tests pass before cast
+removal; behavioral changes have separate failing tests.
+
+The Phase 4 review used Pi revision `1b094148b91d737fb398bf1591604de58ec169e1` (v1.0.2) and OpenCode
+DCP revision `f8232fde1e63c2251687e4d9634bd53ce11568cb` (v3.2.0). Pi's relevant lifecycle contracts
+are unchanged from `83692682f` and supported by installed v1.0.1 development packages. This phase
+adds no dependencies or package upgrades and retains snapshot v1, existing configuration, command
+names, marker syntax, and pruning/protection/benchmark behavior.
 
 ## Phase 5: Permission and Panel UX
 
@@ -158,6 +204,10 @@ Compression permission becomes `allow | ask | deny`:
   the topic and number of targets/ranges. Rejection blocks the call. A non-interactive session
   fails closed with an explanatory reason.
 - `deny` hides the tool, removes its prompt section and nudges, and blocks defensive direct calls.
+
+Allow and ask preserve Phase 4's selection rules: neither activates a user-deselected tool, and
+instructions/nudges require an active tool. Permission changes and panel actions reconcile through
+the current command context; restored Pi loadouts remain authoritative across session/tree changes.
 
 The permission command cycles `allow -> ask -> deny -> allow`. Snapshot version 2 persists the new
 union; its parser continues accepting version 1 unchanged.

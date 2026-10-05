@@ -1,9 +1,15 @@
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+  SessionStartEvent,
+} from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { isDcpEnabledForModel, loadConfig, type DcpConfig } from "./config.ts";
+import { loadConfig, type DcpConfig } from "./config.ts";
+import { getDcpCapabilities, type DcpSuppressionReason } from "./capabilities.ts";
 import { PromptStore, writeDefaultPrompts } from "./prompts/store.ts";
 import type { RuntimePrompts } from "./prompts/store.ts";
 import {
@@ -77,6 +83,52 @@ function sendCompressNotification(
   }
 }
 
+/** Message shown when a `tool_call` handler blocks a suppressed compress call. */
+function toolCallSuppressionReason(reason: DcpSuppressionReason): string {
+  switch (reason) {
+    case "config":
+      return "Compression is disabled by configuration.";
+    case "model":
+      return "Compression is disabled for the current model";
+    case "subagent":
+      return "Compression is disabled in sub-agent sessions.";
+    case "permission":
+      return "Compression denied by configuration";
+  }
+}
+
+/** Message returned when a direct `execute` is rejected by policy. */
+function executeSuppressionMessage(reason: DcpSuppressionReason): string {
+  switch (reason) {
+    case "config":
+      return "Compression is disabled by configuration.";
+    case "model":
+      return "Compression is disabled for the current model.";
+    case "subagent":
+      return "Compression is disabled in sub-agent sessions.";
+    case "permission":
+      return "Compression is denied by configuration.";
+  }
+}
+
+interface StructuredSystemFields {
+  role?: unknown;
+  sections?: unknown;
+  toolsAdded?: unknown;
+  toolsRemoved?: unknown;
+}
+
+/** A system message declaring a tool loadout declares the host's selected tools. */
+function declaresToolLoadout(message: AgentMessage): boolean {
+  const candidate = message as unknown as StructuredSystemFields;
+  if (candidate.role !== "system") return false;
+  return (
+    candidate.sections !== undefined ||
+    candidate.toolsAdded !== undefined ||
+    candidate.toolsRemoved !== undefined
+  );
+}
+
 export function applyCompressionTiming(
   state: SessionState,
   event: { toolCallId: string; toolName: string; isError?: boolean },
@@ -106,14 +158,42 @@ export default function createExtension(pi: ExtensionAPI): void {
   let promptStore: PromptStore | undefined;
   let runtimePrompts: RuntimePrompts | undefined;
   let lastPersistedFingerprint: string | undefined;
-  let compressWasActiveBeforeModelDisable: boolean | undefined;
+  let compressWasActiveBeforeSuppression: boolean | undefined;
+  let hasProcessedSessionStart = false;
 
-  function reconcileCompressTool(provider: string | undefined, modelId: string | undefined): void {
+  /** Policy capabilities for the current model identity. */
+  function evaluateCapabilities(ctx?: ExtensionContext) {
+    return getDcpCapabilities(
+      config,
+      state,
+      ctx?.model?.provider ?? state.modelProvider,
+      ctx?.model?.id ?? state.modelId,
+    );
+  }
+
+  /** Adopt the current context's model identity as this session's model. */
+  function refreshModelIdentity(ctx: ExtensionContext): void {
+    if (ctx.model) {
+      state.modelProvider = ctx.model.provider;
+      state.modelId = ctx.model.id;
+    }
+  }
+
+  /**
+   * Reconcile the active `compress` tool with DCP policy.
+   *
+   * Pi owns the restored loadout; DCP only remembers a temporary suppression
+   * within the current branch. Selection is recorded at the first suppression
+   * transition and restored only when every policy reason clears.
+   */
+  function reconcileCompressTool(): void {
+    const reasons = evaluateCapabilities().reasons;
     const activeTools = pi.getActiveTools();
     const compressActive = activeTools.includes("compress");
-    if (!isDcpEnabledForModel(config, provider, modelId)) {
-      if (compressWasActiveBeforeModelDisable === undefined) {
-        compressWasActiveBeforeModelDisable = compressActive;
+
+    if (reasons.length > 0) {
+      if (compressWasActiveBeforeSuppression === undefined) {
+        compressWasActiveBeforeSuppression = compressActive;
       }
       if (compressActive) {
         pi.setActiveTools(activeTools.filter((name) => name !== "compress"));
@@ -121,10 +201,40 @@ export default function createExtension(pi: ExtensionAPI): void {
       return;
     }
 
-    if (compressWasActiveBeforeModelDisable === true && !compressActive) {
+    if (compressWasActiveBeforeSuppression === true && !compressActive) {
       pi.setActiveTools([...activeTools, "compress"]);
     }
-    compressWasActiveBeforeModelDisable = undefined;
+    compressWasActiveBeforeSuppression = undefined;
+  }
+
+  /** Restore the host-selected loadout before applying policy. */
+  function resetSuppressionMemory(): void {
+    compressWasActiveBeforeSuppression = undefined;
+  }
+
+  /** Whether the active branch already declares a tool loadout. */
+  function branchDeclaresToolLoadout(ctx: ExtensionContext): boolean {
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type !== "message") continue;
+      if (declaresToolLoadout(entry.message)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Select `compress` for a genuinely fresh session, respecting host exclusions.
+   * Only runs on this extension instance's first session-start event.
+   */
+  function initializeFreshSelection(
+    reason: SessionStartEvent["reason"],
+    ctx: ExtensionContext,
+  ): void {
+    if (reason === "reload") return;
+    if (branchDeclaresToolLoadout(ctx)) return;
+    if (!pi.getAllTools().some((tool) => tool.name === "compress")) return;
+    const activeTools = pi.getActiveTools();
+    if (activeTools.includes("compress")) return;
+    pi.setActiveTools([...activeTools, "compress"]);
   }
 
   function persistIfChanged(force = false): void {
@@ -141,24 +251,13 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   }
 
-  function getSessionId(ctx: ExtensionContext): string {
-    const manager = ctx.sessionManager as unknown as {
-      getSessionId?: () => string;
-      getSessionDir: () => string;
-    };
-    return manager.getSessionId?.() ?? manager.getSessionDir();
-  }
-
   function restoreActiveBranch(ctx: ExtensionContext): boolean {
-    const manager = ctx.sessionManager as unknown as {
-      getBranch?: () => unknown[];
-    };
-    const branch = manager.getBranch?.() ?? [];
-    const currentSessionId = getSessionId(ctx);
+    const branch = ctx.sessionManager.getBranch();
+    const currentSessionId = ctx.sessionManager.getSessionId();
     let skippedInvalidSnapshot = false;
     for (let index = branch.length - 1; index >= 0; index--) {
-      const entry = branch[index] as Record<string, unknown>;
-      if (entry?.type !== "custom" || entry.customType !== "pi-dcp-state") continue;
+      const entry = branch[index];
+      if (entry.type !== "custom" || entry.customType !== "pi-dcp-state") continue;
       const snapshot = parseDcpSnapshot(entry.data, (message) => logger.warn("dcp", message));
       if (!snapshot) {
         skippedInvalidSnapshot = true;
@@ -199,7 +298,37 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   }
 
-  registerDcpCommands(pi, state, config, persistIfChanged);
+  /** Refresh the runtime prompt snapshot once per agent run. */
+  function refreshRuntimePrompts(): void {
+    if (!promptStore) return;
+    promptStore.reload();
+    runtimePrompts = promptStore.getRuntimePrompts();
+  }
+
+  function setupPromptStore(ctx: ExtensionContext): void {
+    if (config.experimental.customPrompts) {
+      const projectOverrideDir = ctx.isProjectTrusted?.()
+        ? path.join(ctx.cwd, ".pi", "dcp-prompts", "overrides")
+        : undefined;
+      const globalOverrideDir = path.join(agentDir, "extensions", "dcp-prompts", "overrides");
+      promptStore = new PromptStore({ projectOverrideDir, globalOverrideDir });
+      promptStore.reload();
+      runtimePrompts = promptStore.getRuntimePrompts();
+
+      // Write defaults for reference on first run
+      const defaultsDir = path.join(agentDir, "extensions", "dcp-prompts", "defaults");
+      writeDefaultPrompts(defaultsDir);
+    } else {
+      promptStore = undefined;
+      runtimePrompts = undefined;
+    }
+  }
+
+  const onStateChange = (ctx: ExtensionCommandContext): void => {
+    refreshModelIdentity(ctx);
+    reconcileCompressTool();
+    persistIfChanged();
+  };
 
   function executeCompressTool(
     mode: CompressArgs["mode"],
@@ -207,12 +336,10 @@ export default function createExtension(pi: ExtensionAPI): void {
     params: Record<string, unknown>,
     ctx: ExtensionContext,
   ) {
-    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) {
-      const text = config.enabled
-        ? "Compression is disabled for the current model."
-        : "Compression is disabled by configuration.";
+    const reasons = evaluateCapabilities(ctx).reasons;
+    if (reasons.length > 0) {
       return {
-        content: [{ type: "text" as const, text }],
+        content: [{ type: "text" as const, text: executeSuppressionMessage(reasons[0]) }],
         details: {},
         isError: true,
       };
@@ -228,12 +355,14 @@ export default function createExtension(pi: ExtensionAPI): void {
     };
   }
 
-  function registerCompressTool(): void {
-    if (config.compress.mode === "message") {
+  function registerCompressTool(mode: DcpConfig["compress"]["mode"]): void {
+    if (mode === "message") {
       pi.registerTool({
         name: "compress",
         label: "Compress",
         description: COMPRESS_MESSAGE_PROMPT,
+        defaultActive: false,
+        executionMode: "sequential",
         parameters: Type.Object({
           topic: Type.String({
             description: "Short label (3-5 words) for display",
@@ -266,6 +395,8 @@ export default function createExtension(pi: ExtensionAPI): void {
         label: "Compress",
         description:
           "Compress conversation ranges into summaries. Use the compact message markers (m1, @m1@) visible in context as boundaries.",
+        defaultActive: false,
+        executionMode: "sequential",
         parameters: Type.Object({
           topic: Type.String({ description: "Short label (3-5 words) for display" }),
           content: Type.Array(
@@ -290,55 +421,65 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   }
 
+  // Register the provisional global-mode definition before the session loads so
+  // Pi's reload path cannot reactivate a deselected tool. Session start refreshes
+  // the schema from trusted project configuration.
+  registerCompressTool(config.compress.mode);
+  registerDcpCommands(pi, state, config, onStateChange);
+
   pi.on("model_select", async (event, _ctx) => {
     state.modelProvider = event.model.provider;
     state.modelId = event.model.id;
-    if (!config.enabled) return;
-    reconcileCompressTool(event.model.provider, event.model.id);
+    reconcileCompressTool();
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
-    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
-    if ((state.compressPermission ?? config.compress.permission) === "deny") return;
-    if (state.isSubAgent && !config.experimental.allowSubAgents) return;
+    refreshRuntimePrompts();
+    refreshModelIdentity(ctx);
+    reconcileCompressTool();
+    const capabilities = evaluateCapabilities(ctx);
+    const guidance = capabilities.compressionEnabled && pi.getActiveTools().includes("compress");
 
-    const systemPromptText = runtimePrompts?.system ?? DCP_SYSTEM_PROMPT;
-    return {
-      systemPrompt: (event.systemPrompt ?? "") + systemPromptText,
-    };
+    const sections = event.systemPromptOptions?.sections;
+    if (sections) {
+      if (guidance) {
+        sections.dcp = runtimePrompts?.system ?? DCP_SYSTEM_PROMPT;
+      } else {
+        delete sections.dcp;
+      }
+    }
+    return undefined;
   });
 
   pi.on("session_start", async (event, ctx) => {
+    const isFirstSessionStart = !hasProcessedSessionStart;
+    hasProcessedSessionStart = true;
+
     const logDir = path.join(ctx.sessionManager.getSessionDir(), "dcp", "logs");
     reloadConfig(ctx, logDir);
-    if (!config.enabled) return;
-    registerCompressTool();
-    reconcileCompressTool(ctx.model?.provider, ctx.model?.id);
 
     resetSessionState(state);
     lastPersistedFingerprint = undefined;
+    latestMessages = [];
+    resetSuppressionMemory();
     state.manualMode = config.manualMode.default;
     state.compressPermission = config.compress.permission;
 
-    if (config.experimental.customPrompts) {
-      const projectOverrideDir = ctx.isProjectTrusted?.()
-        ? path.join(ctx.cwd, ".pi", "dcp-prompts", "overrides")
-        : undefined;
-      const globalOverrideDir = path.join(agentDir, "extensions", "dcp-prompts", "overrides");
-      promptStore = new PromptStore({ projectOverrideDir, globalOverrideDir });
-      promptStore.reload();
-      runtimePrompts = promptStore.getRuntimePrompts();
-
-      // Write defaults for reference on first run
-      const defaultsDir = path.join(agentDir, "extensions", "dcp-prompts", "defaults");
-      writeDefaultPrompts(defaultsDir);
-    } else {
-      promptStore = undefined;
-      runtimePrompts = undefined;
-    }
-
     const forcePersist = restoreActiveBranch(ctx);
+    refreshModelIdentity(ctx);
     state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
+
+    setupPromptStore(ctx);
+
+    // Refresh the definition from trusted project configuration, preserving the
+    // inactive default so a user-deselected tool stays deselected.
+    registerCompressTool(config.compress.mode);
+
+    // Select the fresh-session default before policy suppression so an initially
+    // denied session remembers it and can restore it when permission allows.
+    if (isFirstSessionStart) initializeFreshSelection(event.reason, ctx);
+
+    reconcileCompressTool();
 
     const usage = ctx.getContextUsage();
     if (usage) {
@@ -355,10 +496,14 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("session_tree", async (_event, ctx) => {
     resetSessionState(state);
+    latestMessages = [];
+    resetSuppressionMemory();
     state.manualMode = config.manualMode.default;
     state.compressPermission = config.compress.permission;
     const forcePersist = restoreActiveBranch(ctx);
+    refreshModelIdentity(ctx);
     state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
+    reconcileCompressTool();
     persistIfChanged(forcePersist);
   });
 
@@ -385,7 +530,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("message_end", async (event, ctx) => {
-    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
+    if (!evaluateCapabilities(ctx).pipelineEnabled) return;
     if (event.message.role !== "assistant") return;
 
     const stripped = mapText(event.message, stripHallucinationsFromString);
@@ -395,34 +540,29 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    if (!config.enabled) return undefined;
     if (event.toolName !== "compress") return undefined;
-    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) {
-      return { block: true, reason: "Compression is disabled for the current model" };
-    }
-
-    const permission = state.compressPermission ?? config.compress.permission;
-    if (permission === "deny") {
-      return { block: true, reason: "Compression denied by configuration" };
-    }
-    return undefined;
+    refreshModelIdentity(ctx);
+    const reasons = evaluateCapabilities(ctx).reasons;
+    if (reasons.length === 0) return undefined;
+    return { block: true, reason: toolCallSuppressionReason(reasons[0]) };
   });
 
   pi.on("tool_execution_start", async (event, ctx) => {
-    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
     if (event.toolName !== "compress") return;
+    if (evaluateCapabilities(ctx).reasons.length > 0) return;
     state.compressionTiming.startTimes.set(event.toolCallId, Date.now());
   });
 
   pi.on("tool_execution_end", async (event, ctx) => {
-    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
-
-    // Compression timing (Phase 2)
+    // Compression timing completion is unconditional: a call that started under
+    // an allowed policy must have its timing cleared even if policy changed.
     if (event.toolName === "compress") {
       applyCompressionTiming(state, event);
       persistIfChanged();
       return;
     }
+
+    if (!evaluateCapabilities(ctx).pipelineEnabled) return;
 
     // Sub-agent result caching (Phase 9)
     if (event.toolName === "subagent" && !event.isError) {
@@ -438,23 +578,16 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (event, ctx) => {
-    if (!config.enabled) return;
-    if (ctx.model) {
-      state.modelId = ctx.model.id;
-      state.modelProvider = ctx.model.provider;
-    }
-    reconcileCompressTool(ctx.model?.provider, ctx.model?.id);
-    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) return;
-    if (state.isSubAgent && !config.experimental.allowSubAgents) return;
+    refreshModelIdentity(ctx);
+    reconcileCompressTool();
+    const capabilities = evaluateCapabilities(ctx);
+    if (!capabilities.pipelineEnabled) return;
 
     const usage = ctx.getContextUsage();
     if (usage) state.modelContextWindow = usage.contextWindow;
     latestMessages = event.messages;
 
-    if (promptStore) {
-      promptStore.reload();
-      runtimePrompts = promptStore.getRuntimePrompts();
-    }
+    const guidance = capabilities.compressionEnabled && pi.getActiveTools().includes("compress");
 
     const result = runPipeline(
       state,
@@ -468,6 +601,7 @@ export default function createExtension(pi: ExtensionAPI): void {
           }
         : undefined,
       runtimePrompts,
+      guidance,
     );
 
     if (result.strategyResult.pruned > 0) {

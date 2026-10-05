@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 2026-10-05 - [0.9.0]
+
+### Added
+
+- Lifecycle-aware `compress` tool reconciliation. DCP registers the tool during extension creation with `defaultActive: false` and refreshes its mode-specific schema from trusted project configuration at session start. A host-selected inactive tool stays inactive across model switches, permission changes, definition refresh, resume, and reload.
+- Explicit fresh-session activation: on the first session-start event, when the reason is not `reload`, the branch declares no tool loadout, and the host exposes `compress`, DCP selects it once. Host `tools`/`excludeTools`/`noTools` exclusions are respected, and the tool is never implicitly selected again.
+- Structured prompt integration: DCP writes instructions to the `dcp` section of Pi's structured system prompt, preserving unrelated sections and any forced prompt.
+- A typed extension harness and offline public-SDK contract tests covering registration, selection, prompt sections, and defensive authorization.
+
+### Changed
+
+- Custom prompt overrides reload once at the start of each agent run, and that snapshot is shared by the system section and context passes until the next run.
+- Compression instructions and nudges require an active `compress` tool and non-denied permission. Automatic deduplication, stale-error pruning, reference assignment, and existing compression summaries are unaffected.
+- `tool_call` and registered `execute` reject every policy suppression reason in the fixed order `config`, `model`, `subagent`, `permission`. Permission denial alone leaves the pipeline enabled.
+- Mutating commands require pipeline eligibility. `dcp:compress` additionally requires compression availability and an active tool, and never activates it.
+- Compression timing completion is unconditional, so a call that started under an allowed policy records its duration even if permission changes mid-flight.
+- Pi session-manager methods are used directly instead of compatibility casts.
+
+### Removed
+
+- Removed the optional-compatibility session-manager fallbacks and the full `systemPrompt` override in favor of public APIs and structured prompt sections.
+
 ## 2026-10-04 - [0.8.0]
 
 ### Added

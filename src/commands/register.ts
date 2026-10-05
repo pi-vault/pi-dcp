@@ -2,6 +2,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SessionState } from "../state/types.ts";
 import { isDcpEnabledForModel, type DcpConfig } from "../config.ts";
+import { getDcpCapabilities } from "../capabilities.ts";
 import { helpCommand } from "./help.ts";
 import { contextCommand } from "./context.ts";
 import { statsCommand } from "./stats.ts";
@@ -17,24 +18,42 @@ export function registerDcpCommands(
   pi: ExtensionAPI,
   state: SessionState,
   config: DcpConfig,
-  onStateChange: () => void,
+  onStateChange: (ctx: ExtensionCommandContext) => void,
 ): void {
+  const capabilities = (ctx: ExtensionCommandContext) =>
+    getDcpCapabilities(
+      config,
+      state,
+      ctx.model?.provider ?? state.modelProvider,
+      ctx.model?.id ?? state.modelId,
+    );
+
   const rejectWhenDisabled = (ctx: ExtensionCommandContext): boolean => {
-    if (!config.enabled) {
+    const { pipelineEnabled, reasons } = capabilities(ctx);
+    if (pipelineEnabled) return false;
+    if (reasons.includes("config")) {
       ctx.ui.notify("DCP is disabled by configuration.", "info");
-      return true;
-    }
-    if (!isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id)) {
+    } else if (reasons.includes("subagent")) {
+      ctx.ui.notify("DCP is disabled in sub-agent sessions.", "info");
+    } else {
       ctx.ui.notify("DCP is disabled for the current model.", "info");
-      return true;
     }
-    return false;
+    return true;
   };
 
   pi.registerCommand("dcp:compress", {
     description: "Trigger manual compression, optionally focused on a topic",
     handler: async (args, ctx) => {
       if (rejectWhenDisabled(ctx)) return;
+      const { compressionEnabled } = capabilities(ctx);
+      if (!compressionEnabled) {
+        ctx.ui.notify("Compression is denied by configuration.", "info");
+        return;
+      }
+      if (!pi.getActiveTools().includes("compress")) {
+        ctx.ui.notify("Compression is unavailable while the compress tool is inactive.", "info");
+        return;
+      }
       ctx.ui.notify(compressCommand(pi, state, config, args), "info");
     },
   });
@@ -68,7 +87,7 @@ export function registerDcpCommands(
     handler: async (_args, ctx) => {
       if (rejectWhenDisabled(ctx)) return;
       const message = sweepCommand(state, config);
-      onStateChange();
+      onStateChange(ctx);
       ctx.ui.notify(message, "info");
     },
   });
@@ -78,7 +97,7 @@ export function registerDcpCommands(
     handler: async (args, ctx) => {
       if (rejectWhenDisabled(ctx)) return;
       const message = manualCommand(state, args);
-      onStateChange();
+      onStateChange(ctx);
       ctx.ui.notify(message, "info");
     },
   });
@@ -88,7 +107,7 @@ export function registerDcpCommands(
     handler: async (args, ctx) => {
       if (rejectWhenDisabled(ctx)) return;
       const message = decompressCommand(state, args);
-      onStateChange();
+      onStateChange(ctx);
       ctx.ui.notify(message, "info");
     },
   });
@@ -98,7 +117,7 @@ export function registerDcpCommands(
     handler: async (args, ctx) => {
       if (rejectWhenDisabled(ctx)) return;
       const message = recompressCommand(state, args);
-      onStateChange();
+      onStateChange(ctx);
       ctx.ui.notify(message, "info");
     },
   });
@@ -116,7 +135,7 @@ export function registerDcpCommands(
     handler: async (_args, ctx) => {
       if (rejectWhenDisabled(ctx)) return;
       const message = permissionCommand(state);
-      onStateChange();
+      onStateChange(ctx);
       ctx.ui.notify(message, "info");
     },
   });

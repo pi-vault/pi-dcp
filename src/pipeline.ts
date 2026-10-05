@@ -26,6 +26,7 @@ export function runPipeline(
   messages: AgentMessage[],
   contextUsage: ContextUsage | undefined,
   runtimePrompts?: RuntimePrompts,
+  compressionEnabled = (state.compressPermission ?? config.compress.permission) !== "deny",
 ): PipelineResult {
   // Step 0: Strip stale tags, then rebuild stable refs before state rehydration.
   let result = stripHallucinations(messages);
@@ -63,8 +64,12 @@ export function runPipeline(
   // Step 5: Inject message IDs (with priority attrs if message mode)
   result = injectMessageIds(state, result, priorityMap);
 
-  // Step 6: Inject nudges while message indices still match the raw refs
-  result = injectCompressNudges(state, config, result, contextUsage, runtimePrompts);
+  // Step 6: Inject nudges while message indices still match the raw refs.
+  // Guidance is skipped when compression is policy-suppressed or the tool is
+  // inactive; automatic strategies, references, and pruning still run.
+  if (compressionEnabled) {
+    result = injectCompressNudges(state, config, result, contextUsage, runtimePrompts);
+  }
 
   // Step 7: Apply pruning (compressed ranges removed, tool outputs pruned)
   result = applyPruning(state, result);

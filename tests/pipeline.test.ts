@@ -232,6 +232,21 @@ describe("runPipeline", () => {
     expect(lastUser).toContain("<dcp-system-reminder>");
   });
 
+  it("skips compress nudges when guidance is unavailable but still assigns references", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const messages: AgentMessage[] = [makeUserMessage("Hello"), makeAssistantMessage("Hi")];
+    const usage: ContextUsage = { tokens: 80000, contextWindow: 100000, percent: 80 };
+
+    const result = runPipeline(state, config, messages, usage, undefined, false);
+
+    const lastUser = getMessageText(
+      requireMessage(result.messages[result.messages.length - 1], "last result message"),
+    );
+    expect(lastUser).not.toContain("<dcp-system-reminder>");
+    expect(lastUser).toContain("@m2@");
+  });
+
   it("keeps anchored nudges on their raw message when compression prunes earlier messages", () => {
     const state = createSessionState();
     const config = makeDefaultConfig();
