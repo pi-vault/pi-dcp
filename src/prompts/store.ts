@@ -52,7 +52,7 @@ export class PromptStore {
 
   /**
    * Re-read override files and rebuild runtime prompts.
-   * Safe to call on every context pass (filesystem errors are swallowed).
+   * Called once at the start of each agent run; filesystem errors are swallowed.
    */
   reload(): void {
     const result = { ...BUNDLED_DEFAULTS };
