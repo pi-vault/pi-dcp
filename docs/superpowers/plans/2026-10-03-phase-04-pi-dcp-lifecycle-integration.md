@@ -45,6 +45,24 @@ Baseline verification passed: `pnpm check` (52 files, 661 tests), `pnpm run pack
 `node scripts/generate-schema.ts | diff - dcp.schema.json`. Interactive Pi checks remain part of
 Task 4. This records the review baseline, not completion of the implementation tasks below.
 
+## Implementation Review — 2026-10-04
+
+Reviewed `854e592..f2f4bb6` against this plan and the local Pi contracts. No confirmed production
+defect was found. Review corrections are limited to tests: the SDK fixture now binds extensions
+so reload emits lifecycle events, exercises actual deselection/reload and both supplied resume
+selections, and checks trusted-project schema changes. Model/message fixtures use checked Pi
+shapes, and prompt tests cover system and turn-nudge edits before a run, stability through repeated
+context passes after mid-run edits, and refresh on the next run. An independent follow-up review
+found no unresolved findings in these test changes.
+
+Verification passed: `pnpm check` (55 files, 710 tests), generated-schema comparison,
+`pnpm run pack:dry-run`, and `git diff --check`. No provider requests were made. Interactive Pi
+smoke checks in Task 4 remain unperformed.
+
+Host limitation: the current Pi SDK always supplies `initialActiveToolNames`, which skips its
+constructor's transcript loadout restoration during initial resume. DCP respects the loadout Pi
+supplies; this review does not change the approved restored-loadout ownership rule.
+
 ## Review Focus
 
 - Resume/reload or a trusted-project mode change must preserve an inactive tool; Task 2 checks definition refresh through the real host.
