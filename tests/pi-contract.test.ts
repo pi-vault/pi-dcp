@@ -7,10 +7,31 @@ import createExtension from "../src/index.ts";
 import { PromptStore } from "../src/prompts/store.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { serializeDcpSnapshot } from "../src/state/persistence.ts";
-import { createExtensionHarness, declaredLoadoutMessage } from "./extension-harness.ts";
+import {
+  createExtensionHarness,
+  createHarnessModel,
+  declaredLoadoutMessage,
+} from "./extension-harness.ts";
 
 const agentDir = `${os.tmpdir()}/dcp-pi-contract-${Date.now()}-${Math.random()}`;
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+const assistantMetadata = {
+  api: "openai-completions",
+  provider: "test",
+  model: "test-model",
+  usage: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+} satisfies Pick<
+  Extract<AgentMessage, { role: "assistant" }>,
+  "api" | "provider" | "model" | "usage"
+>;
 
 function writeConfig(config: unknown): void {
   const configDir = path.join(agentDir, "extensions");
@@ -158,7 +179,7 @@ describe("DCP lifecycle reconciliation", () => {
     harness.setModel({ provider: "test", id: "test-model" });
     await harness.emit("model_select", {
       type: "model_select",
-      model: { provider: "test", id: "test-model" } as never,
+      model: createHarnessModel({ provider: "test", id: "test-model" }),
       previousModel: undefined,
       source: "set",
     });
@@ -167,7 +188,7 @@ describe("DCP lifecycle reconciliation", () => {
     harness.setModel({ provider: "test", id: "allowed-model" });
     await harness.emit("model_select", {
       type: "model_select",
-      model: { provider: "test", id: "allowed-model" } as never,
+      model: createHarnessModel({ provider: "test", id: "allowed-model" }),
       previousModel: undefined,
       source: "set",
     });
@@ -191,7 +212,7 @@ describe("DCP lifecycle reconciliation", () => {
     harness.setModel({ provider: "test", id: "test-model" });
     await harness.emit("model_select", {
       type: "model_select",
-      model: { provider: "test", id: "test-model" } as never,
+      model: createHarnessModel({ provider: "test", id: "test-model" }),
       previousModel: undefined,
       source: "set",
     });
@@ -200,7 +221,7 @@ describe("DCP lifecycle reconciliation", () => {
     harness.setModel({ provider: "test", id: "allowed-model" });
     await harness.emit("model_select", {
       type: "model_select",
-      model: { provider: "test", id: "allowed-model" } as never,
+      model: createHarnessModel({ provider: "test", id: "allowed-model" }),
       previousModel: undefined,
       source: "set",
     });
@@ -316,38 +337,42 @@ describe("DCP defensive authorization", () => {
     createExtension(harness.api);
     await harness.emit("session_start", { type: "session_start", reason: "new" });
 
-    const messages: AgentMessage[] = [
+    const messages = [
       { role: "user", content: [{ type: "text", text: "find" }], timestamp: 1 },
       {
+        ...assistantMetadata,
         role: "assistant",
         content: [{ type: "toolCall", id: "c1", name: "glob", arguments: { pattern: "**/*.ts" } }],
         stopReason: "toolUse",
         timestamp: 2,
-      } as unknown as AgentMessage,
+      },
       {
         role: "toolResult",
         toolCallId: "c1",
         toolName: "glob",
         content: [{ type: "text", text: "same output" }],
         isError: false,
+        nestedCalls: { calls: [], complete: true },
         timestamp: 3,
-      } as unknown as AgentMessage,
+      },
       { role: "user", content: [{ type: "text", text: "again" }], timestamp: 4 },
       {
+        ...assistantMetadata,
         role: "assistant",
         content: [{ type: "toolCall", id: "c2", name: "glob", arguments: { pattern: "**/*.ts" } }],
         stopReason: "toolUse",
         timestamp: 5,
-      } as unknown as AgentMessage,
+      },
       {
         role: "toolResult",
         toolCallId: "c2",
         toolName: "glob",
         content: [{ type: "text", text: "same output" }],
         isError: false,
+        nestedCalls: { calls: [], complete: true },
         timestamp: 6,
-      } as unknown as AgentMessage,
-    ];
+      },
+    ] satisfies AgentMessage[];
 
     const [result] = (await harness.emit("context", { type: "context", messages })) as [
       { messages: AgentMessage[] },
@@ -373,8 +398,14 @@ describe("DCP defensive authorization", () => {
         type: "context",
         messages: [
           { role: "user", content: [{ type: "text", text: "one" }], timestamp: 1 },
-          { role: "assistant", content: [{ type: "text", text: "two" }], timestamp: 2 },
-        ] as AgentMessage[],
+          {
+            ...assistantMetadata,
+            role: "assistant",
+            content: [{ type: "text", text: "two" }],
+            stopReason: "stop",
+            timestamp: 2,
+          },
+        ] satisfies AgentMessage[],
       });
       harness.entries.length = 0;
 
@@ -512,21 +543,61 @@ describe("DCP structured prompts", () => {
     }
   });
 
-  it("captures custom prompt edits at the start of a run", async () => {
-    writeConfig({ experimental: { customPrompts: true } });
+  it("holds custom system and turn-nudge edits until the next run", async () => {
+    writeConfig({
+      experimental: { customPrompts: true },
+      compress: { nudgeForce: "strong", minContextPercent: 50, maxContextPercent: 80 },
+    });
     const overrideDir = path.join(agentDir, "extensions", "dcp-prompts", "overrides");
     fs.mkdirSync(overrideDir, { recursive: true });
-    fs.writeFileSync(path.join(overrideDir, "system.md"), "First prompt");
+    fs.writeFileSync(path.join(overrideDir, "system.md"), "Startup prompt");
+    fs.writeFileSync(path.join(overrideDir, "turn-nudge.md"), "Startup turn nudge");
 
-    const harness = createExtensionHarness({ activeTools: ["read"] });
+    const harness = createExtensionHarness({
+      activeTools: ["read"],
+      contextUsage: { tokens: 120_000, contextWindow: 200_000, percent: 60 },
+    });
     createExtension(harness.api);
     await harness.emit("session_start", { type: "session_start", reason: "new" });
 
+    // Edits made before the first run must replace the startup snapshot.
+    fs.writeFileSync(path.join(overrideDir, "system.md"), "First prompt");
+    fs.writeFileSync(path.join(overrideDir, "turn-nudge.md"), "First turn nudge");
     const first = systemPromptEvent();
     await harness.emit("before_agent_start", { type: "before_agent_start", prompt: "a", ...first });
     expect(first.systemPromptOptions.sections.dcp).toBe("First prompt");
 
+    const messages = [
+      {
+        ...assistantMetadata,
+        role: "assistant",
+        content: [{ type: "text", text: "Previous reply" }],
+        stopReason: "stop",
+        timestamp: 1,
+      },
+      { role: "user", content: [{ type: "text", text: "Continue" }], timestamp: 2 },
+    ] satisfies AgentMessage[];
+
+    // Mid-run edits must wait even when context is transformed repeatedly.
     fs.writeFileSync(path.join(overrideDir, "system.md"), "Second prompt");
+    fs.writeFileSync(path.join(overrideDir, "turn-nudge.md"), "Second turn nudge");
+    for (let pass = 0; pass < 2; pass++) {
+      const [result] = await harness.emit("context", { type: "context", messages });
+      expect(result).toMatchObject({
+        messages: [
+          {},
+          { content: [{ type: "text", text: expect.stringContaining("First turn nudge") }] },
+        ],
+      });
+      expect(result).not.toMatchObject({
+        messages: [
+          {},
+          { content: [{ type: "text", text: expect.stringContaining("Second turn nudge") }] },
+        ],
+      });
+      expect(first.systemPromptOptions.sections.dcp).toBe("First prompt");
+    }
+
     const second = systemPromptEvent();
     await harness.emit("before_agent_start", {
       type: "before_agent_start",
@@ -534,5 +605,18 @@ describe("DCP structured prompts", () => {
       ...second,
     });
     expect(second.systemPromptOptions.sections.dcp).toBe("Second prompt");
+    const [result] = await harness.emit("context", { type: "context", messages });
+    expect(result).toMatchObject({
+      messages: [
+        {},
+        { content: [{ type: "text", text: expect.stringContaining("Second turn nudge") }] },
+      ],
+    });
+    expect(result).not.toMatchObject({
+      messages: [
+        {},
+        { content: [{ type: "text", text: expect.stringContaining("First turn nudge") }] },
+      ],
+    });
   });
 });

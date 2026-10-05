@@ -16,6 +16,20 @@ export interface HarnessModel {
   id: string;
 }
 
+export function createHarnessModel(identity: HarnessModel) {
+  return {
+    ...identity,
+    name: "Test Model",
+    api: "openai-completions",
+    baseUrl: "https://example.invalid",
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 1_000,
+    reasoning: false,
+  } satisfies NonNullable<ExtensionContext["model"]>;
+}
+
 export interface HarnessContextUsage {
   tokens: number | null;
   contextWindow: number;
@@ -87,7 +101,7 @@ export function createExtensionHarness(options: ExtensionHarnessOptions = {}) {
   const setStatus = vi.fn();
   const activeToolNames = new Set(options.activeTools ?? ["read"]);
   let branch = options.branch ?? [];
-  let model = options.model ?? { provider: "test", id: "test-model" };
+  let model = createHarnessModel(options.model ?? { provider: "test", id: "test-model" });
 
   const ui = {
     notify,
@@ -150,7 +164,7 @@ export function createExtensionHarness(options: ExtensionHarnessOptions = {}) {
     hasUI: options.hasUI ?? false,
     cwd: options.cwd ?? process.cwd(),
     sessionManager,
-    model: model as unknown as ExtensionContext["model"],
+    model,
     modelRegistry: {},
     scopedModels: [],
     isIdle: () => true,
@@ -306,8 +320,8 @@ export function createExtensionHarness(options: ExtensionHarnessOptions = {}) {
   }
 
   function setHarnessModel(next: HarnessModel) {
-    model = next;
-    (extensionContext as { model: unknown }).model = next as unknown as ExtensionContext["model"];
+    model = createHarnessModel(next);
+    extensionContext.model = model;
   }
 
   function emitMessages(name: EventName, event: unknown): Promise<unknown[]> {
@@ -357,5 +371,5 @@ export function declaredLoadoutMessage(toolNames: string[] = []): AgentMessage {
     sections: {},
     toolsAdded: toolNames.map((name) => ({ name, description: "", parameters: {} })),
     timestamp: 1,
-  } as unknown as AgentMessage;
+  } satisfies AgentMessage;
 }
