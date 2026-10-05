@@ -16,6 +16,8 @@
 - Permission is exactly `allow | ask | deny`; the default remains `allow`.
 - `ask` confirms every compression call and fails closed when no interactive UI exists.
 - Existing `dcp:*` commands remain supported and use the same domain mutations as panel actions.
+- Preserve Phase 4's inactive-tool selection, run-boundary prompt snapshots, and restored-loadout precedence. Allow/ask do not implicitly activate `compress`; guidance additionally requires an active tool.
+- State-change callbacks have type `(ctx: ExtensionCommandContext) => void`; commands and panel actions pass their current context for immediate reconciliation.
 - `@earendil-works/pi-tui` is host-provided: exact `"*"` peer, compatible development dependency, never a runtime dependency.
 
 ## Review Focus
@@ -112,8 +114,10 @@ git commit -m "feat: add ask compression permission"
 
 - [ ] **Step 1: Extend capability tests for `ask`**
 
-Assert `ask` leaves `pipelineEnabled` and `compressionEnabled` true, exposes `compress`, includes the
-DCP prompt section, and permits nudges. Assert only `deny` suppresses those compression surfaces.
+Assert `ask` leaves `pipelineEnabled` and `compressionEnabled` true when no other policy reason
+suppresses them. With an active `compress` tool it includes the DCP prompt section and permits
+nudges. With an inactive tool it preserves that selection and omits guidance. Only `deny` adds a
+permission suppression reason; global/model/sub-agent suppression continues to apply.
 
 - [ ] **Step 2: Add failing confirmation tests**
 
@@ -143,8 +147,10 @@ ask require `ctx.hasUI` and await `ctx.ui.confirm`. Do not cache approval across
 - [ ] **Step 6: Reconcile runtime permission changes immediately**
 
 Treat allow and ask as compression-enabled in capabilities; deny remains suppressed. Ensure the
-permission command callback updates active tools and the prompt on the next run while preserving
-the pre-suppression active state established in Phase 4.
+permission command invokes the state-change callback with its current command context, reconciling
+active tools immediately and the prompt on the next run. Preserve the pre-suppression active state
+within a branch and Pi's selected loadout across restoration as established in Phase 4. Retain the
+defensive capability guard in the registered execute function.
 
 - [ ] **Step 7: Run focused and complete compression tests**
 
@@ -246,7 +252,7 @@ git commit -m "feat: add DCP panel view model and actions"
 **Interfaces:**
 
 - Consumes: `DcpPanelModel`, `DcpPanelAction`, Pi `Theme`, `ctx.ui.custom`, and pi-tui key/width helpers.
-- Produces: `DcpPanelComponent` and `openDcpPanel(state, config, ctx, onStateChange): Promise<void>`, registered as command `dcp`.
+- Produces: `DcpPanelComponent` and `openDcpPanel(state, config, ctx, onStateChange): Promise<void>`, registered as command `dcp`, with `onStateChange: (ctx: ExtensionCommandContext) => void`.
 
 - [ ] **Step 1: Add the host-provided pi-tui metadata test**
 
@@ -264,7 +270,7 @@ Escape/`q` returns `close` exactly once.
 - [ ] **Step 3: Add failing command-controller tests**
 
 Assert `dcp` is registered. In TUI mode, mock `ctx.ui.custom` to return a permission action then
-close; assert state changes, `onStateChange` runs, and the next model reflects the new value. In
+close; assert state changes, `onStateChange(ctx)` runs, and the next model reflects the new value. In
 non-TUI mode, assert one error notification and no custom UI call. Make lifetime loading reject and
 assert the panel still opens with unavailable totals and existing commands remain registered.
 
@@ -289,7 +295,7 @@ keyboard footer. Track only selection and completion state; return actions throu
 - [ ] **Step 7: Implement the panel controller and command**
 
 In TUI mode, load lifetime totals, build a fresh model, await one component action, execute it, call
-`onStateChange`, and reopen until `close`. Catch lifetime-read failures as unavailable data. Register
+`onStateChange(ctx)`, and reopen until `close`. Catch lifetime-read failures as unavailable data. Register
 `dcp` without removing or renaming any `dcp:*` command.
 
 - [ ] **Step 8: Run UI, command, package, and type checks**
