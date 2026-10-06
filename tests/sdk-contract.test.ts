@@ -89,6 +89,24 @@ afterEach(() => {
 });
 
 describe("DCP public SDK contract", () => {
+  it("keeps the compress tool exposed and guided for ask permission", async () => {
+    const { session, agentDir } = await createHostSession({
+      setup: (dir) => {
+        fs.mkdirSync(path.join(dir, "extensions"), { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, "extensions", "dcp.json"),
+          '{"compress":{"permission":"ask"}}',
+        );
+      },
+    });
+
+    expect(session.getActiveToolNames()).toContain("compress");
+    const result = await session.extensionRunner.emitBeforeAgentStart("hello", undefined, {
+      cwd: agentDir,
+    });
+    expect(result.systemPromptOptions.sections.dcp).toContain("compress");
+  });
+
   it("activates the early-registered compress tool for a fresh default session", async () => {
     const { session } = await createHostSession();
 

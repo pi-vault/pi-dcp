@@ -19,6 +19,7 @@ import {
   buildCompressNotificationDetailed,
 } from "./ui/notification.ts";
 import { handleCompress, type CompressArgs, type CompressResult } from "./compress/handler.ts";
+import { requestCompressionApproval } from "./compress/permission.ts";
 import { stripHallucinationsFromString } from "./messages/strip.ts";
 import { mapText } from "./utils/message-content.ts";
 import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
@@ -330,11 +331,12 @@ export default function createExtension(pi: ExtensionAPI): void {
     persistIfChanged();
   };
 
-  function executeCompressTool(
+  async function executeCompressTool(
     mode: CompressArgs["mode"],
     toolCallId: string,
     params: Record<string, unknown>,
     ctx: ExtensionContext,
+    signal: AbortSignal | undefined,
   ) {
     const reasons = evaluateCapabilities(ctx).reasons;
     if (reasons.length > 0) {
@@ -344,6 +346,40 @@ export default function createExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
+
+    const permission = state.compressPermission ?? config.compress.permission;
+    if (permission === "ask") {
+      const effectiveSignal = signal ?? ctx.signal;
+      const denial = await requestCompressionApproval(mode, params, ctx, effectiveSignal);
+      if (denial !== undefined) {
+        return {
+          content: [{ type: "text" as const, text: denial }],
+          details: {},
+          isError: true,
+        };
+      }
+      // Recheck after the wait: an abort or a policy change must prevent work.
+      if (effectiveSignal?.aborted) {
+        return {
+          content: [{ type: "text" as const, text: "Compression was not approved" }],
+          details: {},
+          isError: true,
+        };
+      }
+      const suppressedReasons = evaluateCapabilities(ctx).reasons;
+      if (suppressedReasons.length > 0) {
+        return {
+          content: [
+            { type: "text" as const, text: executeSuppressionMessage(suppressedReasons[0]) },
+          ],
+          details: {},
+          isError: true,
+        };
+      }
+    }
+
+    // Timing starts at actual compression work, after approval and a fresh policy check.
+    state.compressionTiming.startTimes.set(toolCallId, Date.now());
     const result = handleCompress(state, config, latestMessages, toolCallId, {
       ...params,
       mode,
@@ -386,6 +422,7 @@ export default function createExtension(pi: ExtensionAPI): void {
             _toolCallId,
             params as Record<string, unknown>,
             ctx,
+            _signal,
           );
         },
       });
@@ -415,7 +452,13 @@ export default function createExtension(pi: ExtensionAPI): void {
           ),
         }),
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-          return executeCompressTool("range", _toolCallId, params as Record<string, unknown>, ctx);
+          return executeCompressTool(
+            "range",
+            _toolCallId,
+            params as Record<string, unknown>,
+            ctx,
+            _signal,
+          );
         },
       });
     }
@@ -545,12 +588,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     const reasons = evaluateCapabilities(ctx).reasons;
     if (reasons.length === 0) return undefined;
     return { block: true, reason: toolCallSuppressionReason(reasons[0]) };
-  });
-
-  pi.on("tool_execution_start", async (event, ctx) => {
-    if (event.toolName !== "compress") return;
-    if (evaluateCapabilities(ctx).reasons.length > 0) return;
-    state.compressionTiming.startTimes.set(event.toolCallId, Date.now());
   });
 
   pi.on("tool_execution_end", async (event, ctx) => {

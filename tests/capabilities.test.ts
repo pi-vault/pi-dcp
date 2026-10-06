@@ -55,6 +55,25 @@ describe("getDcpCapabilities", () => {
     });
   });
 
+  it("keeps compression enabled for the ask permission", () => {
+    const state = createSessionState();
+    state.compressPermission = "ask";
+    expect(getDcpCapabilities(makeDefaultConfig(), state, provider, modelId)).toEqual({
+      pipelineEnabled: true,
+      compressionEnabled: true,
+      reasons: [],
+    });
+  });
+
+  it("treats a configured ask default as enabled when the session has no override", () => {
+    const config = makeDefaultConfig({ permission: "ask" });
+    expect(getDcpCapabilities(config, createSessionState(), provider, modelId)).toEqual({
+      pipelineEnabled: true,
+      compressionEnabled: true,
+      reasons: [],
+    });
+  });
+
   it("lets the session permission override the configuration default", () => {
     const config = makeDefaultConfig({ permission: "deny" });
     const state = createSessionState();

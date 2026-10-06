@@ -52,6 +52,8 @@ export interface ExtensionHarnessOptions {
   sessionId?: string;
   sessionDir?: string;
   hasUI?: boolean;
+  /** Extension run mode. Default: "tui". */
+  mode?: ExtensionContext["mode"];
   contextUsage?: HarnessContextUsage | undefined;
 }
 
@@ -160,7 +162,7 @@ export function createExtensionHarness(options: ExtensionHarnessOptions = {}) {
 
   const extensionContext = {
     ui,
-    mode: "tui",
+    mode: options.mode ?? "tui",
     hasUI: options.hasUI ?? false,
     cwd: options.cwd ?? process.cwd(),
     sessionManager,
@@ -275,19 +277,27 @@ export function createExtensionHarness(options: ExtensionHarnessOptions = {}) {
     return results;
   }
 
-  async function executeTool(name: string, args: unknown, ctx = extensionContext) {
+  async function executeTool(
+    name: string,
+    args: unknown,
+    options: { ctx?: ExtensionContext; signal?: AbortSignal; toolCallId?: string } = {},
+  ) {
+    const ctx = options.ctx ?? extensionContext;
     const tool = tools.get(name);
     if (!tool) throw new Error(`Tool "${name}" is not registered`);
-    const toolContext = {
-      ...ctx,
+    const toolContext = Object.assign(Object.create(ctx), {
       tools: [],
       executeTool: async () => {
         throw new Error("nested tool calls are not supported by the harness");
       },
-    } as unknown as ExtensionToolContext;
-    const signal = undefined;
-    const onUpdate = undefined;
-    return tool.execute("harness-call", args as never, signal, onUpdate, toolContext);
+    }) as unknown as ExtensionToolContext;
+    return tool.execute(
+      options.toolCallId ?? "harness-call",
+      args as never,
+      options.signal,
+      undefined,
+      toolContext,
+    );
   }
 
   async function runCommand(name: string, args: string, ctx = buildCommandContext()) {
@@ -334,7 +344,7 @@ export function createExtensionHarness(options: ExtensionHarnessOptions = {}) {
     commands,
     entries,
     sentMessages,
-    ui: { notify, setStatus },
+    ui: { notify, setStatus, confirm: ui.confirm, custom: ui.custom },
     context: extensionContext as unknown as ExtensionContext,
     commandContext: commandContext as unknown as ExtensionCommandContext,
     get model() {

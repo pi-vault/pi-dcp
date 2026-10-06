@@ -411,12 +411,6 @@ describe("DCP defensive authorization", () => {
       harness.entries.length = 0;
 
       vi.setSystemTime(1_000);
-      await harness.emit("tool_execution_start", {
-        type: "tool_execution_start",
-        toolName: "compress",
-        toolCallId: "harness-call",
-        args: {},
-      });
       await harness.executeTool("compress", validCompression);
 
       // Permission changes after the call started.
@@ -618,6 +612,179 @@ describe("DCP structured prompts", () => {
         {},
         { content: [{ type: "text", text: expect.stringContaining("First turn nudge") }] },
       ],
+    });
+  });
+});
+
+describe("DCP ask authorization", () => {
+  const validCompression = {
+    topic: "ask topic",
+    content: [{ startId: "m0001", endId: "m0001", summary: "summary" }],
+  };
+
+  async function askHarness(options: {
+    mode?: "tui" | "rpc" | "json" | "print";
+    hasUI?: boolean;
+    config?: unknown;
+    model?: { provider: string; id: string };
+  }) {
+    writeConfig(options.config ?? { compress: { permission: "ask" } });
+    const harness = createExtensionHarness({
+      activeTools: ["read", "compress"],
+      mode: options.mode ?? "tui",
+      hasUI: options.hasUI ?? true,
+      model: options.model,
+      contextUsage: { tokens: 1000, contextWindow: 200_000, percent: 0.5 },
+    });
+    createExtension(harness.api);
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+    await harness.emit("context", {
+      type: "context",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "one" }], timestamp: 1 },
+        {
+          ...assistantMetadata,
+          role: "assistant",
+          content: [{ type: "text", text: "two" }],
+          stopReason: "stop",
+          timestamp: 2,
+        },
+      ] satisfies AgentMessage[],
+    });
+    harness.entries.length = 0;
+    return harness;
+  }
+
+  it.each(["tui", "rpc"] as const)(
+    "confirms once in %s and starts timing only after approval",
+    async (mode) => {
+      vi.useFakeTimers();
+      try {
+        const harness = await askHarness({ mode });
+        harness.ui.confirm.mockImplementation(async () => {
+          vi.setSystemTime(1_500);
+          return true;
+        });
+
+        vi.setSystemTime(1_000);
+        await expect(harness.executeTool("compress", validCompression)).resolves.toMatchObject({
+          content: [{ text: expect.stringContaining("Compressed") }],
+        });
+        expect(harness.ui.confirm).toHaveBeenCalledTimes(1);
+
+        vi.setSystemTime(2_500);
+        await harness.emit("tool_execution_end", {
+          type: "tool_execution_end",
+          toolName: "compress",
+          toolCallId: "harness-call",
+          result: {},
+          isError: false,
+        });
+
+        const persisted = harness.entries
+          .filter((entry) => entry.customType === "pi-dcp-state")
+          .at(-1);
+        expect(persisted?.data).toMatchObject({ blocks: [{ durationMs: 1_000 }] });
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each(["print", "json"] as const)("fails closed without confirm in %s", async (mode) => {
+    const harness = await askHarness({ mode, hasUI: false });
+
+    await expect(harness.executeTool("compress", validCompression)).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: "Compression requires interactive approval" }],
+    });
+    expect(harness.ui.confirm).not.toHaveBeenCalled();
+    expect(harness.entries).toHaveLength(0);
+  });
+
+  it("fails closed in TUI when dialog UI is unavailable", async () => {
+    const harness = await askHarness({ mode: "tui", hasUI: false });
+
+    await expect(harness.executeTool("compress", validCompression)).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: "Compression requires interactive approval" }],
+    });
+    expect(harness.ui.confirm).not.toHaveBeenCalled();
+  });
+
+  it("creates no block, statistics, or durable entry when rejected", async () => {
+    const harness = await askHarness({});
+    harness.ui.confirm.mockResolvedValue(false);
+
+    await expect(harness.executeTool("compress", validCompression)).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: "Compression was not approved" }],
+    });
+    await harness.emit("tool_execution_end", {
+      type: "tool_execution_end",
+      toolName: "compress",
+      toolCallId: "harness-call",
+      result: {},
+      isError: true,
+    });
+
+    expect(harness.entries).toHaveLength(0);
+
+    // A later allowed compression still starts from a clean state.
+    harness.ui.confirm.mockResolvedValue(true);
+    await expect(harness.executeTool("compress", validCompression)).resolves.toMatchObject({
+      content: [{ text: expect.stringContaining("Compressed") }],
+    });
+  });
+
+  it("does not reuse an approval between successive ask calls", async () => {
+    const harness = await askHarness({});
+    harness.ui.confirm.mockResolvedValue(true);
+
+    await harness.executeTool("compress", validCompression);
+    await harness.executeTool("compress", {
+      topic: "second",
+      content: [{ startId: "m0002", endId: "m0002", summary: "summary two" }],
+    });
+
+    expect(harness.ui.confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("prevents compression when the call aborts during confirmation", async () => {
+    const harness = await askHarness({});
+    const controller = new AbortController();
+    harness.ui.confirm.mockImplementation(async () => {
+      controller.abort();
+      return true;
+    });
+
+    await expect(
+      harness.executeTool("compress", validCompression, { signal: controller.signal }),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: "Compression was not approved" }],
+    });
+    expect(harness.entries).toHaveLength(0);
+  });
+
+  it("prevents compression when policy suppression appears while confirmation is pending", async () => {
+    const harness = await askHarness({
+      config: { disabledModels: ["test/disabled-model"], compress: { permission: "ask" } },
+    });
+    harness.ui.confirm.mockImplementation(async () => {
+      harness.setModel({ provider: "test", id: "disabled-model" });
+      await harness.emit("model_select", {
+        type: "model_select",
+        model: createHarnessModel({ provider: "test", id: "disabled-model" }),
+        previousModel: undefined,
+        source: "set",
+      });
+      return true;
+    });
+
+    await expect(harness.executeTool("compress", validCompression)).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: "Compression is disabled for the current model." }],
     });
   });
 });
