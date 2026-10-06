@@ -1,15 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
-import * as subagentResults from "../src/subagents/subagent-results.ts";
-import { createSessionState } from "../src/state/state.ts";
-import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
-import { assignMessageRefs } from "../src/messages/inject.ts";
-import { makeAssistantMessage, getMessageText, requireMessage, requireDefined } from "./helpers.ts";
 import { Logger } from "../src/logger.ts";
+import { assignMessageRefs } from "../src/messages/inject.ts";
+import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
+import { createSessionState } from "../src/state/state.ts";
+import * as subagentResults from "../src/subagents/subagent-results.ts";
+import { getMessageText, makeAssistantMessage, requireDefined, requireMessage } from "./helpers.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
 const disabledModel = { provider: "openai-codex", id: "gpt-5.6-sol" };
@@ -815,7 +815,7 @@ describe("dcp extension", () => {
     };
     await permission.handler("", ctx);
     expect(entries).toHaveLength(2);
-    expect(entries[1]?.data).toMatchObject({ compressPermission: "deny" });
+    expect(entries[1]?.data).toMatchObject({ compressPermission: "ask" });
   });
 
   it("reconstructs branch refs through session_tree without ID-only snapshots", async () => {

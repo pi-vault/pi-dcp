@@ -1,16 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  loadConfig,
-  isDcpEnabledForModel,
   BASE_PROTECTED_TOOLS,
   DEFAULT_CONFIG,
+  isDcpEnabledForModel,
+  loadConfig,
 } from "../src/config.ts";
-import { isContextOverLimits } from "../src/utils/context-limits.ts";
-import { createSessionState } from "../src/state/state.ts";
 import { CompressConfigSchema, DcpConfigSchema } from "../src/config-schema.ts";
+import { createSessionState } from "../src/state/state.ts";
+import { isContextOverLimits } from "../src/utils/context-limits.ts";
 
 describe("config loading", () => {
   let tempDir: string;
@@ -256,6 +256,20 @@ describe("config loading", () => {
     fs.writeFileSync(configPath, JSON.stringify({ compress: { showCompression: true } }));
     const { config } = loadConfig(configPath);
     expect(config.compress.showCompression).toBe(true);
+  });
+
+  it("accepts ask compression permission without warnings", () => {
+    const configPath = path.join(tempDir, "dcp.json");
+    fs.writeFileSync(configPath, JSON.stringify({ compress: { permission: "ask" } }));
+    const { config, warnings } = loadConfig(configPath);
+    expect(config.compress.permission).toBe("ask");
+    expect(warnings).toEqual([]);
+  });
+
+  it("defaults compression permission to allow", () => {
+    const configPath = path.join(tempDir, "missing.json");
+    const { config } = loadConfig(configPath);
+    expect(config.compress.permission).toBe("allow");
   });
 
   it("parses turnProtection", () => {

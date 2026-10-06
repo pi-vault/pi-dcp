@@ -1,13 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadAllSessionStats } from "../src/state/persistence.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { assignMessageRefs, injectMessageIds } from "../src/messages/inject.ts";
 import * as persistence from "../src/state/persistence.ts";
+import { loadAllSessionStats } from "../src/state/persistence.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { getMessageText, requireDefined } from "./helpers.ts";
-import { assignMessageRefs, injectMessageIds } from "../src/messages/inject.ts";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 function sessionHeader(id: string) {
   return {
@@ -91,6 +91,64 @@ describe("persistence", () => {
       expect(result.totalTokensSaved).toBe(1100);
       expect(result.totalToolsPruned).toBe(8);
       expect(result.totalMessagesCompressed).toBe(5);
+      expect(result.sessionCount).toBe(2);
+    });
+
+    it("aggregates mixed v1 and v2 snapshots by each owner's newest without double counting", async () => {
+      const dir = path.join(tempDir, "mixed");
+      fs.mkdirSync(dir, { recursive: true });
+      const v1 = (owner: string, total: number) => ({
+        version: 1,
+        ownerSessionId: owner,
+        manualMode: false,
+        compressPermission: "allow",
+        stats: {
+          pruneTokenCounter: 0,
+          totalPruneTokens: total,
+          toolsPruned: 1,
+          messagesCompressed: 1,
+        },
+        lastCompaction: 0,
+        pruneTools: [],
+        blocks: [],
+        nextBlockId: 1,
+        nextRunId: 1,
+        messageIds: { byRawId: [], nextRefIndex: 1 },
+        nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+      });
+      const v2 = (owner: string, total: number) => ({
+        ...v1(owner, total),
+        version: 2,
+        compressPermission: "ask",
+      });
+      fs.writeFileSync(
+        path.join(dir, "session.jsonl"),
+        [
+          JSON.stringify(sessionHeader("mixed")),
+          JSON.stringify({
+            type: "custom",
+            customType: "pi-dcp-state",
+            timestamp: "2026-07-29T00:00:01.000Z",
+            data: v1("one", 100),
+          }),
+          JSON.stringify({
+            type: "custom",
+            customType: "pi-dcp-state",
+            timestamp: "2026-07-29T00:00:02.000Z",
+            data: v2("one", 400),
+          }),
+          JSON.stringify({
+            type: "custom",
+            customType: "pi-dcp-state",
+            timestamp: "2026-07-29T00:00:01.000Z",
+            data: v2("two", 700),
+          }),
+        ].join("\n"),
+      );
+
+      const result = await loadAllSessionStats(tempDir);
+      expect(result.totalTokensSaved).toBe(1100);
+      expect(result.totalToolsPruned).toBe(2);
       expect(result.sessionCount).toBe(2);
     });
 
@@ -216,7 +274,7 @@ describe("persistence", () => {
 
       const snapshot = persistence.serializeDcpSnapshot(state);
       expect(snapshot).toMatchObject({
-        version: 1,
+        version: 2,
         ownerSessionId: "owner",
         manualMode: "active",
         compressPermission: "allow",
@@ -367,6 +425,7 @@ describe("persistence", () => {
 
         const parsed = persistence.parseDcpSnapshot(fixture);
         expect(parsed).toBeDefined();
+        expect(parsed?.version).toBe(1);
         expect(parsed?.manualMode).toBe(manualMode);
 
         const state = createSessionState();
@@ -376,10 +435,90 @@ describe("persistence", () => {
 
         const reserialized = persistence.serializeDcpSnapshot(state);
         expect(reserialized).toBeDefined();
-        expect(reserialized?.version).toBe(1);
+        expect(reserialized?.version).toBe(2);
         expect(reserialized?.manualMode).toBe(manualMode);
       },
     );
+
+    it.each(["allow", "ask", "deny"] as const)(
+      "round-trips a v2 snapshot with permission %s",
+      (permission) => {
+        const state = createSessionState();
+        state.sessionId = "owner";
+        state.compressPermission = permission;
+        const snapshot = persistence.serializeDcpSnapshot(state);
+        expect(snapshot?.version).toBe(2);
+        expect(snapshot?.compressPermission).toBe(permission);
+
+        const parsed = persistence.parseDcpSnapshot(snapshot);
+        expect(parsed?.version).toBe(2);
+        expect(parsed?.compressPermission).toBe(permission);
+
+        const restored = createSessionState();
+        expect(persistence.restoreDcpSnapshot(snapshot, restored, "owner")).toBe(true);
+        expect(restored.compressPermission).toBe(permission);
+      },
+    );
+
+    it.each(["allow", "deny"] as const)(
+      "keeps a literal v1 snapshot with permission %s readable",
+      (permission) => {
+        const fixture = {
+          version: 1,
+          ownerSessionId: "owner",
+          manualMode: false,
+          compressPermission: permission,
+          stats: {
+            pruneTokenCounter: 0,
+            totalPruneTokens: 0,
+            toolsPruned: 0,
+            messagesCompressed: 0,
+          },
+          lastCompaction: 0,
+          pruneTools: [],
+          blocks: [],
+          nextBlockId: 1,
+          nextRunId: 1,
+          messageIds: { byRawId: [], nextRefIndex: 1 },
+          nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+        };
+        expect(persistence.parseDcpSnapshot(fixture)?.compressPermission).toBe(permission);
+      },
+    );
+
+    it("rejects a v1 snapshot with permission ask", () => {
+      const fixture = {
+        version: 1,
+        ownerSessionId: "owner",
+        manualMode: false,
+        compressPermission: "ask",
+        stats: {
+          pruneTokenCounter: 0,
+          totalPruneTokens: 0,
+          toolsPruned: 0,
+          messagesCompressed: 0,
+        },
+        lastCompaction: 0,
+        pruneTools: [],
+        blocks: [],
+        nextBlockId: 1,
+        nextRunId: 1,
+        messageIds: { byRawId: [], nextRefIndex: 1 },
+        nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+      };
+      expect(persistence.parseDcpSnapshot(fixture)).toBeUndefined();
+    });
+
+    it("rejects invalid v2 permissions and unknown versions", () => {
+      const state = createSessionState();
+      state.sessionId = "owner";
+      const snapshot = persistence.serializeDcpSnapshot(state);
+      if (!snapshot) throw new Error("expected snapshot");
+      expect(persistence.parseDcpSnapshot({ ...snapshot, version: 3 })).toBeUndefined();
+      expect(
+        persistence.parseDcpSnapshot({ ...snapshot, compressPermission: "maybe" }),
+      ).toBeUndefined();
+    });
 
     it("rejects invalid roots and salvages valid snapshot entries", () => {
       expect(persistence.parseDcpSnapshot(null)).toBeUndefined();

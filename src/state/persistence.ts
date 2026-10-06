@@ -1,9 +1,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import type { CompressionBlock, DcpSnapshotBlockV1, DcpSnapshotV1, SessionState } from "./types.ts";
-import { resetSessionState } from "./state.ts";
 import { isCanonicalMessageRef, parseMessageRef } from "../utils/message-ids.ts";
+import { resetSessionState } from "./state.ts";
+import type {
+  CompressionBlock,
+  CompressPermission,
+  DcpSnapshot,
+  DcpSnapshotBlockV1,
+  DcpSnapshotV2,
+  SessionState,
+} from "./types.ts";
 
 function sorted<T>(values: Iterable<T>, compare: (a: T, b: T) => number): T[] {
   return [...values].sort(compare);
@@ -35,7 +42,7 @@ function serializeBlock(block: CompressionBlock): DcpSnapshotBlockV1 | undefined
 export function serializeDcpSnapshot(
   state: SessionState,
   ownerSessionId = state.sessionId,
-): DcpSnapshotV1 | undefined {
+): DcpSnapshotV2 | undefined {
   if (!ownerSessionId) return undefined;
 
   const blocks = sorted(
@@ -46,10 +53,10 @@ export function serializeDcpSnapshot(
   );
 
   return {
-    version: 1,
+    version: 2,
     ownerSessionId,
     manualMode: state.manualMode === "active" ? "active" : false,
-    compressPermission: state.compressPermission === "deny" ? "deny" : "allow",
+    compressPermission: state.compressPermission ?? "allow",
     stats: { ...state.stats },
     lastCompaction: state.lastCompaction,
     pruneTools: sorted(state.prune.tools, ([a], [b]) => a.localeCompare(b)),
@@ -188,17 +195,23 @@ function parseBlock(value: unknown): DcpSnapshotBlockV1 | undefined {
 export function parseDcpSnapshot(
   value: unknown,
   warn: SnapshotWarning = () => {},
-): DcpSnapshotV1 | undefined {
+): DcpSnapshot | undefined {
+  if (!isRecord(value) || !isString(value.ownerSessionId) || !value.ownerSessionId) {
+    return undefined;
+  }
+  const version = value.version;
+  if (version !== 1 && version !== 2) return undefined;
+  if (value.manualMode !== false && value.manualMode !== "active") return undefined;
   if (
-    !isRecord(value) ||
-    value.version !== 1 ||
-    !isString(value.ownerSessionId) ||
-    !value.ownerSessionId
+    value.compressPermission !== "allow" &&
+    value.compressPermission !== "ask" &&
+    value.compressPermission !== "deny"
   ) {
     return undefined;
   }
-  if (value.manualMode !== false && value.manualMode !== "active") return undefined;
-  if (value.compressPermission !== "allow" && value.compressPermission !== "deny") return undefined;
+  // Version 1 predates the ask permission; only allow|deny are historical values.
+  if (version === 1 && value.compressPermission === "ask") return undefined;
+  const permission: CompressPermission = value.compressPermission;
   if (
     !isRecord(value.stats) ||
     !isNonNegativeInteger(value.stats.pruneTokenCounter) ||
@@ -241,11 +254,10 @@ export function parseDcpSnapshot(
     );
   }
 
-  return {
-    version: 1,
+  const parsed: Omit<DcpSnapshotV2, "version"> = {
     ownerSessionId: value.ownerSessionId,
     manualMode: value.manualMode,
-    compressPermission: value.compressPermission,
+    compressPermission: permission,
     stats: {
       pruneTokenCounter: value.stats.pruneTokenCounter as number,
       totalPruneTokens: value.stats.totalPruneTokens as number,
@@ -267,6 +279,10 @@ export function parseDcpSnapshot(
       iterationAnchors: parseStrings(value.nudges.iterationAnchors),
     },
   };
+
+  return version === 1
+    ? { version: 1, ...parsed, compressPermission: parsed.compressPermission as "allow" | "deny" }
+    : { version: 2, ...parsed };
 }
 
 function restoreBlock(block: DcpSnapshotBlockV1): CompressionBlock {
@@ -336,7 +352,7 @@ export async function loadAllSessionStats(parentDir: string): Promise<{
   totalMessagesCompressed: number;
   sessionCount: number;
 }> {
-  const snapshots = new Map<string, { snapshot: DcpSnapshotV1; timestamp: number }>();
+  const snapshots = new Map<string, { snapshot: DcpSnapshot; timestamp: number }>();
 
   async function scanFile(file: string): Promise<void> {
     let hasHeader = false;

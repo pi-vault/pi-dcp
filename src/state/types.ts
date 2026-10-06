@@ -5,13 +5,19 @@
  * All Maps/Sets are used in-memory; persistence serializes to plain objects.
  */
 
+/**
+ * Compression permission shared by configuration, session override, and snapshots.
+ * `allow` exposes and runs compression, `ask` confirms per call, `deny` suppresses it.
+ */
+export type CompressPermission = "allow" | "ask" | "deny";
+
 export interface SessionState {
   /** Current session identifier (set on session_start). */
   sessionId: string | null;
   /** Manual mode: false = auto, "active" = manual. */
   manualMode: false | "active";
   /** Effective compress permission for this session. */
-  compressPermission: "allow" | "deny" | undefined;
+  compressPermission: CompressPermission | undefined;
   /** Pruning state (tools + message compression). */
   prune: Prune;
   /** Nudge anchor tracking. */
@@ -176,6 +182,34 @@ export interface DcpSnapshotV1 {
     iterationAnchors: string[];
   };
 }
+
+/**
+ * Version 2 durable state. Reuses the version-1 field and block shape and only
+ * widens the permission union to include `ask`; readers continue to accept v1.
+ */
+export interface DcpSnapshotV2 {
+  version: 2;
+  ownerSessionId: string;
+  manualMode: false | "active";
+  compressPermission: CompressPermission;
+  stats: SessionStats;
+  lastCompaction: number;
+  pruneTools: Array<[string, number]>;
+  blocks: DcpSnapshotBlockV1[];
+  nextBlockId: number;
+  nextRunId: number;
+  messageIds: {
+    byRawId: Array<[string, string]>;
+    nextRefIndex: number;
+  };
+  nudges: {
+    contextLimitAnchors: string[];
+    turnAnchors: string[];
+    iterationAnchors: string[];
+  };
+}
+
+export type DcpSnapshot = DcpSnapshotV1 | DcpSnapshotV2;
 
 export interface MessageIdState {
   /** Content-derived key -> ref string (e.g. "user:1719100000000:0" -> "m0001"). */

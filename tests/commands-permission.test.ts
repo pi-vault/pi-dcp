@@ -1,40 +1,58 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { permissionCommand } from "../src/commands/permission.ts";
 import { createSessionState } from "../src/state/state.ts";
 
 describe("permissionCommand", () => {
-  it("toggles from allow to deny", () => {
+  it("cycles allow -> ask", () => {
     const state = createSessionState();
     state.compressPermission = "allow";
 
-    const result = permissionCommand(state);
-    expect(state.compressPermission).toBe("deny");
-    expect(result).toContain("deny");
+    expect(permissionCommand(state)).toBe("Compress permission: ask");
+    expect(state.compressPermission).toBe("ask");
   });
 
-  it("toggles from deny to allow", () => {
+  it("cycles ask -> deny", () => {
+    const state = createSessionState();
+    state.compressPermission = "ask";
+
+    expect(permissionCommand(state)).toBe("Compress permission: deny");
+    expect(state.compressPermission).toBe("deny");
+  });
+
+  it("cycles deny -> allow", () => {
     const state = createSessionState();
     state.compressPermission = "deny";
 
-    const result = permissionCommand(state);
+    expect(permissionCommand(state)).toBe("Compress permission: allow");
     expect(state.compressPermission).toBe("allow");
-    expect(result).toContain("allow");
   });
 
-  it("treats undefined as allow (toggles to deny)", () => {
+  it("treats undefined as the standalone allow default (allow -> ask)", () => {
     const state = createSessionState();
-    // compressPermission starts undefined from createSessionState()
 
-    const result = permissionCommand(state);
+    expect(permissionCommand(state)).toBe("Compress permission: ask");
+    expect(state.compressPermission).toBe("ask");
+  });
+
+  it("uses a configured ask fallback for an undefined session override (ask -> deny)", () => {
+    const state = createSessionState();
+
+    expect(permissionCommand(state, "ask")).toBe("Compress permission: deny");
     expect(state.compressPermission).toBe("deny");
-    expect(result).toContain("deny");
   });
 
-  it("returns human-readable status string", () => {
+  it("uses a configured deny fallback for an undefined session override (deny -> allow)", () => {
     const state = createSessionState();
-    state.compressPermission = "allow";
 
-    const result = permissionCommand(state);
-    expect(result).toBe("Compress permission: deny");
+    expect(permissionCommand(state, "deny")).toBe("Compress permission: allow");
+    expect(state.compressPermission).toBe("allow");
+  });
+
+  it("prefers the session override over the configured fallback", () => {
+    const state = createSessionState();
+    state.compressPermission = "ask";
+
+    expect(permissionCommand(state, "deny")).toBe("Compress permission: deny");
+    expect(state.compressPermission).toBe("deny");
   });
 });

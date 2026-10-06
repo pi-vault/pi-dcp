@@ -174,6 +174,7 @@ describe("DCP lifecycle reconciliation", () => {
     expect(harness.activeTools()).toContain("compress");
 
     await harness.runCommand("dcp:permission", "");
+    await harness.runCommand("dcp:permission", "");
     expect(harness.activeTools()).toEqual(["read"]);
 
     harness.setModel({ provider: "test", id: "test-model" });
