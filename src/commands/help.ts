@@ -11,7 +11,7 @@ export function helpCommand(): string {
     "  dcp:decompress <blockId>    - Deactivate a compression block",
     "  dcp:recompress <blockId>    - Reactivate a deactivated block",
     "  dcp:lifetime                - Show aggregate statistics across all sessions",
-    "  dcp:permission              - Toggle compression permission",
+    "  dcp:permission              - Cycle compression permission (allow/ask/deny)",
     "  dcp:compress [focus]        - Trigger manual compression",
   ].join("\n");
 }

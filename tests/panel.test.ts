@@ -135,6 +135,121 @@ describe("DcpPanelComponent", () => {
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
   });
 
+  it.each([60, 80, 120])(
+    "shows policy, tool availability, and all lifetime totals at %i columns",
+    (width) => {
+      const model = modelWithBlocks(1);
+      const { component } = makeComponent(model);
+
+      const rendered = component.render(width).join("\n");
+
+      expect(rendered).toContain("Pipeline enabled");
+      expect(rendered).toContain("Tool active");
+      expect(rendered).toContain("Lifetime saved 1000");
+      expect(rendered).toContain("sessions 3");
+      expect(rendered).toContain("Lifetime tools 4");
+      expect(rendered).toContain("messages 2");
+    },
+  );
+
+  it("can browse a long list of inactive blocks without activating them", () => {
+    const model = modelWithBlocks(40);
+    for (const row of model.blocks) {
+      row.action = undefined;
+      row.unavailableReason = "Inactive";
+    }
+    const { component, actions } = makeComponent(model);
+
+    for (let step = 0; step < 50; step++) component.handleInput("j");
+
+    expect(component.render(60).find((line) => line.startsWith("> "))).toContain("Block b40:");
+    component.handleInput("\r");
+    expect(actions).toEqual([]);
+    component.handleInput("q");
+    expect(actions).toEqual([{ type: "close" }]);
+  });
+
+  it.each(["\n", "\r", "\r\n", "\t"])(
+    "keeps block labels on one terminal line for %j",
+    (separator) => {
+      const { component } = makeComponent(modelWithBlocks(1, `first${separator}second`));
+
+      const row = component.render(120).find((line) => line.includes("Block b1:"));
+
+      expect(row).toContain("first second");
+      expect(row).not.toMatch(/[\r\n\t]/);
+    },
+  );
+
+  it.each([60, 80, 120])(
+    "keeps long block topics from hiding actions or state at %i columns",
+    (width) => {
+      const state = createSessionState();
+      for (let id = 1; id <= 3; id++) {
+        const block = makeBlock(id, "very long topic ".repeat(30));
+        block.active = id === 1;
+        block.deactivatedByUser = id === 2;
+        state.prune.messages.blocksById.set(id, block);
+      }
+      const { component } = makeComponent(
+        buildDcpPanelModel({
+          state,
+          config: makeDefaultConfig(),
+          model: undefined,
+          contextUsage: undefined,
+          lifetimeStats: undefined,
+          compressToolActive: false,
+        }),
+      );
+
+      const rows = component.render(width).filter((line) => line.includes("Block b"));
+
+      expect(rows).toHaveLength(3);
+      expect(rows[0]).toContain("Deactivate");
+      expect(rows[1]).toContain("Reactivate");
+      expect(rows[2]).toContain("Inactive");
+      for (const row of rows) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+    },
+  );
+
+  it("keeps policy-disabled block identifiers and actions visible at 60 columns", () => {
+    const state = createSessionState();
+    state.prune.messages.blocksById.set(1, makeBlock(1, "long topic ".repeat(30)));
+    state.prune.messages.blocksById.set(2, makeBlock(2, "another long topic ".repeat(30)));
+    const config = makeDefaultConfig();
+    config.enabled = false;
+    const { component } = makeComponent(
+      buildDcpPanelModel({
+        state,
+        config,
+        model: undefined,
+        contextUsage: undefined,
+        lifetimeStats: undefined,
+        compressToolActive: false,
+      }),
+    );
+
+    const lines = component.render(60);
+
+    for (const id of [1, 2]) {
+      const row = lines.find((line) => line.includes(`Block b${id}:`));
+      expect(row).toContain("Deactivate");
+      expect(visibleWidth(row ?? "")).toBeLessThanOrEqual(60);
+    }
+  });
+
+  it.each([1, 2, 3])("keeps close instructions visible within a %i-row terminal", (height) => {
+    const { component } = makeComponent(modelWithBlocks(2), {
+      getHeight: () => height,
+      lastActionMessage: "Manual mode: on",
+    });
+
+    const lines = component.render(60);
+
+    expect(lines.length).toBeLessThanOrEqual(height);
+    expect(lines.join("\n")).toContain("Esc/q close");
+  });
+
   it("keeps the selection visible while scrolling and after resize", () => {
     let height = 24;
     const { component } = makeComponent(modelWithBlocks(30), { getHeight: () => height });
@@ -211,6 +326,23 @@ describe("DcpPanelComponent", () => {
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
     expect(lines.join("\n")).toContain("close");
 
+    component.handleInput("q");
+    expect(actions).toEqual([{ type: "close" }]);
+  });
+
+  it("does not run unseen actions while rendering is unavailable", () => {
+    const badTheme = {
+      fg: () => {
+        throw new Error("theme failure");
+      },
+    } as unknown as Theme;
+    const { component, actions } = makeComponent(modelWithBlocks(3), { theme: badTheme });
+
+    component.render(60);
+    component.handleInput("j");
+    component.handleInput("\r");
+
+    expect(actions).toEqual([]);
     component.handleInput("q");
     expect(actions).toEqual([{ type: "close" }]);
   });
@@ -358,6 +490,31 @@ describe("dcp panel controller", () => {
       "DCP is disabled for the current model.",
     );
     expect(harness.entries).toHaveLength(0);
+  });
+
+  it("preserves command policy when the current model is unavailable", async () => {
+    writeDcpConfig({ disabledModels: ["test/disabled"] });
+    const harness = createPanelHarness({ model: { provider: "test", id: "disabled" } });
+    createExtension(harness.api);
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+    harness.context.model = undefined;
+    harness.entries.length = 0;
+
+    await harness.runCommand("dcp:manual", "on");
+    const components = drivePanel(harness, [{ type: "toggle-manual" }, undefined]);
+    await harness.runCommand("dcp", "");
+
+    expect(harness.ui.notify).toHaveBeenCalledWith(
+      "DCP is disabled for the current model.",
+      "info",
+    );
+    expect(harness.entries).toHaveLength(0);
+    expect(components[0].render(120).join("\n")).toContain(
+      "Pipeline DCP is disabled for the current model.",
+    );
+    expect(components[1].render(120).join("\n")).toContain(
+      "DCP is disabled for the current model.",
+    );
   });
 
   it("loads lifetime once and opens with unavailable totals when loading fails", async () => {

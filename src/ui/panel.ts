@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DcpConfig } from "../config.ts";
@@ -24,7 +24,7 @@ export interface DcpPanelComponentOptions {
 }
 
 function flattenLabel(value: string): string {
-  return value.replace(/\s*\n\s*/g, " ").trim();
+  return value.replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -38,21 +38,18 @@ export class DcpPanelComponent {
   private readonly model: DcpPanelModel;
   private readonly options: DcpPanelComponentOptions;
   private readonly rows: DcpPanelRow[];
-  private readonly selectableIndices: number[];
   private selectedPosition = 0;
   private scrollOffset = 0;
   private completed = false;
+  private actionsVisible = true;
 
   constructor(model: DcpPanelModel, options: DcpPanelComponentOptions) {
     this.model = model;
     this.options = options;
     this.rows = [...model.actions, ...model.blocks];
-    this.selectableIndices = this.rows.flatMap((row, index) => (row.action ? [index] : []));
     if (options.initialRowId !== undefined) {
       const index = this.rows.findIndex((row) => row.id === options.initialRowId);
-      if (index >= 0 && this.rows[index]?.action) {
-        this.selectedPosition = Math.max(0, this.selectableIndices.indexOf(index));
-      }
+      if (index >= 0) this.selectedPosition = index;
     }
   }
 
@@ -66,6 +63,7 @@ export class DcpPanelComponent {
       this.complete({ type: "close" });
       return;
     }
+    if (!this.actionsVisible) return;
     if (matchesKey(data, Key.up) || data === "k") {
       this.move(-1);
       return;
@@ -75,7 +73,7 @@ export class DcpPanelComponent {
       return;
     }
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
-      const row = this.rows[this.selectableIndices[this.selectedPosition] ?? -1];
+      const row = this.rows[this.selectedPosition];
       if (row?.action) this.complete(row.action);
     }
   }
@@ -84,16 +82,14 @@ export class DcpPanelComponent {
     try {
       return this.renderThemed(width);
     } catch {
+      this.actionsVisible = false;
       return this.renderFallback(width);
     }
   }
 
   private move(delta: number): void {
-    if (this.selectableIndices.length === 0) return;
-    const next = Math.min(
-      Math.max(this.selectedPosition + delta, 0),
-      this.selectableIndices.length - 1,
-    );
+    if (this.rows.length === 0) return;
+    const next = Math.min(Math.max(this.selectedPosition + delta, 0), this.rows.length - 1);
     if (next === this.selectedPosition) return;
     this.selectedPosition = next;
     this.options.requestRender();
@@ -133,21 +129,25 @@ export class DcpPanelComponent {
     footer.push(
       theme.fg("dim", truncateToWidth("↑/↓ j/k navigate · Enter run · Esc/q close", width, "…")),
     );
+    if (height < footer.length + 2) {
+      this.actionsVisible = false;
+      return footer.slice(-height);
+    }
 
     const header: string[] = [
       theme.bold(theme.fg("accent", "DCP Panel")),
-      theme.fg(
-        "text",
-        `Model ${this.statusValue("Model")} · Context ${this.statusValue("Context")}`,
-      ),
+      theme.fg("text", `Model ${this.statusValue("Model")}`),
+      theme.fg("text", `Context ${this.statusValue("Context")}`),
       theme.fg(
         "text",
         `Limits max ${this.statusValue("Max limit")} / min ${this.statusValue("Min limit")} · Mode ${this.statusValue("Compression mode")}`,
       ),
       theme.fg(
         "text",
-        `Permission ${this.statusValue("Permission")} · Manual ${this.statusValue("Manual mode")} · Pipeline ${this.statusValue("Pipeline")} · Tool ${this.statusValue("Compress tool")}`,
+        `Permission ${this.statusValue("Permission")} · Manual ${this.statusValue("Manual mode")}`,
       ),
+      theme.fg("text", `Pipeline ${this.statusValue("Pipeline")}`),
+      theme.fg("text", `Tool ${this.statusValue("Compress tool")}`),
       theme.fg(
         "text",
         `Session saved ${this.statisticValue("Session tokens saved")} · pruned ${this.statisticValue("Session tools pruned")} · compressed ${this.statisticValue("Session messages compressed")}`,
@@ -156,6 +156,10 @@ export class DcpPanelComponent {
         "text",
         `Lifetime saved ${this.statisticValue("Lifetime tokens saved")} · sessions ${this.statisticValue("Lifetime sessions")}`,
       ),
+      theme.fg(
+        "text",
+        `Lifetime tools ${this.statisticValue("Lifetime tools pruned")} · messages ${this.statisticValue("Lifetime messages compressed")}`,
+      ),
     ];
 
     const maxHeaderLines = Math.max(0, height - footer.length - 1 - (this.rows.length > 0 ? 1 : 0));
@@ -163,9 +167,10 @@ export class DcpPanelComponent {
       .slice(0, maxHeaderLines)
       .map((line) => truncateToWidth(line, width, "…"));
     const listHeight = Math.max(0, height - headerLines.length - footer.length - 1);
+    this.actionsVisible = listHeight > 0;
     const divider = theme.fg("borderMuted", truncateToWidth("─".repeat(Math.max(0, width)), width));
 
-    const selectedRowIndex = this.selectableIndices[this.selectedPosition] ?? -1;
+    const selectedRowIndex = this.rows.length > 0 ? this.selectedPosition : -1;
     const maxScroll = Math.max(0, this.rows.length - listHeight);
     this.scrollOffset = Math.min(this.scrollOffset, maxScroll);
     if (selectedRowIndex >= 0 && listHeight > 0) {
@@ -190,7 +195,13 @@ export class DcpPanelComponent {
     const detail = row.detail === undefined ? "" : ` · ${flattenLabel(row.detail)}`;
     const reason =
       row.unavailableReason === undefined ? "" : ` [${flattenLabel(row.unavailableReason)}]`;
-    const text = `${marker}${flattenLabel(row.label)}${detail}${reason}`;
+    const label = flattenLabel(row.label);
+    const availableWidth = Math.max(0, width - visibleWidth(marker));
+    // Keep the row identifiable when its policy reason also needs truncation.
+    const minimumLabelWidth = Math.min(visibleWidth(label), Math.floor(availableWidth / 3));
+    const suffix = truncateToWidth(`${detail}${reason}`, availableWidth - minimumLabelWidth, "…");
+    const labelWidth = Math.max(0, availableWidth - visibleWidth(suffix));
+    const text = `${marker}${truncateToWidth(label, labelWidth, "…")}${suffix}`;
     if (selected) return theme.inverse(truncateToWidth(text, width, "…"));
     if (row.action === undefined) return theme.fg("dim", truncateToWidth(text, width, "…"));
     return truncateToWidth(text, width, "…");
@@ -200,9 +211,8 @@ export class DcpPanelComponent {
     const height = Math.max(1, this.options.getHeight());
     return [
       truncateToWidth("DCP panel (rendering unavailable)", width, "…"),
-      "",
       truncateToWidth("Esc/q close", width, "…"),
-    ].slice(0, height);
+    ].slice(-height);
   }
 }
 
@@ -269,7 +279,12 @@ export async function openDcpPanel(
     if (action === undefined || action.type === "close") return;
 
     initialRowId = action.type === "toggle-block" ? `block:${action.blockId}` : action.type;
-    const capabilities = getDcpCapabilities(config, state, ctx.model?.provider, ctx.model?.id);
+    const capabilities = getDcpCapabilities(
+      config,
+      state,
+      ctx.model?.provider ?? state.modelProvider,
+      ctx.model?.id ?? state.modelId,
+    );
     const result = applyDcpPanelAction(action, state, config, capabilities);
     lastActionMessage = result.message;
     if (result.permitted) onStateChange(ctx);

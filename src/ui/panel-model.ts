@@ -111,7 +111,12 @@ export function buildDcpPanelModel(input: DcpPanelModelInput): DcpPanelModel {
   const { state, config, model, contextUsage, lifetimeStats, compressToolActive } = input;
   const provider = model?.provider;
   const modelId = model?.id;
-  const capabilities = getDcpCapabilities(config, state, provider, modelId);
+  const capabilities = getDcpCapabilities(
+    config,
+    state,
+    provider ?? state.modelProvider,
+    modelId ?? state.modelId,
+  );
   const policyMessage = getDcpPipelineDisabledMessage(capabilities);
 
   const viewState: SessionState = {
