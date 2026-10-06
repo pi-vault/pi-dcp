@@ -13,6 +13,7 @@ import { permissionCommand } from "./permission.ts";
 import { recompressCommand } from "./recompress.ts";
 import { statsCommand } from "./stats.ts";
 import { sweepCommand } from "./sweep.ts";
+import { openDcpPanel } from "../ui/panel.ts";
 
 export function registerDcpCommands(
   pi: ExtensionAPI,
@@ -131,6 +132,13 @@ export function registerDcpCommands(
       const message = permissionCommand(state, config.compress.permission);
       onStateChange(ctx);
       ctx.ui.notify(message, "info");
+    },
+  });
+
+  pi.registerCommand("dcp", {
+    description: "Open the interactive DCP panel",
+    handler: async (_args, ctx) => {
+      await openDcpPanel(state, config, ctx, onStateChange, () => pi.getActiveTools());
     },
   });
 }

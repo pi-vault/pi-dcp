@@ -4,6 +4,7 @@ import { helpCommand } from "../src/commands/help.ts";
 describe("help command", () => {
   it("returns help text listing all commands", () => {
     const result = helpCommand();
+    expect(result).toContain("dcp                         - Open the interactive DCP panel");
     expect(result).toContain("dcp:context");
     expect(result).toContain("dcp:stats");
     expect(result).toContain("dcp:sweep");

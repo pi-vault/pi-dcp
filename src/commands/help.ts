@@ -2,6 +2,7 @@ export function helpCommand(): string {
   return [
     "DCP Commands:",
     "",
+    "  dcp                         - Open the interactive DCP panel",
     "  dcp:help                    - Show this help",
     "  dcp:context                 - Show context usage breakdown",
     "  dcp:stats                   - Show compression statistics",

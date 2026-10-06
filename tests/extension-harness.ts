@@ -307,8 +307,7 @@ export function createExtensionHarness(options: ExtensionHarnessOptions = {}) {
   }
 
   function buildCommandContext() {
-    return {
-      ...extensionContext,
+    return Object.assign(Object.create(extensionContext), {
       getSystemPromptOptions: () => ({
         selectedTools: [...activeToolNames],
         toolSnippets: {},
@@ -326,7 +325,7 @@ export function createExtensionHarness(options: ExtensionHarnessOptions = {}) {
       navigateTree: async () => ({ cancelled: true }),
       switchSession: async () => ({ cancelled: true }),
       reload: async () => {},
-    };
+    });
   }
 
   function setHarnessModel(next: HarnessModel) {

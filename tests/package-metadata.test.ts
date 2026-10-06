@@ -27,4 +27,18 @@ describe("package metadata", () => {
       expect(manifest.devDependencies?.[packageName]).toBeDefined();
     },
   );
+
+  it("declares @earendil-works/pi-tui as a host-provided peer pinned to ^1.0.1 for development", () => {
+    expect(manifest.dependencies?.["@earendil-works/pi-tui"]).toBeUndefined();
+    expect(manifest.peerDependencies?.["@earendil-works/pi-tui"]).toBe("*");
+    expect(manifest.devDependencies?.["@earendil-works/pi-tui"]).toBe("^1.0.1");
+  });
+
+  it("locks @earendil-works/pi-tui at v1.0.1", () => {
+    const lockfile = fs.readFileSync(
+      fileURLToPath(new URL("../pnpm-lock.yaml", import.meta.url)),
+      "utf8",
+    );
+    expect(lockfile).toContain("'@earendil-works/pi-tui@1.0.1':");
+  });
 });

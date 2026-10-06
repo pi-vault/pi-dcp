@@ -31,7 +31,8 @@ describe("registerDcpCommands", () => {
     expect(registered).toContain("dcp:lifetime");
     expect(registered).toContain("dcp:permission");
     expect(registered).toContain("dcp:compress");
-    expect(registered).toHaveLength(10);
+    expect(registered).toContain("dcp");
+    expect(registered).toHaveLength(11);
   });
 
   it("rejects every mutating command for a disabled model", async () => {
