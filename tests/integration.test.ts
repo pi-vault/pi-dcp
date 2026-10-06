@@ -573,6 +573,43 @@ describe("integration", () => {
     expect(entries).toHaveLength(entryCount);
   });
 
+  it("keeps ask permission non-suppressing for tool exposure and tool_call", async () => {
+    fs.mkdirSync(path.join(agentDir, "extensions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(agentDir, "extensions", "dcp.json"),
+      JSON.stringify({ compress: { permission: "ask" } }),
+    );
+
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    const confirm = vi.fn().mockResolvedValue(true);
+    const mockCtx = {
+      mode: "tui",
+      cwd: agentDir,
+      isProjectTrusted: () => false,
+      sessionManager: { getSessionDir: () => "/tmp/test-integration-session" },
+      getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
+      hasUI: true,
+      ui: { setStatus: () => {}, notify: () => {}, confirm },
+    };
+
+    for (const handler of handlers.get("session_start") ?? []) {
+      await handler({ reason: "new" }, mockCtx);
+    }
+
+    expect(tools.has("compress")).toBe(true);
+    expect(api.getActiveTools()).toContain("compress");
+
+    const [toolCall] = await Promise.all(
+      (handlers.get("tool_call") ?? []).map((handler) =>
+        Promise.resolve(
+          handler({ toolName: "compress", toolCallId: "call-1", input: {} }, mockCtx),
+        ),
+      ),
+    );
+    expect(toolCall).toBeUndefined();
+  });
+
   it("uses project prompt overrides only when the project is trusted", async () => {
     const globalConfigPath = path.join(agentDir, "extensions", "dcp.json");
     const projectCwd = path.join(agentDir, "project");

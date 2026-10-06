@@ -53,3 +53,14 @@ export function getDcpCapabilities(
     reasons,
   };
 }
+
+/**
+ * User-facing message for why the pipeline cannot run, or undefined when it can.
+ * Preserves the existing command-message precedence: config, then sub-agent, then model.
+ */
+export function getDcpPipelineDisabledMessage(capabilities: DcpCapabilities): string | undefined {
+  if (capabilities.pipelineEnabled) return undefined;
+  if (capabilities.reasons.includes("config")) return "DCP is disabled by configuration.";
+  if (capabilities.reasons.includes("subagent")) return "DCP is disabled in sub-agent sessions.";
+  return "DCP is disabled for the current model.";
+}

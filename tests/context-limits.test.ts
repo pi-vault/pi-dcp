@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { resolveContextTokenLimit, isContextOverLimits } from "../src/utils/context-limits.ts";
+import {
+  resolveContextTokenLimit,
+  resolveContextLimits,
+  isContextOverLimits,
+} from "../src/utils/context-limits.ts";
 import { injectCompressNudges, assignMessageRefs } from "../src/messages/inject.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { makeDefaultConfig, makeUserMessage } from "./helpers.ts";
@@ -43,6 +47,62 @@ describe("resolveContextTokenLimit", () => {
 
   it("rejects a percentage just above 100", () => {
     expect(resolveContextTokenLimit("100.1%", 200000)).toBeUndefined();
+  });
+});
+
+describe("resolveContextLimits", () => {
+  it("preserves per-model override precedence over global and legacy limits", () => {
+    const state = createSessionState();
+    state.modelProvider = "google";
+    state.modelId = "gemini";
+    state.modelContextWindow = 1_000_000;
+    const config = makeDefaultConfig({
+      maxContextLimit: 200_000,
+      minContextLimit: 100_000,
+      modelMaxLimits: { "google/gemini": 400_000 },
+      modelMinLimits: { "google/gemini": 300_000 },
+    });
+
+    expect(
+      resolveContextLimits(config, state, {
+        tokens: 250_000,
+        contextWindow: 1_000_000,
+        percent: 25,
+      }),
+    ).toEqual({ max: 400_000, min: 300_000 });
+  });
+
+  it("resolves percentage limits when a window is available", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({ maxContextLimit: "80%", minContextLimit: "50%" });
+    expect(
+      resolveContextLimits(config, state, { tokens: 1, contextWindow: 200_000, percent: 0 }),
+    ).toEqual({ max: 160_000, min: 100_000 });
+  });
+
+  it("returns undefined for percentage limits without a usable window but keeps absolute limits", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({
+      maxContextLimit: "80%",
+      minContextLimit: 50_000,
+    });
+    expect(resolveContextLimits(config, state, undefined)).toEqual({
+      max: undefined,
+      min: 50_000,
+    });
+  });
+
+  it("falls back to the usage window when the cached window is unset", () => {
+    const state = createSessionState();
+    const config = makeDefaultConfig({
+      maxContextLimit: undefined,
+      minContextLimit: undefined,
+      maxContextPercent: 80,
+      minContextPercent: 50,
+    });
+    expect(
+      resolveContextLimits(config, state, { tokens: 1, contextWindow: 200_000, percent: 0 }),
+    ).toEqual({ max: 160_000, min: 100_000 });
   });
 });
 

@@ -1,15 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
-import * as subagentResults from "../src/subagents/subagent-results.ts";
-import { createSessionState } from "../src/state/state.ts";
-import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
-import { assignMessageRefs } from "../src/messages/inject.ts";
-import { makeAssistantMessage, getMessageText, requireMessage, requireDefined } from "./helpers.ts";
 import { Logger } from "../src/logger.ts";
+import { assignMessageRefs } from "../src/messages/inject.ts";
+import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
+import { createSessionState } from "../src/state/state.ts";
+import * as subagentResults from "../src/subagents/subagent-results.ts";
+import { getMessageText, makeAssistantMessage, requireDefined, requireMessage } from "./helpers.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
 const disabledModel = { provider: "openai-codex", id: "gpt-5.6-sol" };
@@ -815,7 +815,7 @@ describe("dcp extension", () => {
     };
     await permission.handler("", ctx);
     expect(entries).toHaveLength(2);
-    expect(entries[1]?.data).toMatchObject({ compressPermission: "deny" });
+    expect(entries[1]?.data).toMatchObject({ compressPermission: "ask" });
   });
 
   it("reconstructs branch refs through session_tree without ID-only snapshots", async () => {
@@ -1064,11 +1064,6 @@ describe("dcp extension", () => {
       entries.length = 0;
 
       vi.setSystemTime(1_000);
-      const toolStart = handlers.get("tool_execution_start")?.[0];
-      await (toolStart as (...args: unknown[]) => Promise<void>)(
-        { toolName: "compress", toolCallId: "compress-call" },
-        ctx,
-      );
       const compress = tools.get("compress") as {
         execute: (...args: unknown[]) => Promise<unknown>;
       };
@@ -1252,7 +1247,7 @@ describe("static model disablement", () => {
     vi.useFakeTimers();
     try {
       writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
-      const { api, handlers, entries } = createMockApi();
+      const { api, handlers, entries, tools } = createMockApi();
       createExtension(api);
       const ctx = sessionContext(disabledModel, [
         { type: "custom", customType: "pi-dcp-state", data: persistedCompressionSnapshot },
@@ -1261,10 +1256,18 @@ describe("static model disablement", () => {
       entries.length = 0;
 
       vi.setSystemTime(1_000);
-      await registeredHandler(handlers, "tool_execution_start")(
-        { toolName: "compress", toolCallId: "compress-1" },
-        ctx,
-      );
+      const compress = tools.get("compress") as {
+        execute: (...args: unknown[]) => Promise<{ isError?: boolean }>;
+      };
+      await expect(
+        compress.execute(
+          "compress-1",
+          { topic: "topic", content: [{ startId: "m0001", endId: "m0002", summary: "summary" }] },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).resolves.toMatchObject({ isError: true });
       vi.setSystemTime(2_500);
       await registeredHandler(handlers, "tool_execution_end")(
         { toolName: "compress", toolCallId: "compress-1", isError: false },
@@ -1281,7 +1284,7 @@ describe("static model disablement", () => {
     vi.useFakeTimers();
     try {
       writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
-      const { api, handlers, entries } = createMockApi();
+      const { api, handlers, entries, tools } = createMockApi();
       createExtension(api);
       const disabledCtx = sessionContext(disabledModel, [
         {
@@ -1294,10 +1297,18 @@ describe("static model disablement", () => {
       entries.length = 0;
 
       vi.setSystemTime(1_000);
-      await registeredHandler(handlers, "tool_execution_start")(
-        { toolName: "compress", toolCallId: "compress-1" },
-        disabledCtx,
-      );
+      const compress = tools.get("compress") as {
+        execute: (...args: unknown[]) => Promise<{ isError?: boolean }>;
+      };
+      await expect(
+        compress.execute(
+          "compress-1",
+          { topic: "topic", content: [{ startId: "m0001", endId: "m0002", summary: "summary" }] },
+          undefined,
+          undefined,
+          disabledCtx,
+        ),
+      ).resolves.toMatchObject({ isError: true });
       await selectModel(handlers, enabledModel, disabledModel);
       vi.setSystemTime(2_500);
       await registeredHandler(handlers, "tool_execution_end")(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getDcpCapabilities } from "../src/capabilities.ts";
+import { getDcpCapabilities, getDcpPipelineDisabledMessage } from "../src/capabilities.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { makeDefaultConfig } from "./helpers.ts";
 
@@ -52,6 +52,25 @@ describe("getDcpCapabilities", () => {
       pipelineEnabled: true,
       compressionEnabled: false,
       reasons: ["permission"],
+    });
+  });
+
+  it("keeps compression enabled for the ask permission", () => {
+    const state = createSessionState();
+    state.compressPermission = "ask";
+    expect(getDcpCapabilities(makeDefaultConfig(), state, provider, modelId)).toEqual({
+      pipelineEnabled: true,
+      compressionEnabled: true,
+      reasons: [],
+    });
+  });
+
+  it("treats a configured ask default as enabled when the session has no override", () => {
+    const config = makeDefaultConfig({ permission: "ask" });
+    expect(getDcpCapabilities(config, createSessionState(), provider, modelId)).toEqual({
+      pipelineEnabled: true,
+      compressionEnabled: true,
+      reasons: [],
     });
   });
 
@@ -112,5 +131,65 @@ describe("getDcpCapabilities", () => {
       compressionEnabled: true,
       reasons: [],
     });
+  });
+});
+
+describe("getDcpPipelineDisabledMessage", () => {
+  it("returns undefined for an eligible pipeline", () => {
+    const state = createSessionState();
+    state.compressPermission = "deny";
+    const caps = getDcpCapabilities(makeDefaultConfig(), state, provider, modelId);
+    expect(getDcpPipelineDisabledMessage(caps)).toBeUndefined();
+  });
+
+  it.each([
+    {
+      name: "config",
+      build: () => ({
+        config: { ...makeDefaultConfig(), enabled: false },
+        state: createSessionState(),
+      }),
+      message: "DCP is disabled by configuration.",
+    },
+    {
+      name: "subagent",
+      build: () => {
+        const state = createSessionState();
+        state.isSubAgent = true;
+        return { config: makeDefaultConfig(), state };
+      },
+      message: "DCP is disabled in sub-agent sessions.",
+    },
+    {
+      name: "model",
+      build: () => ({
+        config: { ...makeDefaultConfig(), disabledModels: [`${provider}/${modelId}`] },
+        state: createSessionState(),
+      }),
+      message: "DCP is disabled for the current model.",
+    },
+  ])("returns the $name suppression message", ({ build, message }) => {
+    const { config, state } = build();
+    expect(
+      getDcpPipelineDisabledMessage(getDcpCapabilities(config, state, provider, modelId)),
+    ).toBe(message);
+  });
+
+  it("keeps the config reason ahead of model suppression", () => {
+    const config = {
+      ...makeDefaultConfig(),
+      enabled: false,
+      disabledModels: [`${provider}/${modelId}`],
+    };
+    const caps = getDcpCapabilities(config, createSessionState(), provider, modelId);
+    expect(getDcpPipelineDisabledMessage(caps)).toBe("DCP is disabled by configuration.");
+  });
+
+  it("keeps the sub-agent reason ahead of model suppression", () => {
+    const config = { ...makeDefaultConfig(), disabledModels: [`${provider}/${modelId}`] };
+    const state = createSessionState();
+    state.isSubAgent = true;
+    const caps = getDcpCapabilities(config, state, provider, modelId);
+    expect(getDcpPipelineDisabledMessage(caps)).toBe("DCP is disabled in sub-agent sessions.");
   });
 });

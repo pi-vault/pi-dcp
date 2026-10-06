@@ -1,18 +1,19 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { getDcpCapabilities, getDcpPipelineDisabledMessage } from "../capabilities.ts";
+import { type DcpConfig, isDcpEnabledForModel } from "../config.ts";
 import type { SessionState } from "../state/types.ts";
-import { isDcpEnabledForModel, type DcpConfig } from "../config.ts";
-import { getDcpCapabilities } from "../capabilities.ts";
-import { helpCommand } from "./help.ts";
+import { compressCommand } from "./compress.ts";
 import { contextCommand } from "./context.ts";
+import { decompressCommand } from "./decompress.ts";
+import { helpCommand } from "./help.ts";
+import { lifetimeCommand } from "./lifetime.ts";
+import { manualCommand } from "./manual.ts";
+import { permissionCommand } from "./permission.ts";
+import { recompressCommand } from "./recompress.ts";
 import { statsCommand } from "./stats.ts";
 import { sweepCommand } from "./sweep.ts";
-import { manualCommand } from "./manual.ts";
-import { decompressCommand } from "./decompress.ts";
-import { recompressCommand } from "./recompress.ts";
-import { lifetimeCommand } from "./lifetime.ts";
-import { permissionCommand } from "./permission.ts";
-import { compressCommand } from "./compress.ts";
+import { openDcpPanel } from "../tui/panel.ts";
 
 export function registerDcpCommands(
   pi: ExtensionAPI,
@@ -29,15 +30,9 @@ export function registerDcpCommands(
     );
 
   const rejectWhenDisabled = (ctx: ExtensionCommandContext): boolean => {
-    const { pipelineEnabled, reasons } = capabilities(ctx);
-    if (pipelineEnabled) return false;
-    if (reasons.includes("config")) {
-      ctx.ui.notify("DCP is disabled by configuration.", "info");
-    } else if (reasons.includes("subagent")) {
-      ctx.ui.notify("DCP is disabled in sub-agent sessions.", "info");
-    } else {
-      ctx.ui.notify("DCP is disabled for the current model.", "info");
-    }
+    const message = getDcpPipelineDisabledMessage(capabilities(ctx));
+    if (message === undefined) return false;
+    ctx.ui.notify(message, "info");
     return true;
   };
 
@@ -131,12 +126,19 @@ export function registerDcpCommands(
   });
 
   pi.registerCommand("dcp:permission", {
-    description: "Toggle compress permission (allow/deny)",
+    description: "Cycle compress permission (allow/ask/deny)",
     handler: async (_args, ctx) => {
       if (rejectWhenDisabled(ctx)) return;
-      const message = permissionCommand(state);
+      const message = permissionCommand(state, config.compress.permission);
       onStateChange(ctx);
       ctx.ui.notify(message, "info");
+    },
+  });
+
+  pi.registerCommand("dcp", {
+    description: "Open the interactive DCP panel",
+    handler: async (_args, ctx) => {
+      await openDcpPanel(state, config, ctx, onStateChange, () => pi.getActiveTools());
     },
   });
 }

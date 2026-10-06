@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -11,6 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import createExtension from "../src/index.ts";
+import * as sessionState from "../src/state/state.ts";
 
 const FAKE_MODEL = {
   provider: "test",
@@ -83,12 +85,179 @@ async function createHostSession(
 
 afterEach(() => {
   for (const session of sessions.splice(0)) session.dispose();
+  vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
   else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 });
 
 describe("DCP public SDK contract", () => {
+  it.each([true, false])(
+    "runs the complete host lifecycle with deferred approval %s",
+    async (approved) => {
+      const stateFactory = vi.spyOn(sessionState, "createSessionState");
+      const { session } = await createHostSession({
+        setup: (dir) => {
+          fs.mkdirSync(path.join(dir, "extensions"), { recursive: true });
+          fs.writeFileSync(
+            path.join(dir, "extensions", "dcp.json"),
+            '{"compress":{"permission":"ask"}}',
+          );
+        },
+      });
+      // Observe the real extension state without replacing its implementation.
+      const state = stateFactory.mock.results[0]?.value;
+      expect(state).toBeDefined();
+      let resolveApproval!: (approved: boolean) => void;
+      const approval = new Promise<boolean>((resolve) => {
+        resolveApproval = resolve;
+      });
+      let resolveConfirmationEntered!: () => void;
+      const confirmationEntered = new Promise<void>((resolve) => {
+        resolveConfirmationEntered = resolve;
+      });
+      const sequence: string[] = [];
+      let now = 1_000;
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+      session.extensionRunner.setUIContext(
+        {
+          ...session.extensionRunner.getUIContext(),
+          confirm: async () => {
+            sequence.push("confirm");
+            resolveConfirmationEntered();
+            return approval;
+          },
+        },
+        "rpc",
+      );
+      const beforeToolCall = session.agent.beforeToolCall;
+      session.agent.beforeToolCall = async (context, signal) => {
+        sequence.push("tool_call");
+        return beforeToolCall?.(context, signal);
+      };
+      const afterToolCall = session.agent.afterToolCall;
+      session.agent.afterToolCall = async (context, signal) => {
+        const result = await afterToolCall?.(context, signal);
+        now += 7;
+        return result;
+      };
+      const dcpEntries = () =>
+        session.sessionManager
+          .getEntries()
+          .filter((entry) => entry.type === "custom" && entry.customType === "pi-dcp-state");
+      let entriesAtEnd = -1;
+      let isErrorAtEnd: boolean | undefined;
+      session.agent.subscribe((event) => {
+        if (event.type === "tool_execution_start") sequence.push(event.type);
+        if (event.type === "tool_execution_end") {
+          sequence.push(event.type);
+          entriesAtEnd = dcpEntries().length;
+          isErrorAtEnd = event.isError;
+        }
+      });
+      let responses = 0;
+      session.agent.getApiKey = () => undefined;
+      session.agent.streamFunction = () => {
+        const firstResponse = responses++ === 0;
+        const message = {
+          role: "assistant",
+          content: firstResponse
+            ? [
+                {
+                  type: "toolCall",
+                  id: "host-compress",
+                  name: "compress",
+                  arguments: {
+                    topic: "Host lifecycle",
+                    content: [{ startId: "m1", endId: "m1", summary: "summary" }],
+                  },
+                },
+              ]
+            : [{ type: "text", text: "Finished" }],
+          api: "openai-completions",
+          provider: "test",
+          model: "test-model",
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: firstResponse ? "toolUse" : "stop",
+          timestamp: now,
+        } satisfies Extract<AgentMessage, { role: "assistant" }>;
+        // Only the provider stream is substituted; Pi owns all tool lifecycle events.
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "done", reason: message.stopReason, message };
+          },
+          result: async () => message,
+        } as unknown as Awaited<ReturnType<StreamFn>>;
+      };
+      session.sessionManager.appendMessage({
+        role: "user",
+        content: "Older conversation to compress",
+        timestamp: 1,
+      });
+      const running = session.agent.prompt("Please compress the older conversation");
+      await Promise.race([
+        confirmationEntered,
+        running.then(() => {
+          throw new Error("Agent finished before confirmation");
+        }),
+      ]);
+      expect(sequence).toEqual(["tool_execution_start", "tool_call", "confirm"]);
+      expect(state.compressionTiming.startTimes.size).toBe(0);
+      expect(state.prune.messages.blocksById.size).toBe(0);
+      const statsBefore = { ...state.stats };
+      const entriesBefore = dcpEntries().length;
+      now += 5_000;
+      resolveApproval(approved);
+      await running;
+
+      expect(sequence).toEqual([
+        "tool_execution_start",
+        "tool_call",
+        "confirm",
+        "tool_execution_end",
+      ]);
+      expect(responses).toBe(2);
+      expect(isErrorAtEnd).toBe(!approved);
+      expect(state.compressionTiming.startTimes.size).toBe(0);
+      if (approved) {
+        expect([...state.prune.messages.blocksById.values()]).toMatchObject([
+          { compressToolCallId: "host-compress", durationMs: 7 },
+        ]);
+        expect(state.stats.messagesCompressed).toBe(1);
+        expect(entriesAtEnd).toBeGreaterThan(entriesBefore);
+      } else {
+        expect(state.prune.messages.blocksById.size).toBe(0);
+        expect(state.stats).toEqual(statsBefore);
+        expect(entriesAtEnd).toBe(entriesBefore);
+      }
+    },
+  );
+
+  it("keeps the compress tool exposed and guided for ask permission", async () => {
+    const { session, agentDir } = await createHostSession({
+      setup: (dir) => {
+        fs.mkdirSync(path.join(dir, "extensions"), { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, "extensions", "dcp.json"),
+          '{"compress":{"permission":"ask"}}',
+        );
+      },
+    });
+
+    expect(session.getActiveToolNames()).toContain("compress");
+    const result = await session.extensionRunner.emitBeforeAgentStart("hello", undefined, {
+      cwd: agentDir,
+    });
+    expect(result.systemPromptOptions.sections.dcp).toContain("compress");
+  });
+
   it("activates the early-registered compress tool for a fresh default session", async () => {
     const { session } = await createHostSession();
 

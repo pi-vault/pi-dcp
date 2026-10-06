@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 2026-10-05 - [0.10.0]
+
+### Added
+
+- Compression permission `ask`. The `compress` tool stays exposed and requests a per-call confirmation in TUI and RPC modes. The dialog names the topic and the number of ranges or targets. Direct executions confirm too, and an approval is never reused between calls.
+- Interactive `dcp` panel. One Pi-native TUI view shows the current model, context usage, resolved thresholds, compression and manual modes, permission, policy and tool availability, compression blocks, session savings, and lifetime totals. Arrow keys or `j`/`k` move, Enter runs the selected action, and Escape or `q` closes.
+- Snapshot version 2, which persists the wider permission union while readers keep accepting version 1 snapshots with their historical allow/deny validation.
+- `@earendil-works/pi-tui` as a host-provided `"*"` peer and a `^1.0.1` development dependency.
+
+### Changed
+
+- `dcp:permission` cycles `allow -> ask -> deny -> allow`. An undefined session override falls back to the configured permission, and the standalone command defaults to `allow`.
+- Compression timing starts inside the registered `execute`, after approval and a fresh capability check. Waiting for approval, rejection, cancellation, abort, and confirmation failure create no timing, blocks, statistics, or DCP state entries.
+- TUI and RPC confirm `ask`; print/JSON sessions and any mode without dialog UI fail closed with `Compression requires interactive approval`. False, cancelled, aborted, or failed confirmation returns `Compression was not approved`.
+- The panel and the direct commands share the same pipeline policy guard. Globally disabled, model-disabled, and disallowed sub-agent sessions retain informational panel access but cannot mutate state. Permission denial alone does not disable sweep, manual mode, or block controls.
+- Panel actions toggle manual mode, cycle permission, sweep eligible outputs, and deactivate or reactivate blocks through the existing commands. Only active blocks offer deactivation and only user-deactivated blocks offer reactivation; a stale block returns `Block <id> not found.`
+
 ## 2026-10-05 - [0.9.0]
 
 ### Added

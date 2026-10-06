@@ -1,4 +1,4 @@
-import { Type, type Static } from "typebox";
+import { type Static, Type } from "typebox";
 
 export const DeduplicationConfigSchema = Type.Object(
   {
@@ -60,9 +60,9 @@ export const CompressConfigSchema = Type.Object(
       description:
         "Compression mode: range (compress spans) or message (compress individual messages)",
     }),
-    permission: Type.Union([Type.Literal("allow"), Type.Literal("deny")], {
+    permission: Type.Union([Type.Literal("allow"), Type.Literal("ask"), Type.Literal("deny")], {
       default: "allow",
-      description: "Whether the compress tool is allowed to run",
+      description: "Compression permission: allow, ask for approval, or deny",
     }),
     showCompression: Type.Boolean({
       default: false,
