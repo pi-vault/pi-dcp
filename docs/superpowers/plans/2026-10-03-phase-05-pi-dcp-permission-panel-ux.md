@@ -182,7 +182,7 @@ Stage only this task's changed files. Suggested message: `feat: confirm compress
 
 **Files:**
 
-- Create: `src/ui/panel-model.ts`
+- Create: `src/tui/panel-model.ts`
 - Modify: `src/capabilities.ts`, `src/commands/register.ts`, `src/utils/context-limits.ts`, `src/state/persistence.ts`
 - Test: `tests/panel-model.test.ts`, `tests/capabilities.test.ts`, `tests/commands-register.test.ts`
 - Test: `tests/context-limits.test.ts`, `tests/commands-lifetime.test.ts`
@@ -251,7 +251,7 @@ Stage only this task's changed files. Suggested message: `feat: add guarded DCP 
 
 **Files:**
 
-- Create: `src/ui/panel.ts`
+- Create: `src/tui/panel.ts`
 - Modify: `src/commands/register.ts`, `src/commands/help.ts`, `package.json`, `pnpm-lock.yaml`
 - Test: `tests/panel.test.ts`, `tests/commands-register.test.ts`, `tests/commands-help.test.ts`, `tests/package-metadata.test.ts`
 

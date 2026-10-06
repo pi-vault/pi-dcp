@@ -3,7 +3,7 @@ import {
   applyDcpPanelAction,
   buildDcpPanelModel,
   type DcpPanelModelInput,
-} from "../src/ui/panel-model.ts";
+} from "../src/tui/panel-model.ts";
 import { getDcpCapabilities } from "../src/capabilities.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { makeDefaultConfig } from "./helpers.ts";

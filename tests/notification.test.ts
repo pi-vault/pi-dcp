@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMinimalMessage, buildDetailedMessage } from "../src/ui/notification.ts";
+import { buildMinimalMessage, buildDetailedMessage } from "../src/tui/notification.ts";
 
 describe("buildMinimalMessage", () => {
   it("formats token count and prune count", () => {

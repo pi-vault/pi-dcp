@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildCompressNotificationMinimal,
   buildCompressNotificationDetailed,
-} from "../src/ui/notification.ts";
+} from "../src/tui/notification.ts";
 
 describe("compression notification", () => {
   it("minimal: shows tokens and message count", () => {

@@ -13,7 +13,7 @@ import { permissionCommand } from "./permission.ts";
 import { recompressCommand } from "./recompress.ts";
 import { statsCommand } from "./stats.ts";
 import { sweepCommand } from "./sweep.ts";
-import { openDcpPanel } from "../ui/panel.ts";
+import { openDcpPanel } from "../tui/panel.ts";
 
 export function registerDcpCommands(
   pi: ExtensionAPI,

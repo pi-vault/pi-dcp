@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import createExtension from "../src/index.ts";
-import { DcpPanelComponent } from "../src/ui/panel.ts";
+import { DcpPanelComponent } from "../src/tui/panel.ts";
 import {
   buildDcpPanelModel,
   type DcpPanelAction,
   type DcpPanelModel,
-} from "../src/ui/panel-model.ts";
+} from "../src/tui/panel-model.ts";
 import { createSessionState } from "../src/state/state.ts";
 import * as persistence from "../src/state/persistence.ts";
 import type { CompressionBlock } from "../src/state/types.ts";
