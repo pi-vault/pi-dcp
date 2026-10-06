@@ -380,6 +380,33 @@ Stage only this task's changed files. Suggested message: `chore: prepare pi-dcp 
 ## Implementation Handoff
 
 The previous Phase 5 plan is superseded by this revision. The agreed design uses execute-boundary
-approval, TUI/RPC dialogs, and one compact scrolling panel. Implementation has not started.
-Review this saved plan before execution and choose native or subagent-driven execution if no method
-has already been selected. Publishing remains a separate decision.
+approval, TUI/RPC dialogs, and one compact scrolling panel. Implementation was committed through
+`a3f5c61` on the Phase 5 branch; review fixes follow in the working tree. Publishing remains a
+separate decision.
+
+## Implementation Review — 2026-10-05
+
+The initial implementation passed 800 automated tests. Review regressions reproduced omitted
+lifetime counters, clipped tool availability at 60 columns, inaccessible inactive block rows,
+invisible actions remaining executable in rendering fallback, overflowing one/two-row terminals,
+and long block topics hiding action/state text at 60/80/120 columns.
+The panel now keeps those counters/status fields visible, permits browsing inactive rows without
+activation, and disables actions in fallback or views too short to display them while preserving
+close instructions. Block rows reserve space for action/state text before truncating topics, while
+retaining their identifiers when a disabled-policy reason also needs truncation. Row
+labels also normalize carriage returns and tabs to keep terminal lines valid. Command help now
+describes cycling through allow/ask/deny.
+
+A separate regression reproduced panel mutations being allowed when the current model was missing
+even though direct commands rejected the cached disabled model. Both the panel model and controller
+now use the same current-or-cached policy identity as command registration; missing display data
+remains explicitly unavailable. Offline public-SDK tests run Pi's actual agent loop with a simulated
+provider response and deferred RPC approval. They observe the full execution-start, tool-call,
+confirmation, execution-end sequence; pending approval creates no timing or blocks, rejection changes
+no compression statistics or DCP entries, and a simulated 5,000 ms approval wait is excluded from
+the successful 7 ms block duration.
+
+After these fixes, `pnpm check` passed formatting, warning-free lint, typecheck, and 819 tests across
+58 files. Generated-schema comparison and package dry-run passed; benchmarks ran with
+`node --import tsx scripts/benchmark.ts` to avoid the sandbox's tsx CLI IPC restriction. Live Pi
+TUI/RPC verification and publishing have not been performed in this review.
