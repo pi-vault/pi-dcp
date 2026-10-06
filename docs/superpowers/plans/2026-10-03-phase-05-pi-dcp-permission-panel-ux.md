@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add per-call compression approval and a Pi-native status/action panel while retaining every existing command and safe headless behavior.
+**Goal:** Add per-call compression approval and one Pi-native status/action panel while retaining every existing command and safe headless behavior.
 
-**Architecture:** Extend permission and persistence first, then make tool authorization consume that state. Build the panel from a pure view model and action executor; a thin Pi TUI component handles only rendering and keyboard selection. Existing command functions remain the single mutation path for manual mode, sweep, and block activation.
+**Architecture:** Authorize ask calls inside the registered execute function before compression timing or mutation. Build the panel from a pure view model and command-backed action executor sharing the existing command policy guard. A thin Pi TUI component handles rendering, scrolling, selection, and action completion; its controller refreshes data and reconciles permitted actions.
 
 **Tech Stack:** Node.js, TypeScript 7, Pi 1.0 extension and TUI APIs, TypeBox 1.3, Vitest 5, Biome 2, pnpm
 
@@ -12,349 +12,374 @@
 
 ## Global Constraints
 
-- Execute this phase after `2026-10-03-phase-04-pi-dcp-lifecycle-integration.md` and start from v0.9.0.
+- Execute after Phase 4, starting from v0.9.0; prepare v0.10.0 without publishing.
 - Permission is exactly `allow | ask | deny`; the default remains `allow`.
-- `ask` confirms every compression call and fails closed when no interactive UI exists.
-- Existing `dcp:*` commands remain supported and use the same domain mutations as panel actions.
-- Preserve Phase 4's inactive-tool selection, run-boundary prompt snapshots, and restored-loadout precedence. Allow/ask do not implicitly activate `compress`; guidance additionally requires an active tool.
-- State-change callbacks have type `(ctx: ExtensionCommandContext) => void`; commands and panel actions pass their current context for immediate reconciliation.
-- `@earendil-works/pi-tui` is host-provided: exact `"*"` peer, compatible development dependency, never a runtime dependency.
+- Ask supports TUI and RPC dialogs; print/JSON and unavailable dialog UI fail closed.
+- Confirm inside execute for every ask call, including direct execution; never reuse approvals.
+- Existing `dcp:*` commands remain supported and use the same domain mutations and pipeline policy guard as panel actions.
+- Preserve inactive-tool selection, run-boundary prompt snapshots, sequential compression execution, and restored-loadout precedence. Allow/ask do not implicitly activate `compress`; guidance additionally requires an active tool.
+- State-change callbacks remain `(ctx: ExtensionCommandContext) => void`; commands and permitted panel actions pass their current context.
+- Snapshot v2 writers retain canonical padded references and block shape; readers and lifetime aggregation accept historical v1 unchanged.
+- The single custom panel requires `ctx.mode === "tui"`, independently of RPC's `hasUI`.
+- `@earendil-works/pi-tui` is host-provided: exact `"*"` peer and `^1.0.1` development dependency, never a runtime dependency; retain its locked v1.0.1 resolution.
+- Pi is the API authority; OpenCode DCP is behavioral inspiration only. Do not copy its AGPL source, adapters, or host permission machinery.
+
+## Readiness Review — 2026-10-05
+
+The earlier plan required revision: Pi emits execution-start before authorization, RPC has dialog UI
+but cannot render custom terminal components, panel actions would bypass command-registration guards,
+and `manualCommand(state, "")` reports status rather than toggling it.
+
+Reviewed baseline: clean v0.9.0 at `fba7462`, after the Phase 4 merge. `pnpm check` passed formatting,
+warning-free lint, typecheck, and 710 tests across 55 files. Schema comparison and package dry-run
+passed. The benchmark ran successfully with `node --import tsx scripts/benchmark.ts`; the normal tsx
+CLI was blocked by sandbox IPC restrictions. These are baseline results, not verification of Phase 5.
+
+References: Pi `1b094148b91d737fb398bf1591604de58ec169e1` (v1.0.2) and OpenCode DCP
+`f8232fde1e63c2251687e4d9634bd53ce11568cb` (v3.2.0). Installed Pi v1.0.1 types support the required
+mode, dialog, component, and event-ordering contracts. Pi's extension types, agent-loop ordering, RPC
+UI implementation, and question-component example are the API references. OpenCode's compression
+pipeline and panel availability are behavioral references; its separate views are outside this phase.
 
 ## Review Focus
 
-- A rejected `ask` call must not start compression timing or mutate/persist block state; Task 2 checks the blocked lifecycle.
-- Restoring a v1 snapshot must preserve allow/deny, while malformed v2 permission values must reject the snapshot; Task 1 covers both versions.
-- A headless/RPC call in `ask` mode must block rather than silently allow; Task 2 adds this boundary.
-- A panel action against a block that disappeared after the model was built must return a readable message and leave state valid; Task 3 adds the stale-row case.
-- Lifetime-stat loading or narrow rendering failure must not remove command access or strand the custom UI; Task 4 tests fallback and close paths.
+- Pending/rejected approval must create no compression timing or durable changes despite Pi's early start event; Task 2 reproduces the real ordering.
+- RPC confirmations must work while RPC custom UI is never called; Tasks 2 and 4 test modes independently of `hasUI`.
+- Confirmation abort/failure or policy changes during the wait must prevent compression; Task 2 checks these boundaries and direct execute.
+- Disabled pipelines and stale/non-reactivatable block rows must not bypass command policy or corrupt state; Task 3 checks guard parity and block eligibility.
+- Lifetime failure, rendering failure, long block lists, and undefined custom results must retain a usable close path; Task 4 checks fallbacks and scrolling.
 
 ---
 
-### Task 1: Add `ask` permission and version-2 persistence
+### Task 1: Add ask permission and compatible v2 persistence
 
 **Files:**
 
-- Modify: `src/config-schema.ts`
-- Modify: `src/state/types.ts`
-- Modify: `src/state/persistence.ts`
-- Modify: `src/commands/permission.ts`
-- Test: `tests/config.test.ts`
-- Test: `tests/persistence.test.ts`
-- Test: `tests/commands-permission.test.ts`
+- Modify: `src/config-schema.ts`, `src/state/types.ts`, `src/state/persistence.ts`
+- Modify: `src/commands/permission.ts`, `src/commands/register.ts`
+- Test: `tests/config.test.ts`, `tests/commands-permission.test.ts`, `tests/persistence.test.ts`
+- Test: `tests/index.test.ts`, `tests/commands-lifetime.test.ts`, `tests/session-analysis.test.ts`
 
 **Interfaces:**
 
-- Consumes: existing allow/deny configuration and version-1 snapshots.
-- Produces: `export type CompressPermission = "allow" | "ask" | "deny"`, `DcpSnapshotV2`, and a permission command cycling allow -> ask -> deny -> allow.
+- Produces: `CompressPermission = "allow" | "ask" | "deny"`, `DcpSnapshotV2`, and `DcpSnapshot = DcpSnapshotV1 | DcpSnapshotV2`.
+- `serializeDcpSnapshot` returns `DcpSnapshotV2 | undefined`; `parseDcpSnapshot` returns `DcpSnapshot | undefined`. Preserve existing arguments and restoration behavior.
+- `permissionCommand(state: SessionState, defaultPermission: CompressPermission = "allow"): string` cycles from `state.compressPermission ?? defaultPermission`.
 
-- [ ] **Step 1: Add failing configuration and cycle tests**
+- [ ] **Step 1: Add failing configuration and command tests**
 
-Assert `compress.permission: "ask"` loads without warnings and defaults remain `"allow"`. Update
-permission-command tests to assert the exact sequence `allow -> ask -> deny -> allow`, including an
-undefined session value beginning from the effective `allow` default.
+Assert ask loads without warnings, the built-in default is allow, and cycling follows
+`allow -> ask -> deny -> allow`. Preserve the exact `Compress permission: <value>` response.
+For undefined state, test the standalone default and configured ask/deny fallbacks:
 
-- [ ] **Step 2: Add failing v1/v2 persistence tests**
-
-Keep literal v1 allow and deny fixtures and assert both parse and restore. Add a v2 fixture with
-`compressPermission: "ask"` and assert round-trip preservation. Assert version 2 with any other
-permission is rejected and version 1 with `ask` is rejected as invalid historical data.
-
-- [ ] **Step 3: Run focused tests and verify `ask` is unsupported**
-
-Run: `pnpm vitest run tests/config.test.ts tests/commands-permission.test.ts tests/persistence.test.ts`
-
-Expected: FAIL on the new enum, cycle, and v2 snapshot cases.
-
-- [ ] **Step 4: Introduce the shared permission type**
-
-Export `CompressPermission` from `src/state/types.ts` and use it in `SessionState` and config-facing
-type annotations. Add `"ask"` to the TypeBox union without changing its default.
-
-- [ ] **Step 5: Implement snapshot version 2 with a v1 reader**
-
-Define `DcpSnapshotV2` with `version: 2` and the three-value permission. Change serialization to
-write v2. Parse v1 with its historical allow/deny union and v2 with the new union, returning a
-shared snapshot type that restoration can consume. Do not mutate canonical message IDs or block
-shape.
-
-- [ ] **Step 6: Implement permission cycling**
-
-Make `permissionCommand(state)` advance through the exact three-value sequence and retain the
-existing human-readable `Compress permission: <value>` response.
-
-- [ ] **Step 7: Run configuration, command, and persistence tests**
-
-Run: `pnpm vitest run tests/config.test.ts tests/commands-permission.test.ts tests/persistence.test.ts tests/session-analysis.test.ts`
-
-Expected: PASS for both snapshot versions and all permission transitions.
-
-- [ ] **Step 8: Commit permission persistence**
-
-```bash
-git add src/config-schema.ts src/state/types.ts src/state/persistence.ts src/commands/permission.ts tests/config.test.ts tests/persistence.test.ts tests/commands-permission.test.ts tests/session-analysis.test.ts
-git commit -m "feat: add ask compression permission"
+```ts
+expect(permissionCommand(createSessionState(), "deny")).toBe("Compress permission: allow");
 ```
 
-### Task 2: Confirm `ask` calls and reconcile tool exposure
+- [ ] **Step 2: Add failing persistence-consumer tests**
+
+Retain literal v1 allow/deny fixtures and reject v1 ask. Round-trip all three v2 permissions and
+reject invalid v2 permissions and unknown versions. Update new-writer assertions to v2 while
+retaining v1 reader fixtures. Test mixed v1/v2 lifetime aggregation, selecting each owner's newest
+snapshot without double counting. Keep session-analysis and branch restoration behavior unchanged.
+
+- [ ] **Step 3: Verify the new tests fail**
+
+Run: `pnpm vitest run tests/config.test.ts tests/commands-permission.test.ts tests/persistence.test.ts tests/index.test.ts tests/commands-lifetime.test.ts tests/session-analysis.test.ts`
+
+Expected: new ask/v2 cases fail against the existing implementation.
+
+- [ ] **Step 4: Implement types, v2 serialization, and version-aware reading**
+
+Keep `DcpSnapshotV1` and its historical permission union intact. Define v2 by reusing the existing
+fields with only version and permission changed; do not duplicate block definitions. Update the
+lifetime snapshot map to accept the union. Preserve parser subentry validation, restoration,
+owner/statistics semantics, and fingerprint behavior. New serialization preserves ask.
+
+- [ ] **Step 5: Implement cycling and configured fallback**
+
+Update command registration to pass `config.compress.permission`. Keep the existing current-context
+callback and pipeline guard; update the command description to advertise allow/ask/deny.
+
+- [ ] **Step 6: Run the Step 3 command and verify all cases pass**
+
+Expected: both reader versions, v2 writers, configured fallbacks, and existing consumers pass.
+
+- [ ] **Step 7: Commit the permission/persistence changes**
+
+Stage only this task's changed files. Suggested message: `feat: add ask compression permission`.
+
+### Task 2: Authorize ask inside execute and correct timing
 
 **Files:**
 
 - Create: `src/compress/permission.ts`
-- Modify: `src/capabilities.ts`
-- Modify: `src/index.ts`
-- Test: `tests/compress-permission.test.ts`
-- Test: `tests/capabilities.test.ts`
-- Test: `tests/index.test.ts`
-- Test: `tests/integration.test.ts`
+- Modify: `src/index.ts`, `tests/extension-harness.ts`
+- Test: `tests/compress-permission.test.ts`, `tests/capabilities.test.ts`, `tests/index.test.ts`
+- Test: `tests/integration.test.ts`, `tests/compression-timing.test.ts`, `tests/pi-contract.test.ts`, `tests/sdk-contract.test.ts`
 
 **Interfaces:**
 
-- Consumes: `CompressPermission`, Pi `tool_call` input, and `ctx.ui.confirm`.
-- Produces: `describeCompressionRequest(input: Record<string, unknown>): { topic: string; targetCount: number; targetLabel: "range" | "target" }` in `src/compress/permission.ts` and per-call allow/block decisions.
+- Consumes: Task 1 permission types, `CompressConfig["mode"]`, Pi `ExtensionContext`, and the execute call's abort signal.
+- Produces: `describeCompressionRequest(mode: CompressConfig["mode"], input: Record<string, unknown>): { topic: string; targetCount: number; targetLabel: "range" | "target" }`.
+- Produces: `requestCompressionApproval(mode: CompressConfig["mode"], input: Record<string, unknown>, ctx: ExtensionContext, signal?: AbortSignal): Promise<string | undefined>`; undefined means approved, otherwise the string is the error reason.
 
-- [ ] **Step 1: Extend capability tests for `ask`**
+- [ ] **Step 1: Add failing description and dialog tests**
 
-Assert `ask` leaves `pipelineEnabled` and `compressionEnabled` true when no other policy reason
-suppresses them. With an active `compress` tool it includes the DCP prompt section and permits
-nudges. With an inactive tool it preserves that selection and omits guidance. Only `deny` adds a
-permission suppression reason; global/model/sub-agent suppression continues to apply.
+Assert topic fallback `Untitled compression`, title `Allow DCP compression?`, and message inclusion
+of the topic and `2 ranges` or `1 target`. Range counting accepts records with string
+`startId`/`endId`/`summary`; message counting accepts string `messageId`/`summary`. Count malformed or
+absent arrays as zero valid items, choosing the array by configured mode. Whitespace-only topics use
+the fallback. Test singular/plural labels, acceptance, rejection, cancellation, and thrown confirmation.
 
-- [ ] **Step 2: Add failing confirmation tests**
+- [ ] **Step 2: Add failing mode and lifecycle tests**
 
-In `tests/compress-permission.test.ts`, for range input with two `content` ranges, assert the dialog title is `Allow DCP compression?` and
-the message includes the topic and `2 ranges`. For message mode with one target, assert `1 target`.
-Test approval returns no block result, rejection returns
-`{ block: true, reason: "Compression was not approved" }`, and no UI returns
-`{ block: true, reason: "Compression requires interactive approval" }` without calling confirm.
+Extend the typed harness with configurable `mode`, observable confirm/custom mocks, and an execute
+signal/call ID. Test TUI and RPC with `hasUI: true`, and print/JSON or `hasUI: false` without confirm.
+Reproduce `tool_execution_start -> tool_call -> execute -> tool_execution_end`: deferred approval
+must start no timing; rejected calls create no blocks, statistic changes, or DCP entries. Assert
+approval delay is excluded from successful block durations. Test direct execute, two successive ask
+calls, abort during confirmation, and policy suppression introduced while confirmation is pending.
+Exercise the public SDK execution path offline without real model requests; preserve Phase 4 loadout
+contract tests. Update timing tests that previously treated the early start event as compression work.
 
-- [ ] **Step 3: Add the blocked-lifecycle assertion**
+- [ ] **Step 3: Verify approval and timing tests fail**
 
-After a rejected call, assert no compression timing entry, block, statistics change, or persisted
-custom entry is created. Keep the existing defensive deny assertion.
+Run: `pnpm vitest run tests/compress-permission.test.ts tests/capabilities.test.ts tests/index.test.ts tests/integration.test.ts tests/compression-timing.test.ts tests/pi-contract.test.ts tests/sdk-contract.test.ts`
 
-- [ ] **Step 4: Run capability and lifecycle tests**
+Expected: ask authorization and post-approval timing assertions fail.
 
-Run: `pnpm vitest run tests/capabilities.test.ts tests/index.test.ts tests/integration.test.ts`
+- [ ] **Step 4: Implement confirmation at the execution boundary**
 
-Expected: FAIL because `ask` is not yet authorized or confirmed.
+Make `executeCompressTool` asynchronous. Keep policy guards in both `tool_call` and execute; the hook
+must not confirm. For effective ask permission, await the helper before any timing or compression
+mutation. Require both a TUI/RPC mode and dialog-capable UI; pass `_signal ?? ctx.signal` to confirm.
+Return an error tool result (`isError: true`) with `Compression requires interactive approval` when
+UI is unavailable, or `Compression was not approved` for false/cancelled/aborted/failed confirmation.
+Recheck the abort signal and capabilities after the wait, returning the existing policy error when
+suppressed. Do not introduce approval caches or tokens.
 
-- [ ] **Step 5: Implement request description and confirmation**
+- [ ] **Step 5: Move compression timing to actual work**
 
-In `src/compress/permission.ts`, extract a string topic when present, otherwise use
-`Untitled compression`; count valid array items from `content` or `targets`, otherwise zero. In the `tool_call` handler, block deny first, then for
-ask require `ctx.hasUI` and await `ctx.ui.confirm`. Do not cache approval across calls.
+Remove the compression start-time mutation from `tool_execution_start`; remove that handler if it
+has no remaining responsibility. Set the start time immediately before `handleCompress`. Keep
+execution-end timing cleanup unconditional even if permission/model policy changed after work began.
+Ask and allow share existing capabilities: only deny contributes the permission suppression reason.
 
-- [ ] **Step 6: Reconcile runtime permission changes immediately**
+- [ ] **Step 6: Run authorization and compression regressions**
 
-Treat allow and ask as compression-enabled in capabilities; deny remains suppressed. Ensure the
-permission command invokes the state-change callback with its current command context, reconciling
-active tools immediately and the prompt on the next run. Preserve the pre-suppression active state
-within a branch and Pi's selected loadout across restoration as established in Phase 4. Retain the
-defensive capability guard in the registered execute function.
+Run the Step 3 command, then:
+`pnpm vitest run tests/compress-range.test.ts tests/compress-message.test.ts tests/benchmark.test.ts`
 
-- [ ] **Step 7: Run focused and complete compression tests**
+Expected: every ask call confirms once, no denied-call residue, approval wait excluded, existing
+loadout/guidance rules and benchmark gates preserved.
 
-Run: `pnpm vitest run tests/compress-permission.test.ts tests/capabilities.test.ts tests/index.test.ts tests/integration.test.ts tests/compression-timing.test.ts tests/compress-range.test.ts tests/compress-message.test.ts`
+- [ ] **Step 7: Commit authorization and timing changes**
 
-Expected: PASS; approval occurs for every ask call and blocked calls leave no timing/state residue.
+Stage only this task's changed files. Suggested message: `feat: confirm compression before execution`.
 
-- [ ] **Step 8: Commit ask authorization**
-
-```bash
-git add src/compress/permission.ts src/capabilities.ts src/index.ts tests/compress-permission.test.ts tests/capabilities.test.ts tests/index.test.ts tests/integration.test.ts
-git commit -m "feat: confirm compression calls in ask mode"
-```
-
-### Task 3: Build the panel view model and action executor
+### Task 3: Build the panel model and guarded command-backed actions
 
 **Files:**
 
 - Create: `src/ui/panel-model.ts`
-- Modify: `src/utils/context-limits.ts`
-- Modify: `src/commands/lifetime.ts`
-- Test: `tests/panel-model.test.ts`
-- Test: `tests/context-limits.test.ts`
-- Test: `tests/commands-lifetime.test.ts`
+- Modify: `src/capabilities.ts`, `src/commands/register.ts`, `src/utils/context-limits.ts`, `src/state/persistence.ts`
+- Test: `tests/panel-model.test.ts`, `tests/capabilities.test.ts`, `tests/commands-register.test.ts`
+- Test: `tests/context-limits.test.ts`, `tests/commands-lifetime.test.ts`
 
 **Interfaces:**
 
-- Consumes: state, config, current model/context usage, resolved limits, and structured lifetime statistics.
-- Produces: `resolveContextLimits(...)`, `DcpPanelModel`, `DcpPanelAction`, `buildDcpPanelModel(...)`, and `applyDcpPanelAction(action, state, config): string`.
+- Produces: `getDcpPipelineDisabledMessage(capabilities: DcpCapabilities): string | undefined` in capabilities; undefined means pipeline-eligible, otherwise preserve existing command messages and reason precedence.
+- Produces: `ResolvedContextLimits { min: number | undefined; max: number | undefined }` and `resolveContextLimits(config: { compress: CompressConfig }, state: SessionState, contextUsage: ContextUsage | undefined): ResolvedContextLimits`.
+- Export `LifetimeStats` from persistence and use it as `loadAllSessionStats`' existing aggregate return type; preserve the loader and lifetime-command behavior.
+- Define `DcpPanelAction` as `toggle-manual | cycle-permission | sweep | toggle-block` (with numeric `blockId`) `| close`, using a `type` discriminant.
+- `DcpPanelModelInput` contains state/config, current model provider/id/contextWindow or undefined, context usage or undefined, lifetime stats or undefined, and `compressToolActive: boolean`.
+- `buildDcpPanelModel(input: DcpPanelModelInput): DcpPanelModel` produces formatted status/statistic fields and structured numeric-sorted block rows with availability reasons and actions. Stable row IDs are action types or `block:<id>`.
+- `applyDcpPanelAction(action: DcpPanelAction, state: SessionState, config: DcpConfig, capabilities: DcpCapabilities): { permitted: boolean; message?: string }` contains no Pi UI calls. Close returns `{ permitted: false }`; policy rejection returns false plus its message; permitted commands return true plus their command response, including stale-row responses.
 
-- [ ] **Step 1: Add failing resolved-limit tests**
+- [ ] **Step 1: Add failing limit and model tests**
 
-Export `resolveContextLimits(config, state, contextUsage)` and assert it returns absolute min/max
-values after model override, global absolute, and percentage resolution. Assert unavailable context
-windows yield `undefined` only for percentage limits; existing over-limit decisions must delegate
-to the same result.
+Assert shared resolution preserves per-model override, global absolute, and legacy percentage
+precedence. Percentage limits with no usable window are undefined; absolute limits still resolve.
+Existing over-limit decisions must use the shared result. Assert all planned panel fields, explicit
+unavailable values, numeric block ordering, active/user-deactivated/otherwise-inactive distinctions,
+and tool/policy availability. Test current model identity/window overriding stale cached display
+inputs without mutating state; do not fabricate current usage from missing data.
 
-- [ ] **Step 2: Add failing panel-model tests**
+- [ ] **Step 2: Add failing action and guard-parity tests**
 
-Build a state with active and user-deactivated blocks. Assert the model contains model key, usage,
-resolved limits, compression/manual/permission modes, session statistics, structured lifetime
-totals, and deterministic block rows sorted by block ID. Assert unavailable usage/model/lifetime
-data renders explicit `unavailable` values rather than throwing.
+Test manual toggle from both states, permission cycling with configured fallback, sweep, block
+deactivation/reactivation, and exact stale message `Block <id> not found.`. Non-user-deactivated
+inactive blocks must not become reactivatable. Assert global/model/sub-agent suppression rejects
+all mutations with the same messages as direct commands. Deny permission alone permits panel
+mutations when pipeline-eligible. Recheck policy against current context after building a model.
 
-- [ ] **Step 3: Add failing action-executor tests**
+- [ ] **Step 3: Verify model and guard tests fail**
 
-Assert actions:
+Run: `pnpm vitest run tests/panel-model.test.ts tests/capabilities.test.ts tests/commands-register.test.ts tests/context-limits.test.ts tests/commands-lifetime.test.ts`
 
-- toggle manual mode through `manualCommand`;
-- cycle permission through `permissionCommand`;
-- sweep through `sweepCommand`;
-- deactivate an active block through `decompressCommand`;
-- reactivate a user-deactivated block through `recompressCommand`;
-- return `Block <id> not found.` for a stale block row.
+Expected: missing shared helpers/model and guard-parity cases fail.
 
-- [ ] **Step 4: Run model and command tests**
+- [ ] **Step 4: Implement shared policy and data resolution**
 
-Run: `pnpm vitest run tests/panel-model.test.ts tests/context-limits.test.ts tests/commands-lifetime.test.ts`
+Delegate registration's existing pipeline guard to the shared message helper. Keep informational
+commands available and compression's additional permission/active-tool checks intact. Export the
+limit resolver and delegate `isContextOverLimits` to it without changing precedence. Build a
+read-only current-model view for panel resolution rather than updating session state from rendering.
 
-Expected: FAIL because structured panel data and exported limit resolution do not exist.
+- [ ] **Step 5: Implement model and domain action delegation**
 
-- [ ] **Step 5: Expose shared resolved limits and lifetime types**
+Manual toggle passes `state.manualMode === "active" ? "off" : "on"` to `manualCommand`. Permission
+cycling passes configured fallback; sweep and block controls call their existing commands. Reject
+policy-disabled actions before domain mutation. Only active blocks offer deactivation and only
+user-deactivated blocks offer reactivation; display other blocks without a toggle. Re-read block
+state when acting, preserving existing command eligibility/error responses. Close does nothing.
 
-Add `ResolvedContextLimits { min: number | undefined; max: number | undefined }`; make
-`isContextOverLimits` consume `resolveContextLimits`. Export the existing lifetime aggregate as
-`LifetimeStats` so the panel consumes data rather than parsing command text.
+- [ ] **Step 6: Run model, guard, and command regressions**
 
-- [ ] **Step 6: Implement the pure panel model and actions**
+Run the Step 3 command, then:
+`pnpm vitest run tests/commands-manual.test.ts tests/commands-permission.test.ts tests/commands-sweep.test.ts tests/commands-decompress.test.ts tests/commands-recompress.test.ts`
 
-Define action variants `toggle-manual`, `cycle-permission`, `sweep`, `toggle-block` with `blockId`,
-and `close`. The action executor delegates to existing command functions and contains no Pi UI
-calls. The model contains already-formatted scalar labels plus structured block rows for rendering.
+Expected: shared resolution and policy pass without duplicating mutation logic or changing existing
+no-argument manual-command status behavior.
 
-- [ ] **Step 7: Run panel-model and regression tests**
+- [ ] **Step 7: Commit panel domain behavior**
 
-Run: `pnpm vitest run tests/panel-model.test.ts tests/context-limits.test.ts tests/commands-lifetime.test.ts tests/commands-manual.test.ts tests/commands-permission.test.ts tests/commands-sweep.test.ts tests/commands-decompress.test.ts`
+Stage only this task's changed files. Suggested message: `feat: add guarded DCP panel actions`.
 
-Expected: PASS with no duplicated mutation logic.
-
-- [ ] **Step 8: Commit panel domain behavior**
-
-```bash
-git add src/ui/panel-model.ts src/utils/context-limits.ts src/commands/lifetime.ts tests/panel-model.test.ts tests/context-limits.test.ts tests/commands-lifetime.test.ts
-git commit -m "feat: add DCP panel view model and actions"
-```
-
-### Task 4: Add the Pi custom panel and `dcp` command
+### Task 4: Add the TUI component, controller, and dcp command
 
 **Files:**
 
 - Create: `src/ui/panel.ts`
-- Modify: `src/commands/register.ts`
-- Modify: `package.json`
-- Modify: `pnpm-lock.yaml`
-- Modify: `tests/package-metadata.test.ts`
-- Test: `tests/panel.test.ts`
-- Test: `tests/commands-register.test.ts`
+- Modify: `src/commands/register.ts`, `src/commands/help.ts`, `package.json`, `pnpm-lock.yaml`
+- Test: `tests/panel.test.ts`, `tests/commands-register.test.ts`, `tests/commands-help.test.ts`, `tests/package-metadata.test.ts`
 
 **Interfaces:**
 
-- Consumes: `DcpPanelModel`, `DcpPanelAction`, Pi `Theme`, `ctx.ui.custom`, and pi-tui key/width helpers.
-- Produces: `DcpPanelComponent` and `openDcpPanel(state, config, ctx, onStateChange): Promise<void>`, registered as command `dcp`, with `onStateChange: (ctx: ExtensionCommandContext) => void`.
+- Consumes: Task 3 model/actions, Pi Theme/custom UI, and pi-tui Component/key/width helpers.
+- `DcpPanelComponent` implements `render(width)`, `invalidate()`, and `handleInput(data)`; constructor inputs are the model and options containing theme, `getHeight(): number`, `requestRender(): void`, `onAction(action): void`, optional initial row ID, and optional last action message.
+- `openDcpPanel(state: SessionState, config: DcpConfig, ctx: ExtensionCommandContext, onStateChange: (ctx: ExtensionCommandContext) => void, getActiveTools: () => string[]): Promise<void>` supplies current policy/tool/model inputs and registers through the existing command-registration function.
 
-- [ ] **Step 1: Add the host-provided pi-tui metadata test**
+- [ ] **Step 1: Add failing metadata, rendering, and key tests**
 
-Append `@earendil-works/pi-tui` to `hostProvidedPackages`. Assert it is absent from dependencies,
-present as peer `"*"`, and present in devDependencies. Run the test and verify it fails before
-changing package metadata.
+Assert pi-tui is absent from runtime dependencies, has peer `"*"`, development specifier `^1.0.1`, and
+locked v1.0.1. At 60/80/120 columns and 24 rows, assert visible widths and total height remain bounded
+with long topics, wide characters, and dozens of blocks. Selection stays visible while scrolling
+and after resize. Arrow keys and `j`/`k` navigate selectable actions; Enter completes the selected
+action; Escape/`q` returns close exactly once. Assert selection changes request rendering and an
+injected rendering failure produces a bounded unthemed fallback with functional close keys.
 
-- [ ] **Step 2: Add failing rendering and key tests**
+- [ ] **Step 2: Add failing controller and command tests**
 
-Instantiate `DcpPanelComponent` with a fixed model and action callback. At widths 60, 80, and 120,
-assert every rendered line's visible width is within the requested width and the title/status/actions
-remain present. Assert arrows and `j`/`k` change selection, Enter returns the selected action, and
-Escape/`q` returns `close` exactly once.
+Assert all eleven commands are registered and help lists `dcp`. In RPC mode with `hasUI: true`, and
+print/JSON or unavailable TUI, assert exactly one error notification and no lifetime/custom call.
+Mock permission action then close: assert one callback with current ctx, updated model, retained
+selection, and a displayed command response. Verify close and policy rejection do not call the
+callback. Recheck policy before actions even if the displayed model allowed them. Lifetime rejection
+opens with unavailable totals; loading occurs once per invocation. Undefined custom results close
+without looping; custom rejection notifies once and existing commands remain accessible. Keep
+missing-directory zero totals compatible with the current loader.
 
-- [ ] **Step 3: Add failing command-controller tests**
+- [ ] **Step 3: Verify UI and metadata tests fail**
 
-Assert `dcp` is registered. In TUI mode, mock `ctx.ui.custom` to return a permission action then
-close; assert state changes, `onStateChange(ctx)` runs, and the next model reflects the new value. In
-non-TUI mode, assert one error notification and no custom UI call. Make lifetime loading reject and
-assert the panel still opens with unavailable totals and existing commands remain registered.
+Run: `pnpm vitest run tests/panel.test.ts tests/commands-register.test.ts tests/commands-help.test.ts tests/package-metadata.test.ts`
 
-- [ ] **Step 4: Run UI and metadata tests**
+Expected: missing panel/command and peer metadata assertions fail.
 
-Run: `pnpm vitest run tests/panel.test.ts tests/commands-register.test.ts tests/package-metadata.test.ts`
+- [ ] **Step 4: Add the host-provided development peer**
 
-Expected: FAIL because the panel, command, and pi-tui peer are absent.
+Add devDependency `"@earendil-works/pi-tui": "^1.0.1"` and peer `"*"`. Refresh the lockfile using
+`pnpm install --lockfile-only`; ensure the new root importer uses existing v1.0.1 without unrelated
+resolution changes. Materialize dependencies as needed for UI tests without upgrading other packages.
 
-- [ ] **Step 5: Add pi-tui as a host-provided package**
+- [ ] **Step 5: Implement the bounded terminal component**
 
-Add `"@earendil-works/pi-tui": "^1.0.0"` to devDependencies and exact `"*"` to peerDependencies.
-Run `pnpm install --lockfile-only` and verify the root importer changes without unrelated resolution
-updates.
+Use Pi Theme plus pi-tui `matchesKey`, `Key`, `truncateToWidth`, and `visibleWidth`. Keep the compact
+status/statistics header and close-key footer visible, allocating remaining height to a scrolling
+core-action/block list. Clamp navigation at the first/last selectable row. Flatten multiline row
+labels, bound every line, and keep selected actions visible. Use `tui.terminal.rows` for height and
+`tui.requestRender()` for selection updates. Track selection/completion only; rendering formatting
+failure returns a minimal unthemed closable view. The component performs no domain mutations.
 
-- [ ] **Step 6: Implement the terminal component**
+- [ ] **Step 6: Implement controller, registration, and help**
 
-Use `Theme` from pi-coding-agent and `matchesKey`/`truncateToWidth` from pi-tui. Render a compact
-header, usage/threshold/status rows, selectable core actions, block rows, lifetime totals, and a
-keyboard footer. Track only selection and completion state; return actions through the callback.
+Require `ctx.mode === "tui" && ctx.hasUI` before any lifetime/custom work; otherwise notify
+`DCP panel requires interactive TUI mode. Use dcp:help for available commands.` once and return.
+Load lifetime totals once from the same parent directory as `dcp:lifetime`, using undefined on
+rejection. Build from current ctx and `getActiveTools()`, await one component action, recompute
+capabilities, and call the Task 3 executor. For permitted actions call `onStateChange(ctx)`; retain
+its message and rebuild. Restore the acted-on row ID, falling back to the first selectable action
+if it vanished. Close/undefined results return; custom rejection notifies once and returns. Register
+`dcp` and add help without removing or renaming any existing command.
 
-- [ ] **Step 7: Implement the panel controller and command**
+- [ ] **Step 7: Run UI, command, metadata, and type checks**
 
-In TUI mode, load lifetime totals, build a fresh model, await one component action, execute it, call
-`onStateChange(ctx)`, and reopen until `close`. Catch lifetime-read failures as unavailable data. Register
-`dcp` without removing or renaming any `dcp:*` command.
+Run the Step 3 command, then `pnpm typecheck && pnpm lint`.
 
-- [ ] **Step 8: Run UI, command, package, and type checks**
+Expected: UI completion/scrolling/fallback, guarded mutations, command preservation, and dependency
+metadata pass; zero lint warnings.
 
-Run: `pnpm vitest run tests/panel.test.ts tests/commands-register.test.ts tests/package-metadata.test.ts && pnpm typecheck && pnpm lint`
+- [ ] **Step 8: Commit the custom panel**
 
-Expected: PASS with zero warnings and pi-tui present only as a host-provided development peer.
+Stage only this task's changed files. Suggested message: `feat: add interactive DCP status panel`.
 
-- [ ] **Step 9: Commit the custom panel**
-
-```bash
-git add src/ui/panel.ts src/commands/register.ts package.json pnpm-lock.yaml tests/package-metadata.test.ts tests/panel.test.ts tests/commands-register.test.ts
-git commit -m "feat: add interactive DCP status panel"
-```
-
-### Task 5: Finalize and verify the v0.10.0 release
+### Task 5: Document and verify v0.10.0
 
 **Files:**
 
-- Modify: `dcp.schema.json`
-- Modify: `README.md`
-- Modify: `CHANGELOG.md`
-- Modify: `package.json`
+- Modify: `dcp.schema.json`, `README.md`, `CHANGELOG.md`, `package.json`
 
 **Interfaces:**
 
-- Consumes: ask permission, v2 persistence, and panel behavior from Tasks 1-4.
-- Produces: documented and packaged v0.10.0 UX with generated configuration schema.
+- Consumes: Tasks 1–4; produces documented, verified v0.10.0 release metadata without publishing.
 
-- [ ] **Step 1: Document permissions and panel controls**
+- [ ] **Step 1: Document permissions and panel behavior**
 
-Document allow/ask/deny semantics, headless ask denial, the permission cycle, `dcp` panel fields and
-keys, and unchanged direct commands. Add v0.10.0 release notes and set the package version to
-`0.10.0`.
+Document allow/ask/deny, TUI/RPC confirmation, print/JSON denial, rejection/abort behavior, permission
+cycling, and backward-readable snapshots. Document the single panel's fields, keys, scrolling,
+policy-disabled actions, and direct command fallback. Set version `0.10.0` and add release notes.
 
-- [ ] **Step 2: Regenerate schema and run complete verification**
+- [ ] **Step 2: Regenerate and compare the schema**
 
-Run: `pnpm generate:schema && pnpm check && pnpm run pack:dry-run && pnpm benchmark`
+Run: `pnpm generate:schema`, then `node --import tsx scripts/generate-schema.ts | diff -u dcp.schema.json -`.
 
-Expected: exit 0, zero lint warnings, all compact-marker benchmark gates pass, and the schema
-contains the three-value permission union.
+Expected: generated schema contains allow/ask/deny and comparison exits 0 with no differences.
+If the tsx CLI is sandbox-blocked, generate with
+`node --import tsx scripts/generate-schema.ts > dcp.schema.json` instead.
 
-- [ ] **Step 3: Manually verify permission flows in Pi**
+- [ ] **Step 3: Run complete automated verification**
 
-In interactive Pi, test one approved and one rejected ask call, switch to deny and confirm the tool
-and prompt disappear, then return to allow and confirm prior active-tool state is restored. Resume,
-fork, and navigate the session tree; confirm v2 permission and blocks restore.
+Run: `pnpm check && pnpm run pack:dry-run && pnpm benchmark`.
 
-- [ ] **Step 4: Manually verify the panel**
+Expected: exit 0, zero lint warnings, all tests including compact-marker token gates pass, and the
+package includes the new UI/permission modules. Token gates live in `tests/benchmark.test.ts` and
+run under `pnpm check`; the benchmark command reports measurements. If its launcher is blocked by
+sandbox IPC, run `node --import tsx scripts/benchmark.ts` instead and record that substitution.
 
-Open `dcp` at approximately 60, 80, and 120 columns. Verify arrows, `j`/`k`, Enter, Escape, `q`,
-manual toggle, permission cycle, sweep, and block deactivate/reactivate. Confirm direct `dcp:*`
-commands still work after closing the panel.
+- [ ] **Step 4: Manually verify permission and restoration flows**
 
-- [ ] **Step 5: Review and commit v0.10.0 metadata**
+In Pi TUI and a dialog-capable RPC client, approve one ask call and reject another; cancel/abort a
+pending call and confirm no compression occurred. Verify print/JSON ask fails closed. Switch to
+deny, then allow; tool exposure and prompt guidance must obey Phase 4 selection rules, including
+an intentionally inactive tool. Resume, fork, navigate the tree, and reload with v1/v2 snapshots;
+confirm permissions/blocks restore and branch loadouts remain authoritative.
 
-Run: `git diff --check && git status --short`
+- [ ] **Step 5: Manually verify panel usability**
 
-```bash
-git add dcp.schema.json README.md CHANGELOG.md package.json
-git commit -m "chore: prepare pi-dcp 0.10.0"
-```
+At 60/80/120 columns and approximately 24 rows, exercise navigation, Enter, Escape/q, every action,
+long block-list scrolling, and retained selection. Confirm disabled-policy actions cannot mutate,
+non-user-deactivated blocks cannot be reactivated, and direct commands work after closing. If a
+manual environment is unavailable, record the unverified cases rather than claiming them complete.
+
+- [ ] **Step 6: Review and commit release metadata**
+
+Run: `git diff --check && git status --short`; verify scope and all acceptance results.
+Stage only this task's changed files. Suggested message: `chore: prepare pi-dcp 0.10.0`.
+
+## Implementation Handoff
+
+The previous Phase 5 plan is superseded by this revision. The agreed design uses execute-boundary
+approval, TUI/RPC dialogs, and one compact scrolling panel. Implementation has not started.
+Review this saved plan before execution and choose native or subagent-driven execution if no method
+has already been selected. Publishing remains a separate decision.

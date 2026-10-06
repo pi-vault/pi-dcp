@@ -2,10 +2,11 @@
 
 **Date:** 2026-10-03
 
-**Revised:** 2026-10-04
+**Revised:** 2026-10-05
 
-**Status:** Approved in chat; reordered from simplest to most complex; Phases 2 and 4 clarified
-after implementation-readiness reviews, including Phase 4 tool-guidance and restoration decisions
+**Status:** Approved in chat; reordered from simplest to most complex; Phases 2, 4, and 5 clarified
+after implementation-readiness reviews, including Phase 4 restoration and Phase 5 execution-boundary
+approval, RPC dialogs, and single-panel decisions
 
 ## Purpose
 
@@ -200,30 +201,67 @@ names, marker syntax, and pruning/protection/benchmark behavior.
 Compression permission becomes `allow | ask | deny`:
 
 - `allow` exposes and executes `compress` normally.
-- `ask` exposes it and requests Pi confirmation for every model-issued call. The dialog includes
-  the topic and number of targets/ranges. Rejection blocks the call. A non-interactive session
-  fails closed with an explanatory reason.
+- `ask` exposes it and requests Pi confirmation inside the registered execute function for every
+  call, including direct execution. The dialog includes the topic and number of targets/ranges.
+  TUI and RPC support confirmation; print/JSON and unavailable dialog UI fail closed. Rejection,
+  cancellation, abort, or confirmation failure returns an error tool result without compression.
 - `deny` hides the tool, removes its prompt section and nudges, and blocks defensive direct calls.
 
 Allow and ask preserve Phase 4's selection rules: neither activates a user-deselected tool, and
 instructions/nudges require an active tool. Permission changes and panel actions reconcile through
 the current command context; restored Pi loadouts remain authoritative across session/tree changes.
 
-The permission command cycles `allow -> ask -> deny -> allow`. Snapshot version 2 persists the new
-union; its parser continues accepting version 1 unchanged.
+Pi emits `tool_execution_start` before argument validation and `tool_call`. Compression timing
+therefore starts inside execute, after approval and a fresh capability check, immediately before
+compression work. The tool-call hook retains policy suppression, but does not request approval.
+Confirmation receives the call's abort signal; approval is never reused between calls. Waiting for
+approval or rejecting a call must not create compression timing, blocks, statistics, or DCP state
+entries. Execution-end cleanup remains unconditional for calls that actually started compression.
 
-The new `dcp` command opens a Pi custom panel. It displays the active model, context usage, resolved
-thresholds, compression and manual modes, permission, compression blocks, session savings, and
-lifetime totals. Selectable actions toggle manual mode, cycle permission, sweep eligible outputs,
-and deactivate or reactivate a selected block. Existing commands remain stable shortcuts and the
-fallback when no TUI is available.
+The permission command cycles `allow -> ask -> deny -> allow`. An undefined session override uses
+the configured permission, with `allow` as the standalone command's default. Snapshot version 2
+persists the new union; parsing, restoration, and lifetime aggregation continue accepting version 1
+with its historical allow/deny validation. New serialization writes version 2 without changing
+canonical references or block shape.
+
+The new `dcp` command opens one Pi custom panel only when `ctx.mode === "tui"`; `hasUI` is true in
+RPC too and cannot guard terminal components. Outside TUI, notify once and return without loading
+lifetime data or calling custom UI. It displays the current model, context usage, resolved
+thresholds, compression and manual modes, permission, policy/tool availability, compression blocks,
+session savings, and lifetime totals. Selectable actions toggle manual mode, cycle permission,
+sweep eligible outputs, and deactivate or reactivate a selected block. Existing commands remain
+stable shortcuts and the fallback when no TUI is available.
+
+Panel mutations and direct commands share the same pipeline policy guard and existing domain
+commands. Recheck current capabilities before every action; globally disabled, model-disabled, and
+disallowed sub-agent sessions retain informational access but cannot mutate state. Permission denial
+alone does not disable sweep, manual mode, or block controls. Manual toggle passes explicit `on` or
+`off` to the existing command; its no-argument status behavior remains unchanged. Blocks are sorted
+numerically and distinguish active, user-deactivated, and otherwise inactive states. Only
+user-deactivated blocks offer reactivation. A stale block row returns a readable not-found message.
 
 The panel uses arrow keys or `j`/`k`, Enter, and Escape or `q`. Rendering is usable at 60, 80, and
-120 columns. A pure view-model builder and action executor isolate behavior from the terminal
-component; the component only renders, tracks selection, and returns an action.
+120 columns and 24 rows, with a bounded scrolling action/block list that keeps selection visible.
+Selection survives action-driven rebuilds by action/block identity; each component completes only
+once. A pure view-model builder and action executor isolate behavior from the terminal component;
+the component only renders, tracks selection, and returns an action. The controller supplies current
+model/context data, rebuilds after actions, shows their results, and reconciles through
+`onStateChange(ctx)` after permitted actions. Closing or rejecting a policy-disabled action does not
+invoke that callback.
 
-`@earendil-works/pi-tui` is added as a host-provided `"*"` peer and a development dependency, not a
-runtime dependency.
+Load lifetime totals once per panel opening. Missing data is explicit; rejected lifetime loading
+must not prevent the panel from opening. Preserve the current lifetime loader's zero-total behavior
+for empty, missing, or inaccessible directories. Undefined custom-UI results close the controller;
+custom-UI rejection produces one notification. Rendering failure uses a minimal bounded view with
+working close keys, so command access is not stranded.
+
+`@earendil-works/pi-tui` is added as a host-provided `"*"` peer and a `^1.0.1` development dependency,
+retaining its existing v1.0.1 lockfile resolution, not as a runtime dependency.
+
+The Phase 5 review used the same Pi and OpenCode DCP revisions as Phase 4. Pi's mode, confirmation,
+component, and event-ordering APIs are supported by the installed v1.0.1 development packages.
+OpenCode supplies behavioral references for permission before compression work and panel availability;
+its source, adapters, separate context/statistics screens, and host permission machinery are not copied.
 
 ## Acceptance
 
