@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { getDcpCapabilities } from "../capabilities.ts";
+import { getDcpCapabilities, getDcpPipelineDisabledMessage } from "../capabilities.ts";
 import { type DcpConfig, isDcpEnabledForModel } from "../config.ts";
 import type { SessionState } from "../state/types.ts";
 import { compressCommand } from "./compress.ts";
@@ -29,15 +29,9 @@ export function registerDcpCommands(
     );
 
   const rejectWhenDisabled = (ctx: ExtensionCommandContext): boolean => {
-    const { pipelineEnabled, reasons } = capabilities(ctx);
-    if (pipelineEnabled) return false;
-    if (reasons.includes("config")) {
-      ctx.ui.notify("DCP is disabled by configuration.", "info");
-    } else if (reasons.includes("subagent")) {
-      ctx.ui.notify("DCP is disabled in sub-agent sessions.", "info");
-    } else {
-      ctx.ui.notify("DCP is disabled for the current model.", "info");
-    }
+    const message = getDcpPipelineDisabledMessage(capabilities(ctx));
+    if (message === undefined) return false;
+    ctx.ui.notify(message, "info");
     return true;
   };
 

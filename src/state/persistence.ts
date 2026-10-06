@@ -345,13 +345,16 @@ export function restoreDcpSnapshot(
   return true;
 }
 
-/** Aggregate each owner's newest native snapshot from Pi session JSONL files. */
-export async function loadAllSessionStats(parentDir: string): Promise<{
+/** Aggregate lifetime totals across sessions. */
+export interface LifetimeStats {
   totalTokensSaved: number;
   totalToolsPruned: number;
   totalMessagesCompressed: number;
   sessionCount: number;
-}> {
+}
+
+/** Aggregate each owner's newest native snapshot from Pi session JSONL files. */
+export async function loadAllSessionStats(parentDir: string): Promise<LifetimeStats> {
   const snapshots = new Map<string, { snapshot: DcpSnapshot; timestamp: number }>();
 
   async function scanFile(file: string): Promise<void> {

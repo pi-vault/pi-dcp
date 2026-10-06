@@ -26,6 +26,35 @@ export function resolveContextTokenLimit(
   return Math.round((percent / 100) * contextWindow);
 }
 
+/** Resolved absolute token thresholds for the current model and window. */
+export interface ResolvedContextLimits {
+  min: number | undefined;
+  max: number | undefined;
+}
+
+/**
+ * Resolve the effective min/max context limits without mutating session state.
+ * Precedence per threshold: per-model override, global absolute, legacy percentage.
+ */
+export function resolveContextLimits(
+  config: { compress: CompressConfig },
+  state: SessionState,
+  contextUsage: ContextUsage | undefined,
+): ResolvedContextLimits {
+  const modelKey =
+    state.modelProvider && state.modelId ? `${state.modelProvider}/${state.modelId}` : undefined;
+  const effectiveWindow =
+    state.modelContextWindow ??
+    (contextUsage !== undefined && contextUsage.contextWindow > 0
+      ? contextUsage.contextWindow
+      : undefined);
+
+  return {
+    max: resolveMaxLimit(config.compress, effectiveWindow, modelKey),
+    min: resolveMinLimit(config.compress, effectiveWindow, modelKey),
+  };
+}
+
 /**
  * Determine if context usage exceeds the configured limits.
  * Resolution order for each threshold:
@@ -47,20 +76,11 @@ export function isContextOverLimits(
   }
 
   const tokens = contextUsage.tokens;
-  const modelKey =
-    state.modelProvider && state.modelId ? `${state.modelProvider}/${state.modelId}` : undefined;
-
-  // Effective window: prefer state (persisted), fall back to contextUsage (current)
-  const effectiveWindow =
-    state.modelContextWindow ??
-    (contextUsage.contextWindow > 0 ? contextUsage.contextWindow : undefined);
-
-  const maxLimit = resolveMaxLimit(config.compress, effectiveWindow, modelKey);
-  const minLimit = resolveMinLimit(config.compress, effectiveWindow, modelKey);
+  const { max, min } = resolveContextLimits(config, state, contextUsage);
 
   return {
-    overMaxLimit: maxLimit !== undefined ? tokens >= maxLimit : false,
-    overMinLimit: minLimit !== undefined ? tokens >= minLimit : false,
+    overMaxLimit: max !== undefined ? tokens >= max : false,
+    overMinLimit: min !== undefined ? tokens >= min : false,
   };
 }
 
