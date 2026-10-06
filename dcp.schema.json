@@ -93,11 +93,15 @@
             },
             {
               "type": "string",
+              "const": "ask"
+            },
+            {
+              "type": "string",
               "const": "deny"
             }
           ],
           "default": "allow",
-          "description": "Whether the compress tool is allowed to run"
+          "description": "Compression permission: allow, ask for approval, or deny"
         },
         "showCompression": {
           "type": "boolean",

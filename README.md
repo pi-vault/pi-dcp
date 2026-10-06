@@ -42,6 +42,13 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
 - **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
+## What's new in 0.10.0
+
+- **Per-call `ask` permission** — compression permission is now `allow`, `ask`, or `deny`. `ask` keeps the tool exposed and confirms every call inside the registered `execute` function, including direct executions. The dialog names the topic and the number of ranges or targets, and approvals are never reused.
+- **Interactive `dcp` panel** — one Pi-native TUI view shows the current model, context usage, resolved thresholds, compression and manual modes, permission, policy and tool availability, compression blocks, session savings, and lifetime totals. Arrow keys or `j`/`k` move, Enter runs the selected action, and Escape or `q` closes. Panel actions use the same guarded commands as the direct commands and recheck policy before acting.
+- **Fail-closed confirmations** — TUI and RPC can confirm; print/JSON sessions and any mode without dialog UI refuse the call. Rejection, cancellation, abort, or confirmation failure returns an error tool result and creates no compression timing, blocks, statistics, or DCP state entries.
+- **Backward-readable snapshots** — version 2 adds the full permission union, while readers keep accepting version 1 allow/deny snapshots unchanged.
+
 ## What's new in 0.9.0
 
 - **Lifecycle-aware tool reconciliation** — DCP registers the `compress` tool during extension creation with `defaultActive: false`, then refreshes its mode-specific schema from trusted project configuration at session start. Pi's restored loadout is authoritative: a tool you deselected stays deselected across model switches, permission toggles, definition refreshes, resume, and reload. DCP remembers a temporary suppression within the current branch and restores the tool only when every policy reason clears.
@@ -98,6 +105,7 @@ All commands are also discoverable in-session via `dcp:help`.
 
 | Command                    | Purpose                                         |
 | -------------------------- | ----------------------------------------------- |
+| `dcp`                       | Open the interactive DCP status panel           |
 | `dcp:help`                 | List all available commands                     |
 | `dcp:context`              | Show context usage and DCP state                |
 | `dcp:stats`                | Show compression and token savings statistics   |
@@ -107,8 +115,18 @@ All commands are also discoverable in-session via `dcp:help`.
 | `dcp:decompress <blockId>` | Deactivate a compression block                  |
 | `dcp:recompress <blockId>` | Reactivate a compression block                  |
 | `dcp:lifetime`             | Show aggregate statistics across saved sessions |
-| `dcp:permission`           | Toggle compress permission between allow/deny   |
+| `dcp:permission`           | Cycle compress permission (allow/ask/deny)      |
 | `dcp:compress [focus]`     | Ask Pi to run compression on stale context      |
+
+## Permission and the DCP panel
+
+Compression permission is exactly `allow`, `ask`, or `deny` and defaults to `allow`. `allow` exposes and runs `compress` normally. `ask` exposes it and confirms each call inside the registered execute function, including direct executions; the dialog includes the topic and the number of ranges or targets. `deny` hides the tool, removes its prompt section and nudges, and blocks defensive direct calls. `dcp:permission` cycles `allow -> ask -> deny -> allow`, using the configured permission as the fallback when the session has no override.
+
+TUI and RPC sessions can confirm an `ask` call. Print/JSON sessions and any mode without dialog UI fail closed with `Compression requires interactive approval`; a rejected, cancelled, aborted, or failed confirmation returns `Compression was not approved`. Waiting for approval or refusing a call creates no compression timing, blocks, statistics, or DCP state entries.
+
+Run `dcp` to open the single status panel in TUI mode. It shows the current model, context usage, and resolved max/min thresholds; compression mode, manual mode, permission, pipeline policy, and whether `compress` is active; session savings and lifetime totals; and every compression block, sorted numerically, with its mode, tokens, and whether it can be deactivated or reactivated.
+
+Use the arrow keys or `j`/`k` to move, Enter to run the selected action, and Escape or `q` to close. The list scrolls to keep the selection visible and stays bounded at 60, 80, and 120 columns. Policy-disabled actions cannot mutate state; globally disabled, model-disabled, and disallowed sub-agent sessions keep informational access only. Permission denial alone does not disable sweep, manual mode, or block controls. Existing `dcp:*` commands remain stable shortcuts and the fallback when no TUI is available.
 
 ## Typical workflows
 
@@ -118,7 +136,11 @@ All commands are also discoverable in-session via `dcp:help`.
 
 **Want manual compression control?** Use `dcp:manual on`, compress selectively, then `dcp:manual off`.
 
-**Need to block compression temporarily?** Run `dcp:permission` to flip between `allow` and `deny`.
+**Need to block compression temporarily?** Run `dcp:permission` to cycle between `allow`, `ask`, and `deny`.
+
+**Need to approve each compression?** Cycle `dcp:permission` until it reports `ask`. Every `compress` call then shows a confirmation in TUI or RPC; print/JSON sessions refuse the call instead. Rejection, cancellation, or abort leaves context unchanged.
+
+**Want everything in one place?** Run `dcp` for the interactive panel, then act on manual mode, permission, sweep, and individual blocks without leaving it.
 
 **Need compression now?** Run `dcp:compress [focus]`. It sends Pi a hidden follow-up that asks it to use the `compress` tool; it does nothing while DCP or compression permission is disabled, or while the `compress` tool is inactive.
 
@@ -225,7 +247,7 @@ For a session using `openai-codex/gpt-5.6-sol`, DCP leaves messages unchanged, r
 ### `compress`
 
 - `mode` — compression mode: `"range"` or `"message"`.
-- `permission` — runtime allow/deny gate for the `compress` tool; `dcp:permission` toggles it in-session.
+- `permission` — compression permission: `"allow"`, `"ask"`, or `"deny"`. `allow` runs normally, `ask` keeps the tool exposed and confirms each call, and `deny` hides the tool and blocks direct calls. `dcp:permission` cycles the in-session value.
 - `showCompression` — when `true`, detailed notifications include the compression summary text.
 - `maxContextPercent` / `minContextPercent` — legacy percentage thresholds.
 - `maxContextLimit` / `minContextLimit` — accept a positive integer token count or a percentage string greater than 0 and at most 100 (for example `"80%"`). Anything else is dropped with a warning.
