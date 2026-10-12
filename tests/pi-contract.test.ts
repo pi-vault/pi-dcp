@@ -788,6 +788,28 @@ describe("DCP ask authorization", () => {
       content: [{ text: "Compression is disabled for the current model." }],
     });
   });
+
+  it("rejects post-approval model suppression without changing tool selection", async () => {
+    const harness = await askHarness({
+      config: { disabledModels: ["test/disabled-model"], compress: { permission: "ask" } },
+    });
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+    const setActiveTools = vi.spyOn(harness.api, "setActiveTools");
+    harness.ui.confirm.mockImplementation(async () => {
+      // No lifecycle event: the approval recheck must read policy without reconciling tools.
+      harness.setModel({ provider: "test", id: "disabled-model" });
+      return true;
+    });
+
+    await expect(harness.executeTool("compress", validCompression)).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: "Compression is disabled for the current model." }],
+    });
+    expect(harness.ui.confirm).toHaveBeenCalledTimes(1);
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+    expect(setActiveTools).not.toHaveBeenCalled();
+    expect(harness.entries).toHaveLength(0);
+  });
 });
 
 describe("DCP guarded action callback reconciliation", () => {
