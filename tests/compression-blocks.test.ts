@@ -504,8 +504,14 @@ describe("compression block lifecycle", () => {
     // Remove the start boundary: the block cannot rebuild and is discarded.
     const withoutStart = buildNested();
     const droppedStart = withoutStart.raw.filter((_message, index) => index !== 0);
-    runPipeline(withoutStart.state, withoutStart.config, droppedStart, undefined);
-    expect(withoutStart.state.prune.messages.blocksById.has(1)).toBe(false);
+    const restored = runPipeline(withoutStart.state, withoutStart.config, droppedStart, undefined);
+    expect(withoutStart.state.prune.messages.blocksById.size).toBe(0);
+    expect(withoutStart.state.prune.messages.activeBlockIds.size).toBe(0);
+    expect(withoutStart.state.prune.messages.activeByAnchorIndex.size).toBe(0);
+    expect(withoutStart.state.prune.messages.byMessageIndex.size).toBe(0);
+    const restoredText = restored.messages.map(getMessageText).join("\n");
+    expect(restoredText).toContain("child assistant");
+    expect(restoredText).not.toContain("[Compressed Block");
 
     // Replace the branch with nothing: every block and membership disappears.
     const emptied = buildNested();

@@ -5,7 +5,13 @@ import { createSessionState } from "../src/state/state.ts";
 import { runPipeline } from "../src/pipeline.ts";
 import { assignMessageRefs } from "../src/messages/inject.ts";
 import { syncToolCache } from "../src/state/tool-cache.ts";
-import { makeDefaultConfig, makeUserMessage } from "./helpers.ts";
+import {
+  makeDefaultConfig,
+  makeUserMessage,
+  makeAssistantMessage,
+  makeToolResultMessage,
+  getMessageText,
+} from "./helpers.ts";
 
 function compressionConfig() {
   const config = makeDefaultConfig();
@@ -87,5 +93,79 @@ describe("syncCompressionBlocks", () => {
 
     expect(state.prune.messages.blocksById.has(1)).toBe(false);
     expect(state.prune.messages.activeBlockIds.has(1)).toBe(false);
+  });
+
+  it.each([
+    { boundary: "start", index: 0, surviving: "older reply" },
+    { boundary: "end", index: 1, surviving: "older user" },
+  ])("clears block visibility when the $boundary boundary disappears", ({ index, surviving }) => {
+    const state = createSessionState();
+    const config = compressionConfig();
+    const messages: AgentMessage[] = [
+      makeUserMessage("older user", 1),
+      makeAssistantMessage("older reply", 2),
+      makeUserMessage("current user", 3),
+    ];
+    runPipeline(state, config, messages, undefined);
+    handleCompress(state, config, messages, "owner-1", {
+      topic: "older context",
+      mode: "range",
+      content: [{ startId: "m1", endId: "m2", summary: "older summary" }],
+    });
+    messages.push(
+      makeCompressOwner("owner-1", 4),
+      makeToolResultMessage("owner-1", "compress", "ok", false, 5),
+    );
+    runPipeline(state, config, messages, undefined);
+    expect(state.prune.messages.activeBlockIds).toEqual(new Set([1]));
+
+    const withoutBoundary = messages.filter((_message, messageIndex) => messageIndex !== index);
+    const result = runPipeline(state, config, withoutBoundary, undefined);
+
+    expect(state.prune.messages.blocksById.size).toBe(0);
+    expect(state.prune.messages.activeBlockIds.size).toBe(0);
+    expect(state.prune.messages.activeByAnchorIndex.size).toBe(0);
+    expect(state.prune.messages.byMessageIndex.size).toBe(0);
+    expect(state.prune.messages.nextBlockId).toBe(2);
+    expect(state.prune.messages.nextRunId).toBe(2);
+    const text = result.messages.map(getMessageText).join("\n");
+    expect(text).toContain(surviving);
+    expect(text).not.toContain("[Compressed Block b1]");
+  });
+
+  it("rebuilds direct membership by excluding consumed child ranges", () => {
+    const state = createSessionState();
+    const config = compressionConfig();
+    const messages: AgentMessage[] = [
+      makeUserMessage("child user", 1),
+      makeAssistantMessage("child reply", 2),
+      makeUserMessage("uncovered user", 3),
+    ];
+    runPipeline(state, config, messages, undefined);
+    handleCompress(state, config, messages, "child-owner", {
+      topic: "child",
+      mode: "range",
+      content: [{ startId: "m1", endId: "m2", summary: "child summary" }],
+    });
+    messages.push(
+      makeCompressOwner("child-owner", 4),
+      makeToolResultMessage("child-owner", "compress", "ok", false, 5),
+    );
+    runPipeline(state, config, messages, undefined);
+    handleCompress(state, config, messages, "parent-owner", {
+      topic: "parent",
+      mode: "range",
+      content: [{ startId: "b1", endId: "m3", summary: "parent summary" }],
+    });
+    messages.push(
+      makeCompressOwner("parent-owner", 6),
+      makeToolResultMessage("parent-owner", "compress", "ok", false, 7),
+    );
+
+    runPipeline(state, config, messages, undefined);
+
+    expect(state.prune.messages.blocksById.get(2)?.effectiveMessageIndices).toEqual([0, 1, 2]);
+    expect(state.prune.messages.blocksById.get(2)?.directMessageIndices).toEqual([2]);
+    expect(state.prune.messages.blocksById.get(1)?.parentBlockIds).toEqual([2]);
   });
 });

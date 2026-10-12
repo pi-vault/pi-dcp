@@ -6,7 +6,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import createExtension from "../src/index.ts";
 import { PromptStore } from "../src/prompts/store.ts";
 import { createSessionState } from "../src/state/state.ts";
-import { serializeDcpSnapshot } from "../src/state/persistence.ts";
+import { parseDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 import {
   createExtensionHarness,
   createHarnessModel,
@@ -1123,6 +1123,7 @@ describe("DCP compression block lifecycle integration", () => {
         } satisfies AgentMessage,
         makeUserMessage("tail user", 5),
       ];
+      const originalMessages = structuredClone(raw);
 
       const [firstPass] = (await harness.emit("context", {
         type: "context",
@@ -1161,24 +1162,34 @@ describe("DCP compression block lifecycle integration", () => {
         expect(secondText).not.toContain("older user");
       }
       // The original raw history is never rewritten.
-      expect(getMessageText(raw[0])).toContain("older user");
+      expect(raw.slice(0, originalMessages.length)).toEqual(originalMessages);
 
-      const checkpoint = harness.entries
-        .filter((entry) => entry.customType === "pi-dcp-state")
-        .at(-1)?.data as
-        | {
-            version?: number;
-            ownerSessionId?: string;
-            nextBlockId?: number;
-            nextRunId?: number;
-            stats?: { messagesCompressed?: number };
-          }
-        | undefined;
-      expect(checkpoint).toMatchObject({ version: 2, ownerSessionId: "harness-session" });
+      const checkpoint = requireDefined(
+        parseDcpSnapshot(
+          harness.entries.filter((entry) => entry.customType === "pi-dcp-state").at(-1)?.data,
+        ),
+        "compression checkpoint",
+      );
+      expect(checkpoint).toMatchObject({
+        version: 2,
+        ownerSessionId: "harness-session",
+        nextBlockId: 2,
+        nextRunId: 2,
+        stats: { messagesCompressed: configOverride.compress.mode === "range" ? 2 : 1 },
+        blocks: [
+          {
+            blockId: 1,
+            runId: 1,
+            compressToolCallId: "compress-1",
+            summary: "[Compressed Block b1]\nolder summary\n[End Block b1]",
+          },
+        ],
+      });
       const before = {
-        nextBlockId: checkpoint?.nextBlockId,
-        nextRunId: checkpoint?.nextRunId,
-        messagesCompressed: checkpoint?.stats?.messagesCompressed,
+        nextBlockId: checkpoint.nextBlockId,
+        nextRunId: checkpoint.nextRunId,
+        stats: checkpoint.stats,
+        blocks: checkpoint.blocks,
       };
 
       await harness.runCommand("dcp:decompress", "1");
@@ -1186,27 +1197,27 @@ describe("DCP compression block lifecycle integration", () => {
         type: "context",
         messages: [...raw],
       })) as [{ messages: AgentMessage[] }];
-      expect(restoredPass.messages.map(getMessageText).join("\n")).toContain("older assistant");
+      const restoredText = restoredPass.messages.map(getMessageText).join("\n");
+      expect(restoredText).toContain("older assistant");
+      expect(restoredText).not.toContain("older summary");
 
       await harness.runCommand("dcp:recompress", "1");
       const [recompressedPass] = (await harness.emit("context", {
         type: "context",
         messages: [...raw],
       })) as [{ messages: AgentMessage[] }];
-      expect(recompressedPass.messages.map(getMessageText).join("\n")).toContain("older summary");
+      const recompressedText = recompressedPass.messages.map(getMessageText).join("\n");
+      expect(recompressedText).toContain("older summary");
+      expect(recompressedText).not.toContain("older assistant");
+      expect(raw.slice(0, originalMessages.length)).toEqual(originalMessages);
 
-      const afterCheckpoint = harness.entries
-        .filter((entry) => entry.customType === "pi-dcp-state")
-        .at(-1)?.data as
-        | {
-            nextBlockId?: number;
-            nextRunId?: number;
-            stats?: { messagesCompressed?: number };
-          }
-        | undefined;
-      expect(afterCheckpoint?.nextBlockId).toBe(before.nextBlockId);
-      expect(afterCheckpoint?.nextRunId).toBe(before.nextRunId);
-      expect(afterCheckpoint?.stats?.messagesCompressed).toBe(before.messagesCompressed);
+      const afterCheckpoint = requireDefined(
+        parseDcpSnapshot(
+          harness.entries.filter((entry) => entry.customType === "pi-dcp-state").at(-1)?.data,
+        ),
+        "recompression checkpoint",
+      );
+      expect(afterCheckpoint).toMatchObject(before);
     },
   );
 });
