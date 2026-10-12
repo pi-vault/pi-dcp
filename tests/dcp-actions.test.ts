@@ -116,33 +116,46 @@ describe("executeDcpAction", () => {
     expect(onStateChange).not.toHaveBeenCalled();
   });
 
-  it("preserves policy message precedence", () => {
-    const ctx = createExtensionHarness().commandContext;
-    const state = createSessionState();
-    state.isSubAgent = true;
-    state.compressPermission = "deny";
-    const config = {
-      ...makeDefaultConfig(),
-      disabledModels: ["test/test-model"],
-    };
-    const action: DcpAction = { type: "toggle-manual" };
+  it.each([
+    {
+      name: "configuration",
+      enabled: false,
+      isSubAgent: true,
+      message: "DCP is disabled by configuration.",
+    },
+    {
+      name: "sub-agent",
+      enabled: true,
+      isSubAgent: true,
+      message: "DCP is disabled in sub-agent sessions.",
+    },
+    {
+      name: "model",
+      enabled: true,
+      isSubAgent: false,
+      message: "DCP is disabled for the current model.",
+    },
+  ])(
+    "preserves $name policy message precedence without a callback",
+    ({ enabled, isSubAgent, message }) => {
+      const ctx = createExtensionHarness().commandContext;
+      const state = createSessionState();
+      state.isSubAgent = isSubAgent;
+      state.compressPermission = "deny";
+      const config = {
+        ...makeDefaultConfig(),
+        enabled,
+        disabledModels: ["test/test-model"],
+      };
+      const onStateChange = vi.fn();
 
-    const globallyDisabled = run(action, ctx, {
-      state,
-      config: { ...config, enabled: false },
-      onStateChange: vi.fn(),
-    });
-    expect(globallyDisabled.message).toBe("DCP is disabled by configuration.");
+      const result = run({ type: "toggle-manual" }, ctx, { state, config, onStateChange });
 
-    const subAgentSuppressed = run(action, ctx, { state, config, onStateChange: vi.fn() });
-    expect(subAgentSuppressed.message).toBe("DCP is disabled in sub-agent sessions.");
-
-    state.isSubAgent = false;
-    const modelSuppressed = run(action, ctx, { state, config, onStateChange: vi.fn() });
-    expect(modelSuppressed.message).toBe("DCP is disabled for the current model.");
-
-    expect(state.manualMode).toBe(false);
-  });
+      expect(result).toEqual({ permitted: false, message });
+      expect(state.manualMode).toBe(false);
+      expect(onStateChange).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     { name: "sweep", action: { type: "sweep" } as DcpAction, message: "Sweep complete" },
@@ -303,10 +316,9 @@ describe("executeDcpAction", () => {
     const overridden = run({ type: "cycle-permission" }, ctx, { state, config, onStateChange });
     expect(overridden.message).toBe("Compress permission: deny");
 
-    const projectedState = createSessionState();
-    addBlock(projectedState);
+    const originalBlock = addBlock(state);
     const projected = buildDcpPanelModel({
-      state: projectedState,
+      state,
       config,
       model: { provider: "test", id: "test-model", contextWindow: 200_000 },
       contextUsage: undefined,
@@ -317,12 +329,20 @@ describe("executeDcpAction", () => {
       throw new Error("expected projected toggle-block action");
 
     const replacement = new Map<number, CompressionBlock>();
-    replacement.set(1, makeBlock({ blockId: 1, active: true }));
+    replacement.set(1, makeBlock({ active: false, deactivatedByUser: true }));
     state.prune.messages.blocksById = replacement;
+    onStateChange.mockClear();
     const toggled = run(projected, ctx, { state, config, onStateChange });
-    expect(toggled.permitted).toBe(true);
-    expect(replacement.get(1)?.active).toBe(false);
-    expect(replacement.get(1)?.deactivatedByUser).toBe(true);
+    expect(toggled).toEqual({
+      permitted: true,
+      message: "Block 1 reactivated. Compression will apply on next context pass.",
+    });
+    expect(replacement.get(1)?.active).toBe(true);
+    expect(replacement.get(1)?.deactivatedByUser).toBe(false);
+    expect(originalBlock.active).toBe(true);
+    expect(originalBlock.deactivatedByUser).toBe(false);
+    expect(onStateChange).toHaveBeenCalledTimes(1);
+    expect(onStateChange).toHaveBeenCalledWith(ctx);
   });
 
   it("resolves toggle direction from current state", () => {
