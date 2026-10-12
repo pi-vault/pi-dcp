@@ -789,3 +789,33 @@ describe("DCP ask authorization", () => {
     });
   });
 });
+
+describe("DCP guarded action callback reconciliation", () => {
+  it.each([
+    { name: "manual query", command: "dcp:manual", args: "" },
+    { name: "invalid manual args", command: "dcp:manual", args: "invalid" },
+    { name: "already-selected manual off", command: "dcp:manual", args: "off" },
+    { name: "empty sweep", command: "dcp:sweep", args: "" },
+  ])(
+    "refreshes model identity and restores compress after a deduplicated $name",
+    async ({ command, args }) => {
+      writeConfig({ disabledModels: ["test/disabled"] });
+      const harness = createExtensionHarness({
+        activeTools: ["read", "compress"],
+        model: { provider: "test", id: "disabled" },
+      });
+      createExtension(harness.api);
+      await harness.emit("session_start", { type: "session_start", reason: "new" });
+      expect(harness.activeTools()).toEqual(["read"]);
+      harness.entries.length = 0;
+
+      // The host model changed without a model_select event; the action callback
+      // must still refresh identity and reconcile the restored selection.
+      harness.setModel({ provider: "test", id: "enabled" });
+      await harness.runCommand(command, args);
+
+      expect(harness.activeTools()).toEqual(["read", "compress"]);
+      expect(harness.entries).toHaveLength(0);
+    },
+  );
+});
