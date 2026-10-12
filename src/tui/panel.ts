@@ -4,10 +4,9 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DcpConfig } from "../config.ts";
 import type { SessionState } from "../state/types.ts";
-import { getDcpCapabilities } from "../capabilities.ts";
+import { executeDcpAction } from "../commands/actions.ts";
 import { loadAllSessionStats, type LifetimeStats } from "../state/persistence.ts";
 import {
-  applyDcpPanelAction,
   buildDcpPanelModel,
   type DcpPanelAction,
   type DcpPanelModel,
@@ -279,14 +278,7 @@ export async function openDcpPanel(
     if (action === undefined || action.type === "close") return;
 
     initialRowId = action.type === "toggle-block" ? `block:${action.blockId}` : action.type;
-    const capabilities = getDcpCapabilities(
-      config,
-      state,
-      ctx.model?.provider ?? state.modelProvider,
-      ctx.model?.id ?? state.modelId,
-    );
-    const result = applyDcpPanelAction(action, state, config, capabilities);
+    const result = executeDcpAction(action, ctx, { state, config, onStateChange });
     lastActionMessage = result.message;
-    if (result.permitted) onStateChange(ctx);
   }
 }

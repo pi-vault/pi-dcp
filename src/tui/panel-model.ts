@@ -1,24 +1,13 @@
 import type { DcpConfig } from "../config.ts";
-import {
-  getDcpCapabilities,
-  getDcpPipelineDisabledMessage,
-  type DcpCapabilities,
-} from "../capabilities.ts";
+import { getDcpCapabilities, getDcpPipelineDisabledMessage } from "../capabilities.ts";
+import type { DcpAction } from "../commands/actions.ts";
 import type { CompressionBlock, ContextUsage, SessionState } from "../state/types.ts";
 import type { LifetimeStats } from "../state/persistence.ts";
 import { resolveContextLimits } from "../utils/context-limits.ts";
-import { manualCommand } from "../commands/manual.ts";
-import { permissionCommand } from "../commands/permission.ts";
-import { sweepCommand } from "../commands/sweep.ts";
-import { decompressCommand } from "../commands/decompress.ts";
-import { recompressCommand } from "../commands/recompress.ts";
 
 /** Selectable panel action with a type discriminant. */
 export type DcpPanelAction =
-  | { type: "toggle-manual" }
-  | { type: "cycle-permission" }
-  | { type: "sweep" }
-  | { type: "toggle-block"; blockId: number }
+  | Extract<DcpAction, { type: "toggle-manual" | "cycle-permission" | "sweep" | "toggle-block" }>
   | { type: "close" };
 
 export interface DcpPanelModelInput {
@@ -194,42 +183,4 @@ export function buildDcpPanelModel(input: DcpPanelModelInput): DcpPanelModel {
     .map((block) => buildBlockRow(block, policyMessage));
 
   return { status, statistics, actions, blocks };
-}
-
-/**
- * Apply a panel action through the existing domain commands. Performs no UI work
- * and rejects policy-disabled mutations before any domain command runs.
- */
-export function applyDcpPanelAction(
-  action: DcpPanelAction,
-  state: SessionState,
-  config: DcpConfig,
-  capabilities: DcpCapabilities,
-): { permitted: boolean; message?: string } {
-  if (action.type === "close") return { permitted: false };
-
-  const disabled = getDcpPipelineDisabledMessage(capabilities);
-  if (disabled !== undefined) return { permitted: false, message: disabled };
-
-  switch (action.type) {
-    case "toggle-manual":
-      return {
-        permitted: true,
-        message: manualCommand(state, state.manualMode === "active" ? "off" : "on"),
-      };
-    case "cycle-permission":
-      return {
-        permitted: true,
-        message: permissionCommand(state, config.compress.permission),
-      };
-    case "sweep":
-      return { permitted: true, message: sweepCommand(state, config) };
-    case "toggle-block": {
-      const block = state.prune.messages.blocksById.get(action.blockId);
-      const message = block?.active
-        ? decompressCommand(state, String(action.blockId))
-        : recompressCommand(state, String(action.blockId));
-      return { permitted: true, message };
-    }
-  }
 }

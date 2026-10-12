@@ -4,8 +4,10 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import createExtension from "../src/index.ts";
-import { DcpPanelComponent } from "../src/tui/panel.ts";
+import { DcpPanelComponent, openDcpPanel } from "../src/tui/panel.ts";
+import * as sweepModule from "../src/commands/sweep.ts";
 import {
   buildDcpPanelModel,
   type DcpPanelAction,
@@ -563,5 +565,172 @@ describe("dcp panel controller", () => {
       "error",
     );
     expect(harness.commands.has("dcp:help")).toBe(true);
+  });
+});
+
+describe("openDcpPanel guarded action characterization", () => {
+  function driveDirect(
+    harness: ExtensionHarness,
+    queue: Array<DcpPanelAction | undefined>,
+  ): DcpPanelComponent[] {
+    const components: DcpPanelComponent[] = [];
+    harness.ui.custom.mockImplementation(
+      (factory: unknown) =>
+        new Promise((resolve) => {
+          const tui = { terminal: { rows: 24 }, requestRender: () => {} };
+          const component = (
+            factory as (
+              tui: unknown,
+              theme: Theme,
+              keybindings: unknown,
+              done: (action: DcpPanelAction | undefined) => void,
+            ) => DcpPanelComponent
+          )(tui, fakeTheme(), {}, resolve);
+          components.push(component);
+          resolve(queue.shift());
+        }),
+    );
+    return components;
+  }
+
+  it.each([
+    {
+      name: "toggle-manual",
+      action: { type: "toggle-manual" } as DcpPanelAction,
+      message: "Manual mode: on. Automatic compression is paused.",
+    },
+    {
+      name: "cycle-permission",
+      action: { type: "cycle-permission" } as DcpPanelAction,
+      message: "Compress permission: ask",
+    },
+    {
+      name: "sweep",
+      action: { type: "sweep" } as DcpPanelAction,
+      message: "Sweep complete: 0 tool outputs pruned, ~0 tokens saved.",
+    },
+    {
+      name: "toggle-block",
+      action: { type: "toggle-block", blockId: 1 } as DcpPanelAction,
+      message: "Block 1 deactivated. Original messages will be restored on next context pass.",
+    },
+  ])(
+    "calls back once with the original context after a permitted $name action",
+    async ({ action, message }) => {
+      const harness = createPanelHarness();
+      const state = createSessionState();
+      state.prune.messages.blocksById.set(1, makeBlock(1, "topic"));
+      const config = makeDefaultConfig();
+      const onStateChange = vi.fn((ctx: ExtensionCommandContext) => {
+        expect(ctx).toBe(harness.commandContext);
+        expect(harness.ui.custom).toHaveBeenCalledTimes(1);
+      });
+
+      const components = driveDirect(harness, [action, undefined]);
+      await openDcpPanel(state, config, harness.commandContext, onStateChange, () =>
+        harness.activeTools(),
+      );
+
+      expect(onStateChange).toHaveBeenCalledTimes(1);
+      expect(onStateChange.mock.invocationCallOrder[0]).toBeGreaterThan(
+        harness.ui.custom.mock.invocationCallOrder[0],
+      );
+      expect(onStateChange.mock.invocationCallOrder[0]).toBeLessThan(
+        harness.ui.custom.mock.invocationCallOrder[1],
+      );
+      expect(components).toHaveLength(2);
+      expect(components[1].render(120).join("\n")).toContain(message);
+    },
+  );
+
+  it.each([
+    {
+      name: "a policy rejection",
+      config: { enabled: false },
+      queue: [{ type: "toggle-manual" } as DcpPanelAction, undefined],
+    },
+    { name: "an explicit close", config: {}, queue: [{ type: "close" } as DcpPanelAction] },
+    { name: "an undefined completion", config: {}, queue: [undefined] },
+  ])("calls back zero times for $name", async ({ config: overrides, queue }) => {
+    const harness = createPanelHarness();
+    const state = createSessionState();
+    const config = { ...makeDefaultConfig(), ...overrides };
+    const onStateChange = vi.fn();
+
+    driveDirect(harness, queue);
+    await openDcpPanel(state, config, harness.commandContext, onStateChange, () =>
+      harness.activeTools(),
+    );
+
+    expect(onStateChange).not.toHaveBeenCalled();
+  });
+
+  it("calls back once for a permitted stale missing-block result", async () => {
+    const harness = createPanelHarness();
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const onStateChange = vi.fn((ctx: ExtensionCommandContext) => {
+      expect(ctx).toBe(harness.commandContext);
+    });
+
+    const components = driveDirect(harness, [{ type: "toggle-block", blockId: 99 }, undefined]);
+    await openDcpPanel(state, config, harness.commandContext, onStateChange, () =>
+      harness.activeTools(),
+    );
+
+    expect(onStateChange).toHaveBeenCalledTimes(1);
+    expect(components[1].render(120).join("\n")).toContain("Block 99 not found.");
+  });
+
+  it("propagates a sweep implementation error without a callback or next component", async () => {
+    const harness = createPanelHarness();
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const onStateChange = vi.fn();
+    const sentinel = new Error("sweep implementation failed");
+    vi.spyOn(sweepModule, "sweepCommand").mockImplementation(() => {
+      throw sentinel;
+    });
+    const components = driveDirect(harness, [{ type: "sweep" }, undefined]);
+
+    let caught: unknown;
+    try {
+      await openDcpPanel(state, config, harness.commandContext, onStateChange, () =>
+        harness.activeTools(),
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBe(sentinel);
+    expect(onStateChange).not.toHaveBeenCalled();
+    expect(components).toHaveLength(1);
+    expect(harness.ui.notify).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("propagates a callback error once without a next component", async () => {
+    const harness = createPanelHarness();
+    const state = createSessionState();
+    const config = makeDefaultConfig();
+    const sentinel = new Error("callback failed");
+    const onStateChange = vi.fn(() => {
+      throw sentinel;
+    });
+    const components = driveDirect(harness, [{ type: "toggle-manual" }, undefined]);
+
+    let caught: unknown;
+    try {
+      await openDcpPanel(state, config, harness.commandContext, onStateChange, () =>
+        harness.activeTools(),
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBe(sentinel);
+    expect(onStateChange).toHaveBeenCalledTimes(1);
+    expect(components).toHaveLength(1);
+    expect(harness.ui.notify).not.toHaveBeenCalled();
   });
 });
