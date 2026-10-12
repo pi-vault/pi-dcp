@@ -12,6 +12,12 @@ import {
   createHarnessModel,
   declaredLoadoutMessage,
 } from "./extension-harness.ts";
+import {
+  getMessageText,
+  makeUserMessage,
+  makeToolResultMessage,
+  requireDefined,
+} from "./helpers.ts";
 
 const agentDir = `${os.tmpdir()}/dcp-pi-contract-${Date.now()}-${Math.random()}`;
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -1045,4 +1051,162 @@ describe("DCP selection ownership characterization", () => {
     await harness.emit("session_start", { type: "session_start", reason: "new" });
     expect(harness.activeTools()).toEqual(["read"]);
   });
+});
+
+describe("DCP compression block lifecycle integration", () => {
+  function compressOwner(toolCallId: string, timestamp: number): AgentMessage {
+    return {
+      role: "assistant",
+      content: [{ type: "toolCall", id: toolCallId, name: "compress", arguments: {} }],
+      stopReason: "toolUse",
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        totalTokens: 0,
+      },
+      timestamp,
+    } as unknown as AgentMessage;
+  }
+
+  const cases = [
+    {
+      name: "range",
+      config: { compress: { mode: "range" } },
+      args: (view: string) => {
+        const start = requireDefined(view.match(/@m1(?::\d+)?@/)?.[0], "start marker");
+        const end = requireDefined(view.match(/@m2(?::\d+)?@/)?.[0], "end marker");
+        return {
+          topic: "older context",
+          content: [{ startId: start, endId: end, summary: "older summary" }],
+        };
+      },
+    },
+    {
+      name: "message",
+      config: { compress: { mode: "message" } },
+      args: (view: string) => {
+        const target = requireDefined(view.match(/@m2(?::\d+)?@/)?.[0], "target marker");
+        return {
+          topic: "older context",
+          targets: [{ messageId: target, summary: "older summary" }],
+        };
+      },
+    },
+  ];
+
+  it.each(cases)(
+    "creates and controls blocks across real extension context passes ($name)",
+    async ({ config: configOverride, args }) => {
+      writeConfig(configOverride);
+      const harness = createExtensionHarness({ activeTools: ["read", "compress"] });
+      createExtension(harness.api);
+      await harness.emit("session_start", { type: "session_start", reason: "new" });
+
+      const raw: AgentMessage[] = [
+        makeUserMessage("older user", 1),
+        {
+          ...assistantMetadata,
+          role: "assistant",
+          content: [{ type: "text", text: "older assistant" }],
+          stopReason: "stop",
+          timestamp: 2,
+        } satisfies AgentMessage,
+        makeUserMessage("middle user", 3),
+        {
+          ...assistantMetadata,
+          role: "assistant",
+          content: [{ type: "text", text: "middle assistant" }],
+          stopReason: "stop",
+          timestamp: 4,
+        } satisfies AgentMessage,
+        makeUserMessage("tail user", 5),
+      ];
+
+      const [firstPass] = (await harness.emit("context", {
+        type: "context",
+        messages: [...raw],
+      })) as [{ messages: AgentMessage[] }];
+      const view = firstPass.messages.map(getMessageText).join("\n");
+
+      // The host gains the owner call without another context pass, so DCP's
+      // cached context still lacks the call that owns the new block.
+      raw.push(compressOwner("compress-1", 6));
+      const result = (await harness.executeTool("compress", args(view), {
+        toolCallId: "compress-1",
+      })) as { content: Array<{ text: string }>; isError?: boolean };
+      expect(result.isError).not.toBe(true);
+      expect(result.content[0]?.text).toContain("Compressed");
+
+      await harness.emit("tool_execution_end", {
+        type: "tool_execution_end",
+        toolName: "compress",
+        toolCallId: "compress-1",
+        result,
+        isError: false,
+      });
+      raw.push(
+        makeToolResultMessage("compress-1", "compress", result.content[0]?.text ?? "", false, 7),
+      );
+
+      const [secondPass] = (await harness.emit("context", {
+        type: "context",
+        messages: [...raw],
+      })) as [{ messages: AgentMessage[] }];
+      const secondText = secondPass.messages.map(getMessageText).join("\n");
+      expect(secondText).toContain("older summary");
+      expect(secondText).not.toContain("older assistant");
+      if (configOverride.compress.mode === "range") {
+        expect(secondText).not.toContain("older user");
+      }
+      // The original raw history is never rewritten.
+      expect(getMessageText(raw[0])).toContain("older user");
+
+      const checkpoint = harness.entries
+        .filter((entry) => entry.customType === "pi-dcp-state")
+        .at(-1)?.data as
+        | {
+            version?: number;
+            ownerSessionId?: string;
+            nextBlockId?: number;
+            nextRunId?: number;
+            stats?: { messagesCompressed?: number };
+          }
+        | undefined;
+      expect(checkpoint).toMatchObject({ version: 2, ownerSessionId: "harness-session" });
+      const before = {
+        nextBlockId: checkpoint?.nextBlockId,
+        nextRunId: checkpoint?.nextRunId,
+        messagesCompressed: checkpoint?.stats?.messagesCompressed,
+      };
+
+      await harness.runCommand("dcp:decompress", "1");
+      const [restoredPass] = (await harness.emit("context", {
+        type: "context",
+        messages: [...raw],
+      })) as [{ messages: AgentMessage[] }];
+      expect(restoredPass.messages.map(getMessageText).join("\n")).toContain("older assistant");
+
+      await harness.runCommand("dcp:recompress", "1");
+      const [recompressedPass] = (await harness.emit("context", {
+        type: "context",
+        messages: [...raw],
+      })) as [{ messages: AgentMessage[] }];
+      expect(recompressedPass.messages.map(getMessageText).join("\n")).toContain("older summary");
+
+      const afterCheckpoint = harness.entries
+        .filter((entry) => entry.customType === "pi-dcp-state")
+        .at(-1)?.data as
+        | {
+            nextBlockId?: number;
+            nextRunId?: number;
+            stats?: { messagesCompressed?: number };
+          }
+        | undefined;
+      expect(afterCheckpoint?.nextBlockId).toBe(before.nextBlockId);
+      expect(afterCheckpoint?.nextRunId).toBe(before.nextRunId);
+      expect(afterCheckpoint?.stats?.messagesCompressed).toBe(before.messagesCompressed);
+    },
+  );
 });

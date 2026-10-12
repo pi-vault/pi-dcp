@@ -10,7 +10,7 @@ import {
   storeCompressionState,
   wrapCompressedSummary,
   COMPRESSED_BLOCK_HEADER,
-} from "./state.ts";
+} from "./block-graph.ts";
 import { countMessageTokens, countTokens } from "../utils/tokens.ts";
 import { enrichSummaryWithProtectedContent } from "./protected-content.ts";
 
@@ -286,4 +286,155 @@ function normalizeEntries(
       selection,
     };
   });
+}
+
+/**
+ * Deactivate an active compression block so its original content is restored.
+ * Returns the same domain messages as the historic decompress command.
+ */
+export function decompressBlock(state: SessionState, args: string): string {
+  const blockIdStr = args.trim();
+  if (!blockIdStr) return "Usage: dcp:decompress <blockId>";
+
+  const blockId = Number.parseInt(blockIdStr, 10);
+  if (Number.isNaN(blockId)) return `Invalid block ID: ${blockIdStr}`;
+
+  const block = state.prune.messages.blocksById.get(blockId);
+  if (!block) return `Block ${blockId} not found.`;
+  if (!block.active) return `Block ${blockId} is already inactive.`;
+
+  const eligibleBlockIds = getEligibleCompressionBlockIds(state);
+  block.active = false;
+  block.deactivatedByUser = true;
+  block.deactivatedAt = Date.now();
+  rebuildCompressionState(state, eligibleBlockIds);
+
+  return `Block ${blockId} deactivated. Original messages will be restored on next context pass.`;
+}
+
+/**
+ * Restore a user-deactivated block's eligibility using its existing summary.
+ * A consuming parent can still keep the block hidden.
+ */
+export function recompressBlock(state: SessionState, args: string): string {
+  const blockIdStr = args.trim();
+  if (!blockIdStr) return "Usage: dcp:recompress <blockId>";
+
+  const blockId = Number.parseInt(blockIdStr, 10);
+  if (Number.isNaN(blockId)) return `Invalid block ID: ${blockIdStr}`;
+
+  const block = state.prune.messages.blocksById.get(blockId);
+  if (!block) return `Block ${blockId} not found.`;
+  if (block.active) return `Block ${blockId} is already active.`;
+  if (!block.deactivatedByUser)
+    return `Block ${blockId} was not deactivated by user. Cannot reactivate.`;
+
+  const eligibleBlockIds = getEligibleCompressionBlockIds(state);
+  eligibleBlockIds.add(blockId);
+  block.deactivatedByUser = false;
+  block.deactivatedAt = undefined;
+  rebuildCompressionState(state, eligibleBlockIds);
+
+  return `Block ${blockId} reactivated. Compression will apply on next context pass.`;
+}
+
+/**
+ * Toggle a block from its current runtime state, as the panel dispatches it.
+ * Missing/stale IDs fall through to recompression's domain error.
+ */
+export function toggleBlock(state: SessionState, blockId: number): string {
+  const block = state.prune.messages.blocksById.get(blockId);
+  return block?.active
+    ? decompressBlock(state, String(blockId))
+    : recompressBlock(state, String(blockId));
+}
+
+/**
+ * Reconcile compression blocks with their owning assistant tool calls.
+ */
+export function syncCompressionBlocks(state: SessionState, messages: AgentMessage[]): void {
+  const messagesState = state.prune.messages;
+  if (messagesState.blocksById.size === 0) return;
+
+  const keyToIndex = new Map<string, number>();
+  for (const [index, ref] of state.messageIds.byIndex) {
+    const key = state.messageIds.byRef.get(ref);
+    if (key) keyToIndex.set(key, index);
+  }
+
+  state.prune.messages.byMessageIndex.clear();
+  for (const [blockId, block] of messagesState.blocksById) {
+    const startIndex = keyToIndex.get(block.startKey);
+    const endIndex = keyToIndex.get(block.endKey);
+    const anchorIndex = keyToIndex.get(block.anchorKey);
+    if (
+      startIndex === undefined ||
+      endIndex === undefined ||
+      anchorIndex === undefined ||
+      startIndex > endIndex ||
+      !state.toolParameters.has(block.compressToolCallId)
+    ) {
+      messagesState.blocksById.delete(blockId);
+      continue;
+    }
+
+    block.startIndex = startIndex;
+    block.endIndex = endIndex;
+    block.anchorIndex = anchorIndex;
+    block.parentBlockIds = [];
+    block.effectiveMessageIndices = Array.from(
+      { length: endIndex - startIndex + 1 },
+      (_, offset) => startIndex + offset,
+    );
+    block.effectiveToolIds = collectToolIds(messages, block.effectiveMessageIndices);
+  }
+
+  const blockIds = new Set(messagesState.blocksById.keys());
+  for (const block of messagesState.blocksById.values()) {
+    block.consumedBlockIds = block.consumedBlockIds.filter((id) => blockIds.has(id));
+    for (const childId of block.consumedBlockIds) {
+      const child = messagesState.blocksById.get(childId);
+      if (child && !child.parentBlockIds.includes(block.blockId)) {
+        child.parentBlockIds.push(block.blockId);
+      }
+    }
+    const coveredIndices = new Set(
+      block.consumedBlockIds.flatMap(
+        (id) => messagesState.blocksById.get(id)?.effectiveMessageIndices ?? [],
+      ),
+    );
+    block.directMessageIndices = block.effectiveMessageIndices.filter(
+      (index) => !coveredIndices.has(index),
+    );
+    block.directToolIds = collectToolIds(messages, block.directMessageIndices);
+  }
+
+  rebuildCompressionState(state, new Set(messagesState.blocksById.keys()));
+}
+
+function collectToolIds(messages: AgentMessage[], indices: number[]): string[] {
+  const toolIds = new Set<string>();
+  for (const index of indices) {
+    const message = messages[index];
+    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (part.type === "toolCall" && typeof part.id === "string") toolIds.add(part.id);
+    }
+  }
+  return [...toolIds].sort();
+}
+
+/**
+ * Sum the summaryTokens of all active compression blocks.
+ * Used by the summary buffer feature to extend the effective threshold.
+ */
+export function getActiveSummaryTokenUsage(state: SessionState): number {
+  let total = 0;
+  for (const blockId of state.prune.messages.activeBlockIds) {
+    const block = state.prune.messages.blocksById.get(blockId);
+    if (block?.active) {
+      total += block.summaryTokens;
+    }
+  }
+  return total;
 }

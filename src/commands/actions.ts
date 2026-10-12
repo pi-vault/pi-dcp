@@ -2,10 +2,9 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getDcpCapabilities, getDcpPipelineDisabledMessage } from "../capabilities.ts";
 import type { DcpConfig } from "../config.ts";
 import type { SessionState } from "../state/types.ts";
-import { decompressCommand } from "./decompress.ts";
+import { decompressBlock, recompressBlock, toggleBlock } from "../compress/blocks.ts";
 import { manualCommand } from "./manual.ts";
 import { permissionCommand } from "./permission.ts";
-import { recompressCommand } from "./recompress.ts";
 import { sweepCommand } from "./sweep.ts";
 
 /** Guarded DCP action requested by a command or the TUI panel. */
@@ -65,14 +64,10 @@ function dispatchDcpAction(action: DcpAction, state: SessionState, config: DcpCo
     case "sweep":
       return sweepCommand(state, config);
     case "decompress":
-      return decompressCommand(state, action.args);
+      return decompressBlock(state, action.args);
     case "recompress":
-      return recompressCommand(state, action.args);
-    case "toggle-block": {
-      const block = state.prune.messages.blocksById.get(action.blockId);
-      return block?.active
-        ? decompressCommand(state, String(action.blockId))
-        : recompressCommand(state, String(action.blockId));
-    }
+      return recompressBlock(state, action.args);
+    case "toggle-block":
+      return toggleBlock(state, action.blockId);
   }
 }

@@ -4,9 +4,10 @@ import {
   allocateRunId,
   wrapCompressedSummary,
   applyCompressionState,
+  rebuildCompressionState,
   storeCompressionState,
   type ApplyCompressionParams,
-} from "../src/compress/state.ts";
+} from "../src/compress/block-graph.ts";
 import { createSessionState } from "../src/state/state.ts";
 
 const compressionParams: ApplyCompressionParams = {
@@ -26,7 +27,7 @@ const compressionParams: ApplyCompressionParams = {
   consumedBlockIds: [],
 };
 
-describe("compress/state", () => {
+describe("compress/block-graph", () => {
   describe("allocateBlockId", () => {
     it("returns sequential block IDs", () => {
       const state = createSessionState();
@@ -102,5 +103,88 @@ describe("compress/state", () => {
 
     expect(state.prune.messages.byMessageIndex.size).toBe(0);
     expect(state.prune.messages.blocksById.get(1)?.effectiveMessageIndices).toEqual([2, 3]);
+  });
+
+  it("keeps a child hidden until every active parent is absent", () => {
+    const state = createSessionState();
+    const childId = allocateBlockId(state);
+    const runId = allocateRunId(state);
+    applyCompressionState(state, {
+      ...compressionParams,
+      blockId: childId,
+      runId,
+      startIndex: 0,
+      endIndex: 0,
+      anchorIndex: 0,
+      compressToolCallId: "child-call",
+      startKey: "user:1000:0",
+      endKey: "user:1000:0",
+      anchorKey: "user:1000:0",
+      summary: "child",
+      summaryTokens: 1,
+      consumedBlockIds: [],
+    });
+    const parentIds: number[] = [];
+    for (const ownerId of ["parent-1-call", "parent-2-call"]) {
+      const blockId = allocateBlockId(state);
+      parentIds.push(blockId);
+      applyCompressionState(state, {
+        ...compressionParams,
+        blockId,
+        runId,
+        startIndex: 0,
+        endIndex: 0,
+        anchorIndex: blockId,
+        compressToolCallId: ownerId,
+        startKey: "user:1000:0",
+        endKey: "user:1000:0",
+        anchorKey: "user:1000:0",
+        summary: "parent",
+        summaryTokens: 1,
+        consumedBlockIds: [childId],
+      });
+    }
+
+    rebuildCompressionState(state, new Set([childId, ...parentIds]));
+    expect(state.prune.messages.blocksById.get(childId)?.active).toBe(false);
+
+    rebuildCompressionState(state, new Set([childId, parentIds[1]]));
+    expect(state.prune.messages.blocksById.get(childId)?.active).toBe(false);
+
+    rebuildCompressionState(state, new Set([childId]));
+    expect(state.prune.messages.blocksById.get(childId)?.active).toBe(true);
+  });
+
+  it("keeps a child hidden when an active grandparent outlives its missing parent", () => {
+    const state = createSessionState();
+    const runId = allocateRunId(state);
+    const addBlock = (topic: string, owner: string, consumedBlockIds: number[]) => {
+      const blockId = allocateBlockId(state);
+      applyCompressionState(state, {
+        ...compressionParams,
+        blockId,
+        runId,
+        startIndex: 0,
+        endIndex: 0,
+        anchorIndex: blockId,
+        compressToolCallId: owner,
+        startKey: "user:1000:0",
+        endKey: "user:1000:0",
+        anchorKey: "user:1000:0",
+        summary: topic,
+        summaryTokens: 1,
+        consumedBlockIds,
+      });
+      return blockId;
+    };
+    const childId = addBlock("child", "child-call", []);
+    const parentId = addBlock("parent", "parent-call", [childId]);
+    const grandparentId = addBlock("grandparent", "grandparent-call", [parentId]);
+
+    rebuildCompressionState(state, new Set([childId, grandparentId]));
+
+    expect(state.prune.messages.blocksById.get(childId)?.active).toBe(false);
+    expect(state.prune.messages.blocksById.get(childId)?.deactivatedByBlockId).toBe(grandparentId);
+    expect(state.prune.messages.blocksById.get(parentId)?.active).toBe(false);
   });
 });

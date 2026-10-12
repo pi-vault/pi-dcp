@@ -2,7 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionState, ContextUsage } from "./state/types.ts";
 import type { DcpConfig } from "./config.ts";
 import type { RuntimePrompts } from "./prompts/store.ts";
-import { syncCompressionBlocks } from "./messages/sync.ts";
+import { syncCompressionBlocks } from "./compress/blocks.ts";
 import { stripHallucinations } from "./messages/strip.ts";
 import { syncToolCache, buildToolIdList } from "./state/tool-cache.ts";
 import { runStrategies, type StrategyResult } from "./strategies/runner.ts";

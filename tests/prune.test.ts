@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { pruneToolOutputs, applyPruning } from "../src/messages/prune.ts";
-import { allocateBlockId, allocateRunId, applyCompressionState } from "../src/compress/state.ts";
+import { handleCompress, syncCompressionBlocks } from "../src/compress/blocks.ts";
 import { createSessionState } from "../src/state/state.ts";
+import { assignMessageRefs } from "../src/messages/inject.ts";
+import { syncToolCache } from "../src/state/tool-cache.ts";
+import { restoreDcpSnapshot } from "../src/state/persistence.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { getMessageText } from "./helpers.ts";
+import { getMessageText, makeDefaultConfig } from "./helpers.ts";
+
+/** Rebuild references and block runtime indices, then apply pruning. */
+function applyPruningAfterSync(
+  state: ReturnType<typeof createSessionState>,
+  messages: AgentMessage[],
+): AgentMessage[] {
+  assignMessageRefs(state, messages);
+  syncToolCache(state, messages);
+  syncCompressionBlocks(state, messages);
+  return applyPruning(state, messages);
+}
 
 function makeToolResult(
   toolCallId: string,
@@ -130,16 +144,14 @@ describe("prune", () => {
   describe("filterCompressedRanges orphan safety net", () => {
     it("removes orphaned toolResult messages from filtered output", () => {
       const state = createSessionState();
-      const blockId = allocateBlockId(state);
-      const runId = allocateRunId(state);
-
-      // Simulate a scenario where compression covers only the assistant (index 1)
-      // but leaves its toolResult (index 2) as an orphan
+      state.sessionId = "owner";
+      const assistantTimestamp = 1000;
+      const compressOwner = makeAssistantWithToolCall("compress-call-1", "compress", {});
       const messages: AgentMessage[] = [
         {
           role: "user",
           content: [{ type: "text", text: "read it" }],
-          timestamp: Date.now(),
+          timestamp: 1,
         } as AgentMessage,
         {
           role: "assistant",
@@ -152,7 +164,7 @@ describe("prune", () => {
             cacheCreationInputTokens: 0,
             totalTokens: 0,
           },
-          timestamp: Date.now(),
+          timestamp: assistantTimestamp,
         } as unknown as AgentMessage,
         {
           role: "toolResult",
@@ -160,44 +172,72 @@ describe("prune", () => {
           toolName: "read",
           content: [{ type: "text", text: "file contents" }],
           isError: false,
-          timestamp: Date.now(),
+          timestamp: 2,
         } as AgentMessage,
         {
           role: "user",
           content: [{ type: "text", text: "thanks" }],
-          timestamp: Date.now(),
+          timestamp: 3,
         } as AgentMessage,
+        compressOwner,
       ];
 
-      // Manually create a block that covers only index 1 (the assistant with toolCall)
-      // This simulates a stale/corrupt block state that Layer 1 should have prevented
-      applyCompressionState(state, {
-        blockId,
-        runId,
-        topic: "test",
-        mode: "range",
-        startIndex: 1,
-        endIndex: 1,
-        anchorIndex: 1,
-        compressToolCallId: "compress-call-1",
-        startKey: "assistant:1000:0",
-        endKey: "assistant:1000:0",
-        anchorKey: "assistant:1000:0",
-        summary: "Summary of tool use",
-        summaryTokens: 5,
-        consumedBlockIds: [],
-      });
+      // A decoded snapshot can describe a block anchored to only the assistant,
+      // which the public compression path would expand to include the tool result.
+      const assistantKey = `assistant:${assistantTimestamp}:0`;
+      const restored = restoreDcpSnapshot(
+        {
+          version: 2,
+          ownerSessionId: "owner",
+          manualMode: false,
+          compressPermission: "allow",
+          stats: {
+            pruneTokenCounter: 0,
+            totalPruneTokens: 0,
+            toolsPruned: 0,
+            messagesCompressed: 0,
+          },
+          lastCompaction: 0,
+          pruneTools: [],
+          blocks: [
+            {
+              blockId: 1,
+              runId: 1,
+              deactivatedByUser: false,
+              compressedTokens: 0,
+              summaryTokens: 5,
+              durationMs: 0,
+              mode: "range",
+              topic: "test",
+              compressToolCallId: "compress-call-1",
+              startKey: assistantKey,
+              endKey: assistantKey,
+              anchorKey: assistantKey,
+              consumedBlockIds: [],
+              createdAt: 1,
+              summary: "Summary of tool use",
+            },
+          ],
+          nextBlockId: 2,
+          nextRunId: 2,
+          messageIds: { byRawId: [], nextRefIndex: 1 },
+          nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+        },
+        state,
+        "owner",
+      );
+      expect(restored).toBe(true);
 
-      const result = applyPruning(state, messages);
+      const result = applyPruningAfterSync(state, messages);
 
-      // The orphaned toolResult (c1) should NOT be in the output
+      // The orphaned toolResult (c1) should NOT be in the output.
       const hasOrphan = result.some(
         (m) => m.role === "toolResult" && (m as { toolCallId: string }).toolCallId === "c1",
       );
       expect(hasOrphan).toBe(false);
 
-      // Should still have: user(0), summary, user(3) = 3 messages
-      expect(result).toHaveLength(3);
+      // Should still have: user(0), summary, user(3), compress owner = 4 messages.
+      expect(result).toHaveLength(4);
     });
 
     it("keeps toolResult when its assistant is present in output", () => {
@@ -248,8 +288,7 @@ describe("prune", () => {
   describe("filterCompressedRanges", () => {
     it("replaces compressed messages with summary", () => {
       const state = createSessionState();
-      const blockId = allocateBlockId(state);
-      const runId = allocateRunId(state);
+      const config = makeDefaultConfig();
 
       const messages: AgentMessage[] = [
         {
@@ -278,22 +317,12 @@ describe("prune", () => {
           timestamp: Date.now(),
         } as AgentMessage,
       ];
+      assignMessageRefs(state, messages);
 
-      applyCompressionState(state, {
-        blockId,
-        runId,
+      handleCompress(state, config, messages, "compress-call-1", {
         topic: "test",
         mode: "range",
-        startIndex: 1,
-        endIndex: 3,
-        anchorIndex: 1,
-        compressToolCallId: "compress-call-1",
-        startKey: "assistant:1000:0",
-        endKey: "assistant:1001:0",
-        anchorKey: "assistant:1000:0",
-        summary: "Summary of messages 1-3",
-        summaryTokens: 10,
-        consumedBlockIds: [],
+        content: [{ startId: "m2", endId: "m4", summary: "Summary of messages 1-3" }],
       });
 
       const result = applyPruning(state, messages);
