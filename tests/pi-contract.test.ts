@@ -44,6 +44,7 @@ function systemPromptEvent(sections: Record<string, string> = {}) {
     systemPrompt: "base prompt",
     systemPromptOptions: {
       selectedTools: ["read"],
+      hiddenTools: [],
       toolSnippets: {},
       toolGuidelines: {},
       promptGuidelines: [],
