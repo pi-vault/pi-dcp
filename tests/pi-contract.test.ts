@@ -788,6 +788,28 @@ describe("DCP ask authorization", () => {
       content: [{ text: "Compression is disabled for the current model." }],
     });
   });
+
+  it("rejects post-approval model suppression without changing tool selection", async () => {
+    const harness = await askHarness({
+      config: { disabledModels: ["test/disabled-model"], compress: { permission: "ask" } },
+    });
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+    const setActiveTools = vi.spyOn(harness.api, "setActiveTools");
+    harness.ui.confirm.mockImplementation(async () => {
+      // No lifecycle event: the approval recheck must read policy without reconciling tools.
+      harness.setModel({ provider: "test", id: "disabled-model" });
+      return true;
+    });
+
+    await expect(harness.executeTool("compress", validCompression)).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: "Compression is disabled for the current model." }],
+    });
+    expect(harness.ui.confirm).toHaveBeenCalledTimes(1);
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+    expect(setActiveTools).not.toHaveBeenCalled();
+    expect(harness.entries).toHaveLength(0);
+  });
 });
 
 describe("DCP guarded action callback reconciliation", () => {
@@ -818,4 +840,209 @@ describe("DCP guarded action callback reconciliation", () => {
       expect(harness.entries).toHaveLength(0);
     },
   );
+});
+
+describe("DCP selection ownership characterization", () => {
+  it("preserves an inactive restored loadout across tree navigation", async () => {
+    writeConfig({ disabledModels: ["test/test-model"] });
+    const harness = createExtensionHarness({ activeTools: ["read", "compress"] });
+    createExtension(harness.api);
+
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+    expect(harness.activeTools()).toEqual(["read"]);
+
+    harness.setBranch([{ type: "message", message: declaredLoadoutMessage(["read"]) }]);
+    harness.setActiveTools(["read"]);
+    const setActiveTools = vi.spyOn(harness.api, "setActiveTools");
+
+    await harness.emitMessages("session_tree", { type: "session_tree" });
+    expect(harness.activeTools()).toEqual(["read"]);
+    expect(setActiveTools).toHaveBeenCalledTimes(0);
+
+    harness.setModel({ provider: "test", id: "allowed-model" });
+    await harness.emit("model_select", {
+      type: "model_select",
+      model: createHarnessModel({ provider: "test", id: "allowed-model" }),
+      previousModel: undefined,
+      source: "set",
+    });
+
+    expect(harness.activeTools()).toEqual(["read"]);
+  });
+
+  it("reloads the definition and policy without fresh activation", async () => {
+    const harness = createExtensionHarness({ activeTools: ["read", "compress"] });
+    createExtension(harness.api);
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+
+    writeConfig({ compress: { mode: "message", permission: "deny" } });
+    await harness.emit("session_start", { type: "session_start", reason: "reload" });
+
+    const parameters = harness.tools.get("compress")?.parameters as {
+      properties?: Record<string, unknown>;
+    };
+    expect(Object.keys(parameters.properties ?? {})).toContain("targets");
+    expect(harness.activeTools()).toEqual(["read"]);
+
+    await harness.runCommand("dcp:permission", "");
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+  });
+
+  it("does not activate compress on reload with a deselected branch", async () => {
+    const harness = createExtensionHarness({
+      activeTools: ["read"],
+      branch: [{ type: "message", message: declaredLoadoutMessage(["read"]) }],
+    });
+    createExtension(harness.api);
+
+    await harness.emit("session_start", { type: "session_start", reason: "reload" });
+    expect(harness.activeTools()).toEqual(["read"]);
+  });
+
+  it("keeps a restored explicit permission over the config default", async () => {
+    writeConfig({ compress: { permission: "deny" } });
+    const saved = createSessionState();
+    saved.sessionId = "harness-session";
+    saved.compressPermission = "allow";
+    const snapshot = serializeDcpSnapshot(saved);
+    if (!snapshot) throw new Error("expected snapshot");
+    const harness = createExtensionHarness({
+      activeTools: ["read", "compress"],
+      branch: [{ type: "custom", customType: "pi-dcp-state", data: snapshot }],
+    });
+    createExtension(harness.api);
+
+    await harness.emit("session_start", { type: "session_start", reason: "resume" });
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+  });
+
+  it("blocks a newly disallowed tool call without reconciling selection", async () => {
+    writeConfig({ disabledModels: ["test/blocked"] });
+    const harness = createExtensionHarness({ activeTools: ["read", "compress"] });
+    createExtension(harness.api);
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+
+    const setActiveTools = vi.spyOn(harness.api, "setActiveTools");
+    harness.setModel({ provider: "test", id: "blocked" });
+    const [blocked] = await harness.emit("tool_call", {
+      type: "tool_call",
+      toolName: "compress",
+      toolCallId: "call-1",
+      input: { topic: "t", content: [{ startId: "m1", endId: "m1", summary: "s" }] },
+    });
+    expect(blocked).toMatchObject({
+      block: true,
+      reason: "Compression is disabled for the current model",
+    });
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+    expect(setActiveTools).toHaveBeenCalledTimes(0);
+
+    (harness.context as unknown as { model: unknown }).model = undefined;
+    const [blockedAgain] = await harness.emit("tool_call", {
+      type: "tool_call",
+      toolName: "compress",
+      toolCallId: "call-2",
+      input: { topic: "t", content: [{ startId: "m1", endId: "m1", summary: "s" }] },
+    });
+    expect(blockedAgain).toMatchObject({
+      block: true,
+      reason: "Compression is disabled for the current model",
+    });
+    expect(setActiveTools).toHaveBeenCalledTimes(0);
+
+    harness.setModel({ provider: "test", id: "allowed" });
+    await harness.emit("context", { type: "context", messages: [] });
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+    expect(setActiveTools).toHaveBeenCalledTimes(0);
+  });
+
+  it("keeps defensive execution and approval queries free of selection writes", async () => {
+    const validCompression = {
+      topic: "t",
+      content: [{ startId: "m1", endId: "m1", summary: "s" }],
+    };
+
+    writeConfig({ disabledModels: ["test/blocked"] });
+    const direct = createExtensionHarness({ activeTools: ["read", "compress"] });
+    createExtension(direct.api);
+    await direct.emit("session_start", { type: "session_start", reason: "new" });
+    const directWrites = vi.spyOn(direct.api, "setActiveTools");
+    direct.setModel({ provider: "test", id: "blocked" });
+
+    await expect(direct.executeTool("compress", validCompression)).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: "Compression is disabled for the current model." }],
+    });
+    expect(directWrites).toHaveBeenCalledTimes(0);
+
+    writeConfig({ compress: { permission: "ask" } });
+    const ask = createExtensionHarness({
+      activeTools: ["read", "compress"],
+      mode: "tui",
+      hasUI: true,
+      contextUsage: { tokens: 1000, contextWindow: 200_000, percent: 0.5 },
+    });
+    createExtension(ask.api);
+    await ask.emit("session_start", { type: "session_start", reason: "new" });
+    await ask.emit("context", {
+      type: "context",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "one" }], timestamp: 1 },
+        {
+          ...assistantMetadata,
+          role: "assistant",
+          content: [{ type: "text", text: "two" }],
+          stopReason: "stop",
+          timestamp: 2,
+        },
+      ],
+    });
+    const askWrites = vi.spyOn(ask.api, "setActiveTools");
+
+    ask.ui.confirm.mockResolvedValue(false);
+    await expect(ask.executeTool("compress", validCompression)).resolves.toMatchObject({
+      isError: true,
+    });
+    expect(askWrites).toHaveBeenCalledTimes(0);
+
+    ask.ui.confirm.mockResolvedValue(true);
+    await expect(ask.executeTool("compress", validCompression)).resolves.toMatchObject({
+      content: [{ text: expect.stringContaining("Compressed") }],
+    });
+    expect(askWrites).toHaveBeenCalledTimes(0);
+  });
+
+  it("retains first-start handling and suppression memory through compaction", async () => {
+    writeConfig({ disabledModels: ["test/blocked"] });
+    const harness = createExtensionHarness({ activeTools: ["read", "compress"] });
+    createExtension(harness.api);
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+
+    harness.setModel({ provider: "test", id: "blocked" });
+    await harness.emit("model_select", {
+      type: "model_select",
+      model: createHarnessModel({ provider: "test", id: "blocked" }),
+      previousModel: undefined,
+      source: "set",
+    });
+    expect(harness.activeTools()).toEqual(["read"]);
+
+    await harness.emitMessages("session_compact", { type: "session_compact" });
+
+    harness.setModel({ provider: "test", id: "allowed" });
+    await harness.emit("model_select", {
+      type: "model_select",
+      model: createHarnessModel({ provider: "test", id: "allowed" }),
+      previousModel: undefined,
+      source: "set",
+    });
+    expect(harness.activeTools()).toEqual(["read", "compress"]);
+
+    harness.setActiveTools(["read"]);
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+    expect(harness.activeTools()).toEqual(["read"]);
+  });
 });

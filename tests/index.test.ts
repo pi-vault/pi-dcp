@@ -1396,6 +1396,28 @@ describe("static model disablement", () => {
     expect(activeTools()).toEqual(["read", "bash", "compress"]);
   });
 
+  it("uses the selected event model when the context is stale", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers, activeTools, setActiveTools } = createMockApi({
+      activeTools: ["read", "compress"],
+    });
+    createExtension(api);
+
+    await registeredHandler(handlers, "model_select")(
+      { type: "model_select", model: disabledModel, previousModel: enabledModel, source: "set" },
+      sessionContext(enabledModel),
+    );
+    expect(activeTools()).toEqual(["read"]);
+    expect(setActiveTools).toHaveBeenCalledTimes(1);
+
+    await registeredHandler(handlers, "model_select")(
+      { type: "model_select", model: enabledModel, previousModel: disabledModel, source: "set" },
+      sessionContext(disabledModel),
+    );
+    expect(activeTools()).toEqual(["read", "compress"]);
+    expect(setActiveTools).toHaveBeenCalledTimes(2);
+  });
+
   it("does not restore compress when it was inactive before disablement", async () => {
     writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
     const { api, handlers, activeTools } = createMockApi({

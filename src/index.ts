@@ -4,7 +4,6 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-  SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -36,6 +35,7 @@ import {
 } from "./state/persistence.ts";
 import { runPipeline } from "./pipeline.ts";
 import { parseChildSessionResults } from "./subagents/subagent-results.ts";
+import { createCompressionToolSelection } from "./tool-selection.ts";
 
 /**
  * Extract plain summary text from compression blocks, stripping delimiters.
@@ -112,24 +112,6 @@ function executeSuppressionMessage(reason: DcpSuppressionReason): string {
   }
 }
 
-interface StructuredSystemFields {
-  role?: unknown;
-  sections?: unknown;
-  toolsAdded?: unknown;
-  toolsRemoved?: unknown;
-}
-
-/** A system message declaring a tool loadout declares the host's selected tools. */
-function declaresToolLoadout(message: AgentMessage): boolean {
-  const candidate = message as unknown as StructuredSystemFields;
-  if (candidate.role !== "system") return false;
-  return (
-    candidate.sections !== undefined ||
-    candidate.toolsAdded !== undefined ||
-    candidate.toolsRemoved !== undefined
-  );
-}
-
 export function applyCompressionTiming(
   state: SessionState,
   event: { toolCallId: string; toolName: string; isError?: boolean },
@@ -155,12 +137,11 @@ export default function createExtension(pi: ExtensionAPI): void {
   const { config } = loadConfig(configFilePath);
   let logger: Logger = new Logger(config.debug);
   const state: SessionState = createSessionState();
+  const selection = createCompressionToolSelection(pi, state, config);
   let latestMessages: AgentMessage[] = [];
   let promptStore: PromptStore | undefined;
   let runtimePrompts: RuntimePrompts | undefined;
   let lastPersistedFingerprint: string | undefined;
-  let compressWasActiveBeforeSuppression: boolean | undefined;
-  let hasProcessedSessionStart = false;
 
   /** Policy capabilities for the current model identity. */
   function evaluateCapabilities(ctx?: ExtensionContext) {
@@ -170,72 +151,6 @@ export default function createExtension(pi: ExtensionAPI): void {
       ctx?.model?.provider ?? state.modelProvider,
       ctx?.model?.id ?? state.modelId,
     );
-  }
-
-  /** Adopt the current context's model identity as this session's model. */
-  function refreshModelIdentity(ctx: ExtensionContext): void {
-    if (ctx.model) {
-      state.modelProvider = ctx.model.provider;
-      state.modelId = ctx.model.id;
-    }
-  }
-
-  /**
-   * Reconcile the active `compress` tool with DCP policy.
-   *
-   * Pi owns the restored loadout; DCP only remembers a temporary suppression
-   * within the current branch. Selection is recorded at the first suppression
-   * transition and restored only when every policy reason clears.
-   */
-  function reconcileCompressTool(): void {
-    const reasons = evaluateCapabilities().reasons;
-    const activeTools = pi.getActiveTools();
-    const compressActive = activeTools.includes("compress");
-
-    if (reasons.length > 0) {
-      if (compressWasActiveBeforeSuppression === undefined) {
-        compressWasActiveBeforeSuppression = compressActive;
-      }
-      if (compressActive) {
-        pi.setActiveTools(activeTools.filter((name) => name !== "compress"));
-      }
-      return;
-    }
-
-    if (compressWasActiveBeforeSuppression === true && !compressActive) {
-      pi.setActiveTools([...activeTools, "compress"]);
-    }
-    compressWasActiveBeforeSuppression = undefined;
-  }
-
-  /** Restore the host-selected loadout before applying policy. */
-  function resetSuppressionMemory(): void {
-    compressWasActiveBeforeSuppression = undefined;
-  }
-
-  /** Whether the active branch already declares a tool loadout. */
-  function branchDeclaresToolLoadout(ctx: ExtensionContext): boolean {
-    for (const entry of ctx.sessionManager.getBranch()) {
-      if (entry.type !== "message") continue;
-      if (declaresToolLoadout(entry.message)) return true;
-    }
-    return false;
-  }
-
-  /**
-   * Select `compress` for a genuinely fresh session, respecting host exclusions.
-   * Only runs on this extension instance's first session-start event.
-   */
-  function initializeFreshSelection(
-    reason: SessionStartEvent["reason"],
-    ctx: ExtensionContext,
-  ): void {
-    if (reason === "reload") return;
-    if (branchDeclaresToolLoadout(ctx)) return;
-    if (!pi.getAllTools().some((tool) => tool.name === "compress")) return;
-    const activeTools = pi.getActiveTools();
-    if (activeTools.includes("compress")) return;
-    pi.setActiveTools([...activeTools, "compress"]);
   }
 
   function persistIfChanged(force = false): void {
@@ -326,8 +241,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   const onStateChange = (ctx: ExtensionCommandContext): void => {
-    refreshModelIdentity(ctx);
-    reconcileCompressTool();
+    selection.reconcile(ctx);
     persistIfChanged();
   };
 
@@ -471,15 +385,12 @@ export default function createExtension(pi: ExtensionAPI): void {
   registerDcpCommands(pi, state, config, onStateChange);
 
   pi.on("model_select", async (event, _ctx) => {
-    state.modelProvider = event.model.provider;
-    state.modelId = event.model.id;
-    reconcileCompressTool();
+    selection.reconcile({ model: event.model });
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     refreshRuntimePrompts();
-    refreshModelIdentity(ctx);
-    reconcileCompressTool();
+    selection.reconcile(ctx);
     const capabilities = evaluateCapabilities(ctx);
     const guidance = capabilities.compressionEnabled && pi.getActiveTools().includes("compress");
 
@@ -495,21 +406,17 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (event, ctx) => {
-    const isFirstSessionStart = !hasProcessedSessionStart;
-    hasProcessedSessionStart = true;
-
     const logDir = path.join(ctx.sessionManager.getSessionDir(), "dcp", "logs");
     reloadConfig(ctx, logDir);
 
     resetSessionState(state);
     lastPersistedFingerprint = undefined;
     latestMessages = [];
-    resetSuppressionMemory();
     state.manualMode = config.manualMode.default;
     state.compressPermission = config.compress.permission;
 
     const forcePersist = restoreActiveBranch(ctx);
-    refreshModelIdentity(ctx);
+    selection.refreshModel(ctx.model);
     state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
 
     setupPromptStore(ctx);
@@ -520,9 +427,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
     // Select the fresh-session default before policy suppression so an initially
     // denied session remembers it and can restore it when permission allows.
-    if (isFirstSessionStart) initializeFreshSelection(event.reason, ctx);
-
-    reconcileCompressTool();
+    selection.sessionStarted(event.reason, ctx);
 
     const usage = ctx.getContextUsage();
     if (usage) {
@@ -540,13 +445,11 @@ export default function createExtension(pi: ExtensionAPI): void {
   pi.on("session_tree", async (_event, ctx) => {
     resetSessionState(state);
     latestMessages = [];
-    resetSuppressionMemory();
     state.manualMode = config.manualMode.default;
     state.compressPermission = config.compress.permission;
     const forcePersist = restoreActiveBranch(ctx);
-    refreshModelIdentity(ctx);
     state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
-    reconcileCompressTool();
+    selection.branchRestored(ctx);
     persistIfChanged(forcePersist);
   });
 
@@ -584,7 +487,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName !== "compress") return undefined;
-    refreshModelIdentity(ctx);
+    selection.refreshModel(ctx.model);
     const reasons = evaluateCapabilities(ctx).reasons;
     if (reasons.length === 0) return undefined;
     return { block: true, reason: toolCallSuppressionReason(reasons[0]) };
@@ -615,8 +518,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (event, ctx) => {
-    refreshModelIdentity(ctx);
-    reconcileCompressTool();
+    selection.reconcile(ctx);
     const capabilities = evaluateCapabilities(ctx);
     if (!capabilities.pipelineEnabled) return;
 
