@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   handleCompress,
@@ -823,6 +823,10 @@ describe("compression block lifecycle", () => {
   });
 
   it("restores nested consumption and user exclusion through the next context pass", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(13_000);
+    onTestFinished(() => {
+      clock.mockRestore();
+    });
     const build = (): { state: SessionState; config: DcpConfig; raw: AgentMessage[] } => {
       const state = createSessionState();
       state.sessionId = SESSION_ID;
@@ -1034,6 +1038,9 @@ describe("compression block owner lifecycle", () => {
     expect(state.prune.messages.activeByAnchorIndex.size).toBe(0);
     expect(state.prune.messages).toBe(container);
     expect(state.prune.messages.blocksById).toBe(blockMap);
+    expect(state.prune.messages.byMessageIndex).toBe(messageIndex);
+    expect(state.prune.messages.activeBlockIds).toBe(activeIds);
+    expect(state.prune.messages.activeByAnchorIndex).toBe(anchorIndex);
     expect(state.sessionId).toBe("keep-session");
     expect(state.stats.totalPruneTokens).toBe(42);
   });

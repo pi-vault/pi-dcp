@@ -1340,6 +1340,7 @@ describe("DCP compaction durability", () => {
       });
       expect(post.messageIds.nextRefIndex).toBe(3);
       expect(post.messageIds.byRawId).toEqual(pre.messageIds.byRawId);
+      expect(post.stats).toEqual(pre.stats);
 
       const postRaw: AgentMessage[] = [
         {
@@ -1362,7 +1363,7 @@ describe("DCP compaction durability", () => {
         ),
         "live retained message",
       );
-      expect(getMessageText(liveRetained)).toContain("@m2");
+      expect(getMessageText(liveRetained)).toContain("@m2@");
       const liveNew = requireDefined(
         liveViewResult.messages.find((message) => getMessageText(message).includes("new user")),
         "live new message",
@@ -1371,6 +1372,7 @@ describe("DCP compaction durability", () => {
         getMessageText(liveNew).match(/@m\d+(?::\d+)?@/)?.[0],
         "live new marker",
       );
+      expect(liveNewMarker).toBe("@m4@");
 
       const resumed = createExtensionHarness({
         ...baseOptions,
@@ -1389,7 +1391,7 @@ describe("DCP compaction durability", () => {
         ),
         "resumed retained message",
       );
-      expect(getMessageText(resumedRetained)).toContain("@m2");
+      expect(getMessageText(resumedRetained)).toContain("@m2@");
       const resumedNew = requireDefined(
         resumedViewResult.messages.find((message) => getMessageText(message).includes("new user")),
         "resumed new message",
@@ -1436,7 +1438,10 @@ describe("DCP compaction durability", () => {
           13,
         ),
       ];
-      await live.emit("context", { type: "context", messages: structuredClone(liveRaw2) });
+      const [liveCompressed] = (await live.emit("context", {
+        type: "context",
+        messages: structuredClone(liveRaw2),
+      })) as [{ messages: AgentMessage[] }];
 
       await resumed.emit("tool_execution_end", {
         type: "tool_execution_end",
@@ -1456,7 +1461,16 @@ describe("DCP compaction durability", () => {
           13,
         ),
       ];
-      await resumed.emit("context", { type: "context", messages: structuredClone(resumedRaw2) });
+      const [resumedCompressed] = (await resumed.emit("context", {
+        type: "context",
+        messages: structuredClone(resumedRaw2),
+      })) as [{ messages: AgentMessage[] }];
+      expect(resumedCompressed.messages).toEqual(liveCompressed.messages);
+      const compressedText = liveCompressed.messages.map(getMessageText).join("\n");
+      expect(compressedText).toContain("[Compressed Block b2]");
+      expect(compressedText).toContain("new summary");
+      expect(compressedText).toContain("older assistant");
+      expect(compressedText).not.toContain("new user");
 
       const liveFinal = snapshotFrom(live, "live final checkpoint");
       const resumedFinal = snapshotFrom(resumed, "resumed final checkpoint");

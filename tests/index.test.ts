@@ -608,6 +608,8 @@ describe("dcp extension", () => {
   it("restores the newest valid branch snapshot and appends a child-owned fork", async () => {
     const { api, handlers, entries } = createMockApi();
     const snapshot = structuredClone(persistedCompressionSnapshot);
+    snapshot.stats.pruneTokenCounter = 3;
+    snapshot.stats.toolsPruned = 2;
     createExtension(api);
 
     const start = handlers.get("session_start")?.[0];
