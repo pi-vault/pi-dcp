@@ -149,7 +149,7 @@ A successful result collapses to a single estimated-metrics line, and Pi's stand
 - Collapsed: `Range compression · Auth system · 5 messages · ~12.4k input · ~2.1k summary`
 - Expanded: the same header, then the original result text, then `Blocks: b1, b2`
 
-Token values are estimates and use the same compact `k`/`M` formatting as notifications. A partial result shows `Compression in progress`, and a failed call keeps its original error text. Historical results, results with missing or malformed display metadata, and non-text content fall back to the original text (or `Compression result unavailable`); DCP never infers metrics from human-readable text. `NO_COLOR` disables styling, and none of this changes the model-facing tool output, the submitted summaries, or the stored results.
+Token values are estimates and use the same compact `k`/`M` formatting as notifications. A partial result shows `Compression in progress`, and a failed call keeps its original error text. Historical results and results with missing or malformed display metadata fall back to the original text (or `Compression result unavailable` when no text exists); Pi continues handling non-text content. DCP never infers metrics from human-readable text. `NO_COLOR` disables DCP styling. Successful stored tool results include summary-free display metadata; model-facing tool output and submitted summaries stay unchanged.
 
 ## Typical workflows
 

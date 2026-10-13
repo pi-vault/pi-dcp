@@ -39,7 +39,7 @@
 - DCP registers `compress` once during extension creation and again after trusted session configuration loads. Both definitions must receive renderers, and `renderCompressCall` must close over the mode used for that exact registration.
 - DCP's normal successful execution currently returns one text content item and `details: {}`. Capability/approval rejections also return `details: {}` with `isError: true`; unexpected compression failures throw.
 - Installed Pi `1.1.0` defines `ToolDefinition.renderCall(args, theme, context)` and `renderResult(result, { expanded, isPartial }, theme, context)`. Runtime error state is authoritative in `context.isError`; Pi does not pass `isError` on the result object supplied to a custom renderer.
-- Pi's `Text` wraps ANSI/Unicode-aware expanded content to the render width. `TruncatedText` keeps collapsed content to one ANSI/Unicode-aware line. Use these components instead of implementing width algorithms.
+- Pi's `Text` wraps ANSI/Unicode-aware expanded content but can retain a two-column grapheme when only one column is available. DCP's private `BoundedText` subclass bounds those wrapped lines with Pi's `truncateToWidth`. `TruncatedText` keeps collapsed content to one ANSI/Unicode-aware line. Use the SDK's width algorithms.
 - Pi's tool shell already supplies pending/success/error backgrounds and horizontal padding. Keep the default shell; DCP renders only the inner call/result content.
 - pi-status commit `18d8354` supplies the reference behavior for `NO_COLOR` presence and per-method safe theme calls. Pi commit `7bd01fb92` supplies the renderer contracts and TUI component behavior; the installed package declarations remain authoritative where the checkout differs.
 
@@ -276,4 +276,12 @@ Revert dependent later phases before reverting this phase. No snapshot migration
 
 **Real-Pi inspection:** unavailable in this environment, so no interactive terminal width/theme run was performed. The renderers were verified through the real SDK lifecycle test (approved and denied execution details plus a `getToolDefinition("compress")` renderer invocation) and through component-level exact-copy, role, `NO_COLOR`, throwing-theme, and narrow-width (`1`, `12`, `60`) assertions.
 
-**Commit:** `feat: render DCP compression calls and results` (one atomic commit for this phase).
+**Commit:** `329235c1d9f2a42150b1bc473d69600f60ce57f1` — `feat: render DCP compression calls and results` (one atomic commit for this phase).
+
+## Code Review — 2026-10-13
+
+Reviewed implementation `329235c1d9f2a42150b1bc473d69600f60ce57f1` against planning base `acb9de1`, plus the fixes in the working tree. Independent review confirmed one production defect: expanded CJK/emoji content could exceed a one-column render width because Pi's `Text` preserves wide graphemes. The private `BoundedText` subclass now applies Pi's truncation helper to wrapped lines. Three regression cases failed before the fix and pass afterward, covering success, historical, and error results through resizing back to normal width with the original text restored.
+
+Corrected README/CHANGELOG claims about partial progress, stored display metadata, and host-owned non-text content. The independent reviewer found no remaining production defects after these changes.
+
+**Verification:** The focused Phase 2 suite passes 7 files / 194 tests. `pnpm check` exits `0`: formatting, lint, type checking, and **65 files / 1,070 tests passed**. The original implementation counts above remain historical evidence. Real-Pi visual inspection remains unverified. Review fixes are currently uncommitted.
