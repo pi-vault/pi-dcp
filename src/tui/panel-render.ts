@@ -74,6 +74,8 @@ function renderTabBar(
 
   let start = activeIndex;
   let end = activeIndex + 1;
+  // The caller guarantees contentWidth >= 20, so the active label plus both
+  // indicators always fits; the loop below only ever grows the window.
   let preferRight = true;
   while (start > 0 || end < tabs.length) {
     let progressed = false;
@@ -148,15 +150,17 @@ function renderBlockRow(
     pushPart(`[${flattenDcpLabel(row.unavailableReason)}]`);
 
   const topic = flattenDcpLabel(row.label);
+  const detail = row.detail === undefined ? "" : flattenDcpLabel(row.detail);
+  // Reserve the mode/token detail before fitting the topic so a long topic cannot
+  // starve the one metric users need to judge a block.
+  const detailReserve = detail === "" ? 0 : visibleWidth(` · ${detail}`);
   if (topic !== "") {
-    const topicPart = ` · ${topic}`;
-    const fitted = truncate(topicPart, remaining);
+    const fitted = truncate(` · ${topic}`, Math.max(0, remaining - detailReserve));
     if (fitted !== "") {
       parts.push(fitted);
       remaining -= visibleWidth(fitted);
     }
   }
-  const detail = row.detail === undefined ? "" : flattenDcpLabel(row.detail);
   if (detail !== "") pushPart(detail);
 
   const labelColor = selected ? "accent" : row.action === undefined ? "dim" : "text";

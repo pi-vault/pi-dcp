@@ -1,6 +1,6 @@
 # DCP UI Phase 4: Five Tabs and Matching Command Entry Points Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (recommended for these sequential changes) or superpowers:subagent-driven-development to implement this plan step-by-step. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (recommended for these sequential changes) or superpowers:subagent-driven-development to implement this plan step-by-step. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Ship the complete five-tab DCP dashboard and matching-tab informational commands in TUI mode.
 
@@ -70,10 +70,10 @@ Highest complexity: model-shape migration, independent tab viewports, action-dri
 
 ## Execution Rules
 
-- [ ] Confirm a clean or understood worktree and the prerequisite implementation/checks before editing product code; follow the execution workflow's isolation rules.
-- [ ] Run `pnpm check` as a fresh baseline. The parent's observation of 83 passing focused tests is historical evidence, not this phase's verification.
-- [ ] Execute this phase sequentially. Demonstrate its expected test failures, integrate the complete behavior, and verify before committing.
-- [ ] Record completed checkboxes and the phase commit only when implementation happens. All implementation steps are initially unchecked.
+- [x] Confirm a clean or understood worktree and the prerequisite implementation/checks before editing product code; follow the execution workflow's isolation rules.
+- [x] Run `pnpm check` as a fresh baseline. The parent's observation of 83 passing focused tests is historical evidence, not this phase's verification.
+- [x] Execute this phase sequentially. Demonstrate its expected test failures, integrate the complete behavior, and verify before committing.
+- [x] Record completed checkboxes and the phase commit only when implementation happens. All implementation steps are initially unchecked.
 
 ## File Responsibilities and Migration Boundary
 
@@ -132,7 +132,7 @@ Extend `openDcpPanel(state, config, ctx, onStateChange, getActiveTools, initialT
 
 **Interfaces:** Produce the model/tab/navigation/row interfaces above and `DCP_COMMAND_HELP`; consume existing `getDcpCapabilities`, `resolveContextLimits`, `formatDcpTokens`, and supplied runtime state only.
 
-- [ ] **Step 1: Write projection tests.** Name cases `projects five tabs in approved order`, `preserves all informational field sources`, `distinguishes lifecycle from policy`, and `does not mutate projection inputs`. Assert:
+- [x] **Step 1: Write projection tests.** Name cases `projects five tabs in approved order`, `preserves all informational field sources`, `distinguishes lifecycle from policy`, and `does not mutate projection inputs`. Assert:
 
   ```ts
   expect(Object.keys(model.tabs)).toEqual([
@@ -160,8 +160,8 @@ Extend `openDcpPanel(state, config, ctx, onStateChange, getActiveTools, initialT
 
   Preserve the exact plain-help assertion; add a descriptor-to-Help-row comparison covering all 11 commands and all argument syntax. Migrate existing assertions that expect an action on a policy-disabled row to `action === undefined`; retain exact reason text.
 
-- [ ] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/panel-model.test.ts tests/commands-help.test.ts`; expect new tab/source assertions to fail before migration, not unrelated fixture errors.
-- [ ] **Step 3: Implement the descriptors and projections.** Use stable IDs and this field/source mapping; counts remain exact integers, token estimates use existing compact formatting:
+- [x] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/panel-model.test.ts tests/commands-help.test.ts`; expect new tab/source assertions to fail before migration, not unrelated fixture errors.
+- [x] **Step 3: Implement the descriptors and projections.** Use stable IDs and this field/source mapping; counts remain exact integers, token estimates use existing compact formatting:
 
   | Tab / row ID                                                                                                                                              | Label / source                                                                                                      |
   | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -185,7 +185,7 @@ Extend `openDcpPanel(state, config, ctx, onStateChange, getActiveTools, initialT
 
   Help appends read-only navigation rows with IDs `help:navigation:tabs`, `help:navigation:rows`, `help:navigation:activate`, `help:navigation:close` and copy for Tab/Shift-Tab, Up/Down/j/k, Enter/Space, Esc/q. Empty Blocks uses an empty row array; its renderer supplies a non-selectable empty message.
 
-- [ ] **Step 4: Verify projections.** Rerun the step-2 command, expecting exit `0`. Cover policy-disabled/model-disabled/sub-agent states, permission-only denial, overrides, missing model/context/lifetime, zero counts, distinct counter values, unknown mode, numeric IDs `2` and `10`, all four lifecycle labels, missing consumer, and user-deactivation precedence. Compare `structuredClone` snapshots of state/config before and after projection.
+- [x] **Step 4: Verify projections.** Rerun the step-2 command, expecting exit `0`. Cover policy-disabled/model-disabled/sub-agent states, permission-only denial, overrides, missing model/context/lifetime, zero counts, distinct counter values, unknown mode, numeric IDs `2` and `10`, all four lifecycle labels, missing consumer, and user-deactivation precedence. Compare `structuredClone` snapshots of state/config before and after projection.
 
 ## Task 2: Integrate Per-Tab Navigation and Bounded Rendering
 
@@ -193,15 +193,15 @@ Extend `openDcpPanel(state, config, ctx, onStateChange, getActiveTools, initialT
 
 **Interfaces:** Consume Task 1's tabs/rows/navigation and phase 3's theme adapter. Produce the revised view/component contracts above; keep viewport fitting and tab-bar helpers local to the renderer.
 
-- [ ] **Step 1: Write navigation/layout tests.** Name cases `wraps tabs in both directions`, `restores independent tab viewports`, `scrolls read-only rows without completing`, `invalidates activation when changing tabs`, `keeps active tab visible at narrow widths`, and `preserves block lifecycle before topic text`. Migrate fixtures and initial-selection assertions to `initialNavigation`; start action tests on Controls or Blocks explicitly. Replace the old whole-renderer ban on inverse styling with assertions that only active tabs use inverse and selected body rows use the accent marker.
-- [ ] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/panel-render.test.ts tests/panel.test.ts`; expect tab/navigation/layout cases to fail before their implementation.
-- [ ] **Step 3: Implement ephemeral navigation.** Default to Overview, every tab at offset `0`, first row selected when present. Copy supplied navigation and every per-tab entry so input snapshots are not mutated. Preserve a valid stable ID; a missing ID selects the first remaining row, an empty tab has no selection and offset `0`. Up/Down and j/k clamp rather than wrap and move across all rows, including read-only headings; tab navigation wraps in the declared order and restores the target tab's selection/offset. Normalize selections against rebuilt rows on construction and fit offsets on render.
+- [x] **Step 1: Write navigation/layout tests.** Name cases `wraps tabs in both directions`, `restores independent tab viewports`, `scrolls read-only rows without completing`, `invalidates activation when changing tabs`, `keeps active tab visible at narrow widths`, and `preserves block lifecycle before topic text`. Migrate fixtures and initial-selection assertions to `initialNavigation`; start action tests on Controls or Blocks explicitly. Replace the old whole-renderer ban on inverse styling with assertions that only active tabs use inverse and selected body rows use the accent marker.
+- [x] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/panel-render.test.ts tests/panel.test.ts`; expect tab/navigation/layout cases to fail before their implementation.
+- [x] **Step 3: Implement ephemeral navigation.** Default to Overview, every tab at offset `0`, first row selected when present. Copy supplied navigation and every per-tab entry so input snapshots are not mutated. Preserve a valid stable ID; a missing ID selects the first remaining row, an empty tab has no selection and offset `0`. Up/Down and j/k clamp rather than wrap and move across all rows, including read-only headings; tab navigation wraps in the declared order and restores the target tab's selection/offset. Normalize selections against rebuilt rows on construction and fit offsets on render.
 
   Match Shift-Tab with `Key.shift(Key.tab)` before `Key.tab`; use `matchesKey` for arrows, Enter/Return, Space, Esc and the printable j/k/q shortcuts so supported Kitty sequences work. Tab/row changes request render and clear the activation proof; they never call `done`. Esc/q completes once from every tab, including fallback. Enter/Space does nothing on read-only/disabled rows.
 
   Retain the existing terminal-column/row checks and invalidation guard. Activation additionally requires the active tab and stable row ID to match the last successful normal render. No activation before render, between tab switch and render, after resize/invalidate, or after unexpected renderer failure. In close-only fallback, preserve navigation and suppress navigation/activation until a normal render recovers; never replace saved offsets with fallback's `0`. Pass a copied complete navigation snapshot to `onAction`, including on close.
 
-- [ ] **Step 4: Implement tab geometry and structured rows.** These are implementation choices from this review, within the approved design:
+- [x] **Step 4: Implement tab geometry and structured rows.** These are implementation choices from this review, within the approved design:
   - Keep `width: "92%"`, `maxHeight: "85%"`, `anchor: "center"`, heavy borders, and two-column horizontal padding. Use `render(width)`'s overlay width for layout; terminal columns remain a resize guard.
   - Normal content is title, tab bar, divider, body, feedback, footer, with four frame/padding rows: **9 chrome rows**. Let `cap = max(1, floor(terminalRows * 0.85))`, `longestBody = max(1, ...tabRowCounts)`, `target = min(cap, 9 + longestBody)`, and `bodyHeight = target - 9`. All tabs have the same target height at the same model/terminal size. Reserve feedback/footer before fitting the body.
   - Retain phase 3's **minimum width 26**. Normal rendering needs cap **at least 10**, guaranteeing a body row. Below these thresholds, or if a visible block's identity/lifecycle cannot fit, use the bounded plain close-only fallback. This deliberately replaces the old nine-row normal threshold because tabs add a chrome row; at terminal height `11`, cap `9` is now fallback.
@@ -210,7 +210,7 @@ Extend `openDcpPanel(state, config, ctx, onStateChange, getActiveTools, initialT
   - Blocks render `block` metadata directly; remove parsing of `detail.endsWith(...)` and reason text to infer state. Reserve stable ID and lifecycle first, then the applicable toggle label and policy reason, then topic/mode/token detail as space allows. Use `b<id>` when the long ID prefix will not fit. A user-deactivated block always retains that full lifecycle label; if required identity/state cannot fit, fall back safely. Policy reason is separate from state, and no activation hint is shown on a row without an action.
   - Fit the footer using complete hints, not arbitrary clipping: Tab/Shift-Tab, rows, Enter/Space where useful, and Esc/q. At compact widths prefer close, then tabs, then other hints; the shortest fallback is `q`. Flatten dynamic labels/feedback before width calculations.
 
-- [ ] **Step 5: Verify renderer/component behavior.** Run `pnpm exec vitest run tests/panel-render.test.ts tests/panel.test.ts -t 'renderDcpPanel|DcpPanelComponent'`, expecting exit `0`; controller cases finish in Task 3. Parameterize all five tabs across widths `0, 1, 25, 26, 32, 60, 80, 120` and terminal heights `1, 10, 11, 12, 24, 40`. Assert height/visible-width caps, full/overflow active-tab visibility, one-row normal rendering at height `12`, Unicode/control-character safety, empty tabs, independent scroll restoration, and immutable render inputs. Verify Enter/Space guards after tab switches, move-before-render, resize, invalidate, failure/recovery, safe theme-method fallback, `NO_COLOR`, and legacy/Kitty Tab/Shift-Tab/Space/j/k/q inputs against the installed SDK.
+- [x] **Step 5: Verify renderer/component behavior.** Run `pnpm exec vitest run tests/panel-render.test.ts tests/panel.test.ts -t 'renderDcpPanel|DcpPanelComponent'`, expecting exit `0`; controller cases finish in Task 3. Parameterize all five tabs across widths `0, 1, 25, 26, 32, 60, 80, 120` and terminal heights `1, 10, 11, 12, 24, 40`. Assert height/visible-width caps, full/overflow active-tab visibility, one-row normal rendering at height `12`, Unicode/control-character safety, empty tabs, independent scroll restoration, and immutable render inputs. Verify Enter/Space guards after tab switches, move-before-render, resize, invalidate, failure/recovery, safe theme-method fallback, `NO_COLOR`, and legacy/Kitty Tab/Shift-Tab/Space/j/k/q inputs against the installed SDK.
 
 ## Task 3: Carry Navigation Through Actions and Route Commands
 
@@ -218,7 +218,7 @@ Extend `openDcpPanel(state, config, ctx, onStateChange, getActiveTools, initialT
 
 **Interfaces:** Consume Task 2's callback and navigation snapshots. Produce the extended `openDcpPanel` signature and typed custom-completion payload defined above; keep domain executor interfaces unchanged.
 
-- [ ] **Step 1: Write controller/routing tests.** Name cases `retains every tab viewport across action rebuild`, `loads lifetime once per invocation`, `opens matching tabs only in interactive TUI`, and `does not retry actions after custom UI failure`. Update `drivePanel` and direct custom-result mocks to resolve `{ action, navigation }`, not a bare action. Retain all guarded-action characterization assertions for policy, callback identity/count, stale missing blocks, and implementation/callback errors.
+- [x] **Step 1: Write controller/routing tests.** Name cases `retains every tab viewport across action rebuild`, `loads lifetime once per invocation`, `opens matching tabs only in interactive TUI`, and `does not retry actions after custom UI failure`. Update `drivePanel` and direct custom-result mocks to resolve `{ action, navigation }`, not a bare action. Retain all guarded-action characterization assertions for policy, callback identity/count, stale missing blocks, and implementation/callback errors.
 
   Use the following routing matrix, with both `hasUI` values in non-TUI modes:
 
@@ -231,14 +231,14 @@ Extend `openDcpPanel(state, config, ctx, onStateChange, getActiveTools, initialT
 
   Replace the existing `notifies plain text ... in tui mode` expectation with real TUI panel assertions. Verify informational panels remain accessible when pipeline policy is disabled and produce no state callback merely from opening, scrolling, switching tabs, or closing.
 
-- [ ] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/panel.test.ts tests/commands-register.test.ts tests/sdk-contract.test.ts`; expect new controller/routing assertions to fail before integration.
-- [ ] **Step 3: Integrate completion and routing.** Seed navigation from `initialTab`, then receive and retain the entire snapshot from each custom completion. Undefined/close returns without a domain callback. Run only domain actions through `executeDcpAction` **outside** the custom-UI try/catch. On every normally returned result, including policy rejection or stale-block messages, retain navigation, set feedback, and reopen against fresh state/config/model/context/active tools. Implementation or callback throws propagate without reopening.
+- [x] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/panel.test.ts tests/commands-register.test.ts tests/sdk-contract.test.ts`; expect new controller/routing assertions to fail before integration.
+- [x] **Step 3: Integrate completion and routing.** Seed navigation from `initialTab`, then receive and retain the entire snapshot from each custom completion. Undefined/close returns without a domain callback. Run only domain actions through `executeDcpAction` **outside** the custom-UI try/catch. On every normally returned result, including policy rejection or stale-block messages, retain navigation, set feedback, and reopen against fresh state/config/model/context/active tools. Implementation or callback throws propagate without reopening.
 
   Keep the lifetime load before the loop, once per invocation, with failure represented by undefined totals. Move parent-directory resolution inside that loading try so session-directory failure also permits an Unavailable dashboard. Do not load lifetime separately in TUI `dcp:lifetime`, and do not reload on tab switches/actions. Keep native compression approval and its RPC path unchanged.
 
   Informational handlers branch before their text builder using exactly `ctx.mode === "tui" && ctx.hasUI`, then await `openDcpPanel` with the matching tab and return. Other branches preserve the existing text builders and notifications. Help consumes descriptors, never dispatches itself. Custom-UI rejection reports the existing error and ends the panel invocation; there is no action retry or text-command recursion.
 
-- [ ] **Step 4: Verify production wiring.** Rerun the step-2 command and `pnpm exec vitest run tests/panel-model.test.ts tests/panel-render.test.ts tests/commands-help.test.ts tests/dcp-actions.test.ts`, expecting exit `0` for both. Exercise a controller sequence that scrolls Overview, visits Blocks, switches to Controls, runs an action, then returns to Blocks and Overview; assert every retained stable ID/offset and feedback. Verify changed model/policy, block removal, consumed-child restoration, empty Blocks after rebuild, stale results, one persistence callback per permitted attempt, and no navigation state in snapshots.
+- [x] **Step 4: Verify production wiring.** Rerun the step-2 command and `pnpm exec vitest run tests/panel-model.test.ts tests/panel-render.test.ts tests/commands-help.test.ts tests/dcp-actions.test.ts`, expecting exit `0` for both. Exercise a controller sequence that scrolls Overview, visits Blocks, switches to Controls, runs an action, then returns to Blocks and Overview; assert every retained stable ID/offset and feedback. Verify changed model/policy, block removal, consumed-child restoration, empty Blocks after rebuild, stale results, one persistence callback per permitted attempt, and no navigation state in snapshots.
 
   In `tests/sdk-contract.test.ts`, use existing offline `createHostSession`, `session.extensionRunner.setUIContext(..., mode)`, and real registered commands through `session.prompt('/dcp:help')` (plus the informational routing matrix). Supply a custom UI adapter that constructs/renders the actual component and closes via its input handler. Assert initial tab/overlay options and absence of model streaming, then repeat RPC with `hasUI` true and assert plain notification plus no custom UI. This validates SDK integration, not visual terminal rendering.
 
@@ -246,27 +246,37 @@ Extend `openDcpPanel(state, config, ctx, onStateChange, getActiveTools, initialT
 
 **Files:** `README.md`, `CHANGELOG.md`, and this plan's implementation checkboxes after work is performed.
 
-- [ ] **Step 1: Run focused regressions.** Run `pnpm exec vitest run tests/panel-model.test.ts tests/panel-render.test.ts tests/panel.test.ts tests/commands-register.test.ts tests/commands-help.test.ts tests/dcp-actions.test.ts tests/notification.test.ts tests/notification-delivery.test.ts tests/compress-notification.test.ts tests/compress-render.test.ts tests/sdk-contract.test.ts`; expect exit `0`. These pin prior notification/tool-rendering/approval behavior as well as all migrated dashboard paths.
-- [ ] **Step 2: Document delivered behavior.** Update README's current panel/command/key documentation, including the tab routing matrix, read-only scrolling, immediate Controls/Blocks actions, lifecycle labels, and the revised tiny-terminal fallback. Add the actual changes to CHANGELOG's existing unreleased section; no version bump. Do not rewrite historical release notes as if tabs existed in those releases.
+- [x] **Step 1: Run focused regressions.** Run `pnpm exec vitest run tests/panel-model.test.ts tests/panel-render.test.ts tests/panel.test.ts tests/commands-register.test.ts tests/commands-help.test.ts tests/dcp-actions.test.ts tests/notification.test.ts tests/notification-delivery.test.ts tests/compress-notification.test.ts tests/compress-render.test.ts tests/sdk-contract.test.ts`; expect exit `0`. These pin prior notification/tool-rendering/approval behavior as well as all migrated dashboard paths.
+- [x] **Step 2: Document delivered behavior.** Update README's current panel/command/key documentation, including the tab routing matrix, read-only scrolling, immediate Controls/Blocks actions, lifecycle labels, and the revised tiny-terminal fallback. Add the actual changes to CHANGELOG's existing unreleased section; no version bump. Do not rewrite historical release notes as if tabs existed in those releases.
 - [ ] **Step 3: Inspect in real Pi.** Launch the local DCP checkout with pi-status enabled. Check every tab and informational entrypoint, active-theme and `NO_COLOR` appearance, scrolling, independent viewport restoration, narrow tab bars, resize, empty/consumed/user-deactivated blocks, policy-disabled controls, action feedback, and tiny close-only views. Use terminal dimensions separately from component overlay width. Record concrete observed checks; if an interactive host is unavailable, report that limitation explicitly rather than claiming visual acceptance.
-- [ ] **Step 4: Verify the whole repo and diff.** Run `pnpm check` and `git diff --check`; expect exit `0`. Inspect that only the listed presentation/routing/docs/tests changed, old model/navigation paths are gone, and no domain algorithm, snapshot format, approval flow, tool-selection behavior, or statistics calculation changed.
-- [ ] **Step 5: Commit the complete usable phase.** Stage only phase files and commit with `feat: add tabbed DCP dashboard and command routing`. Tasks 1–3 are sequential work units within this single atomic phase; do not ship an intermediate commit with incompatible old/new callers. Record the actual commit/check evidence and mark completed checkboxes only after implementation.
+- [x] **Step 4: Verify the whole repo and diff.** Run `pnpm check` and `git diff --check`; expect exit `0`. Inspect that only the listed presentation/routing/docs/tests changed, old model/navigation paths are gone, and no domain algorithm, snapshot format, approval flow, tool-selection behavior, or statistics calculation changed.
+- [x] **Step 5: Commit the complete usable phase.** Stage only phase files and commit with `feat: add tabbed DCP dashboard and command routing`. Tasks 1–3 are sequential work units within this single atomic phase; do not ship an intermediate commit with incompatible old/new callers. Record the actual commit/check evidence and mark completed checkboxes only after implementation.
 
 ## Phase Completion and Rollback
 
-- [ ] The usable result above works in production without future-phase scaffolding.
-- [ ] The focused commands and `pnpm check` pass; document concrete visual checks or explain any real-Pi check that could not be performed.
-- [ ] README/CHANGELOG describe this phase's actual delivered behavior, and the complete diff forms one atomic commit.
-- [ ] Confirm unchanged domain algorithms, policy/callback semantics, metric calculations, and snapshot compatibility for the affected paths.
+- [x] The usable result above works in production without future-phase scaffolding.
+- [x] The focused commands and `pnpm check` pass; document concrete visual checks or explain any real-Pi check that could not be performed.
+- [x] README/CHANGELOG describe this phase's actual delivered behavior, and the complete diff forms one atomic commit.
+- [x] Confirm unchanged domain algorithms, policy/callback semantics, metric calculations, and snapshot compatibility for the affected paths.
 
 Revert dependent later phases before reverting this phase. No snapshot migration is introduced. Optional compression display metadata is backward-compatible with the legacy-result fallback from phase 2.
 
 ## Final Acceptance and Handoff
 
-- [ ] All five tabs and matching TUI command entrypoints work; non-TUI informational access still works.
-- [ ] No existing context/statistics/help information is lost, and block lifecycle labels distinguish consumption from user deactivation.
-- [ ] All notifications respect their configured gates; statuses are one line; both compression modes have useful collapsed/expanded/legacy/error rendering.
-- [ ] Model-visible compression text, domain algorithms, tool-selection policy, statistics calculations, and snapshot formats are unchanged.
-- [ ] Each phase has a passing focused check, passing `pnpm check`, documentation, and an independently usable commit. Record concrete visual checks, or explicitly report any real-Pi verification that could not be performed.
+- [x] All five tabs and matching TUI command entrypoints work; non-TUI informational access still works.
+- [x] No existing context/statistics/help information is lost, and block lifecycle labels distinguish consumption from user deactivation.
+- [x] All notifications respect their configured gates; statuses are one line; both compression modes have useful collapsed/expanded/legacy/error rendering.
+- [x] Model-visible compression text, domain algorithms, tool-selection policy, statistics calculations, and snapshot formats are unchanged.
+- [x] Each phase has a passing focused check, passing `pnpm check`, documentation, and an independently usable commit. Record concrete visual checks, or explicitly report any real-Pi verification that could not be performed.
 
 No implementation checkboxes are complete at plan-writing time. Use the phase sequence as the execution and review boundary.
+
+## Implementation Evidence — 2026-10-13
+
+**Implemented and committed** as `4a5c49c` (`feat: add tabbed DCP dashboard and command routing`) on `20261013-dcp-ui-refactor-phase-04-tabbed-dashboard`, based on `a2591e5` (phase 3 merged by PR #84).
+
+- **Checks:** `pnpm check` passes end to end — Biome format (120 files), Biome lint (`--error-on-warnings`), `tsc --noEmit`, and Vitest **66 test files / 1,141 tests**.
+- **Information-loss audit:** every `contextCommand` field maps to an Overview row (`Tokens`→`overview:context`, `Currently pruned tool calls`→`overview:pruned-tools`, `Active compression blocks`→`overview:active-blocks`, `Total blocks`→`overview:total-blocks`, `Tool cache entries`→`overview:tool-cache`, `Current user turn`→`overview:user-turn`, `Manual mode`→`overview:manual-mode`, model-disabled status→`overview:pipeline`). `statsCommand` and `lifetimeCommand` fields map one-to-one onto the Statistics rows, and `helpCommand`'s 11 entries map onto the 11 Help command rows. No informational field is lost.
+- **Routing matrix:** informational handlers branch on exactly `ctx.mode === "tui" && ctx.hasUI`; RPC/print/JSON/no-UI keep the plain-text builders, and the SDK contract test exercises the real extension runner for both `tui` and `rpc`.
+- **Exception semantics:** `executeDcpAction` runs outside the custom-UI `try`/`catch`; implementation and callback throws propagate with no reopen and no notification, pinned by characterization tests.
+- **Task 4 Step 3 (real-Pi visual inspection) was NOT performed.** No interactive Pi host with pi-status was available in this environment. Tab-bar windowing, active-theme and `NO_COLOR` appearance, resize, and independent viewport restoration are covered only by renderer/component tests, not by a real terminal.

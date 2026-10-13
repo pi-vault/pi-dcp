@@ -260,6 +260,18 @@ describe("renderDcpPanel", () => {
     expect(rendered).toContain("Inactive");
   });
 
+  it("keeps the mode and token detail when a block topic is long", () => {
+    const state = createSessionState();
+    state.prune.messages.blocksById.set(1, makeBlock(1, "very long topic ".repeat(30)));
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    const rendered = text(
+      renderDcpPanel(model, view("blocks", { selectedRowId: "block:1" }), identity, 60, 40),
+    );
+
+    expect(rendered).toContain("range · ~100 tokens");
+  });
+
   it("falls back when a visible block identity and lifecycle cannot fit", () => {
     const state = createSessionState();
     const id = Number.MAX_SAFE_INTEGER;

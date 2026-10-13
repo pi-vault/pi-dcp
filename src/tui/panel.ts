@@ -88,6 +88,7 @@ export class DcpPanelComponent {
   private readonly options: DcpPanelComponentOptions;
   private navigation: DcpPanelNavigation;
   private completed = false;
+  /** False only after the close-only fallback; pre-render navigation stays available. */
   private actionsVisible = true;
   private renderedTab: DcpPanelTab | undefined;
   private renderedRowId: string | undefined;
