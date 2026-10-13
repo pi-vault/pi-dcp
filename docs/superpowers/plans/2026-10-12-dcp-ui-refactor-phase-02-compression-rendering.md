@@ -1,91 +1,265 @@
 # DCP UI Phase 2: Compression Tool Calls and Results Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (recommended for these sequential changes) or superpowers:subagent-driven-development to implement this plan step-by-step. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (recommended for these sequential changes) or superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship themed compression calls/results for both modes, including historical and error results.
+**Goal:** Give both compression modes compact, active-theme call and result rendering while preserving model-facing output, native approval, and readable historical/error results.
 
-**Architecture:** Add a small active-theme adapter and a dedicated tool presentation module. Both registered compression definitions use the same renderer functions and successful executions supply optional display metadata; model-facing output and native approval stay with their current owners.
+**Architecture:** Add one safe adapter around Pi's active theme and one compression presentation module. Registered range/message tools close over their configured mode, successful executions attach summary-free display metadata, and every error, partial, legacy, or malformed result falls back to its original text instead of manufacturing success metrics.
 
-**Tech Stack:** Existing TypeScript/ESM, Node `>=24.15.0`, installed Pi coding-agent/TUI SDK, Vitest, TypeBox, and Biome; no new dependencies.
+**Tech Stack:** Existing TypeScript/ESM, Node `>=24.15.0`, installed `@earendil-works/pi-*` `1.1.0`, Vitest 5, TypeBox, Biome, and Pi TUI `Text`/`TruncatedText`; no new dependencies.
 
-**Spec:** [Approved design in the parent plan](2026-10-12-dcp-ui-refactor-plan.md#approved-design). The parent remains the source of truth for the overall design; this file extracts its phase 2 implementation content.
+**Spec:** [Approved design in the parent plan](2026-10-12-dcp-ui-refactor-plan.md#approved-design). The parent remains the source of truth for the overall UI design and phase boundaries.
 
 ## Global Constraints
 
-- Use `/Users/lanh/Developer/pi-vault/pi-status` as a visual/code reference only; no runtime imports, dependency on pi-status, or edits to that repository.
-- Match its frame, spacing, tabs, semantic theme roles, selection marker, compact metrics, and persistent keyboard footer. Use the active Pi theme; no palette presets or editor.
-- Adapt reference primitives to DCP's installed SDK. The inspected pi-status checkout uses Pi `0.84.4`; DCP uses Pi `1.1.0`.
-- Preserve command names and arguments, pruning/compression algorithms, policy, tool selection, model-visible content, statistics calculations, and compression result text.
-- Preserve snapshot serialization version `2`, reading versions `1` and `2`, persistence ordering, live state/config identities, and unexpected exception propagation.
-- Operator actions continue through `executeDcpAction`: fresh policy check, one callback after a normally completed permitted attempt, no callback after rejection or an implementation throw. Permission denial alone does not disable operator controls.
-- Keep per-call compression approval through Pi's native `ui.confirm`, including RPC support, cancellation, abort handling, and policy recheck after approval.
-- No new configuration, dependencies, sidebar integration, search, block drilldown, domain actions, package version bump, or speculative abstractions.
-- Earlier architecture documents' UI/message compatibility constraints are intentionally superseded for presentation only. Their domain and persistence contracts still apply.
-- Each phase includes its production integration, relevant tests, README/CHANGELOG updates, `pnpm check`, and one atomic commit. No phase ships unused helpers or depends on future code.
+- Use `/Users/lanh/Developer/pi-vault/pi-status` and `/Users/lanh/Developer/pi-packages/pi` as read-only references; add no runtime imports or dependencies on either checkout.
+- Use the active Pi theme and semantic roles. `NO_COLOR` presence disables styling; one throwing theme operation falls back to plain text without disabling its siblings.
+- Preserve command names/arguments, TypeBox schemas, prompts, pruning/compression algorithms, policy/tool selection, statistics, notifications, model-visible `content`, and compression result text.
+- Preserve native per-call approval through `ui.confirm`, including RPC support, cancellation, abort handling, and the policy recheck after approval.
+- Preserve snapshot version `2`, version `1`/`2` reads, persistence order, live state/config identities, and unexpected exception propagation.
+- Successful normal execution may add `details.dcpCompression`; policy rejection, approval rejection/cancellation/abort, and thrown failures must not claim success metadata.
+- Display metadata contains no submitted summaries or combined summary text. Copy `blockIds` so later state mutation cannot change a completed tool result.
+- Add no configuration, dependency, sidebar integration, search, block drilldown, domain action, package version bump, or future-phase panel code.
+- Complete production integration, focused tests, README/CHANGELOG updates, full verification, and one atomic phase commit. Intermediate tasks remain uncommitted so the phase can be reverted as one usable result.
 
 ## Review Focus
 
-| Input or condition | Required behavior | Owning check |
+| Input or condition | Required behavior | Owning task/check |
 | --- | --- | --- |
-| Historical result details are empty | Preserve readable original text, with no fabricated metrics. | Step 1 legacy cases |
-| Error result also carries display metadata | Error presentation wins; do not imply successful compression. | Step 1 error cases |
-| Partial/missing arguments or partial results | Render safely and do not label incomplete results completed. | Step 1 partial cases |
-| Unicode, narrow width, expanded multiline content | Truncate collapsed rows and wrap expanded text within render width. | Step 1 width/content cases |
-| NO_COLOR or throwing theme methods | Use readable plain styling without disrupting tool execution or approval. | Step 1 theme cases |
+| Missing or malformed historical `details` | Render original text; never infer metrics by parsing it or consulting live state. | Task 2 legacy/malformed cases |
+| `isError` with otherwise valid metadata | Error precedence wins and original text remains visible. | Task 2 error cases; Task 3 rejection cases |
+| Partial result with otherwise valid metadata | Show `Compression in progress`; do not render completed metrics. | Task 2 partial cases |
+| Missing/partial arguments, multiline/Unicode topic, narrow width | Render safely, omit unavailable fields, flatten the topic, and bound every rendered line. | Task 2 call/width cases |
+| `NO_COLOR`, one throwing theme method, or non-string theme return | Keep readable plain text and allow the other theme methods to operate. | Task 1 adapter cases |
 
----
+## Reconnaissance and Readiness Basis
 
-## Complexity and Atomic Result
+- DCP baseline: branch `20261013-dcp-ui-refactor-phase-02-compression-rendering` at `3c1ff6e`; clean worktree; `pnpm check` passes with 63 files / 1,005 tests.
+- Phase 1 is merged. `src/tui/formatters.ts` exports `formatDcpTokens(tokens, estimated?)` and `flattenDcpLabel(value)` with the required estimate and whitespace behavior.
+- DCP registers `compress` once during extension creation and again after trusted session configuration loads. Both definitions must receive renderers, and `renderCompressCall` must close over the mode used for that exact registration.
+- DCP's normal successful execution currently returns one text content item and `details: {}`. Capability/approval rejections also return `details: {}` with `isError: true`; unexpected compression failures throw.
+- Installed Pi `1.1.0` defines `ToolDefinition.renderCall(args, theme, context)` and `renderResult(result, { expanded, isPartial }, theme, context)`. Runtime error state is authoritative in `context.isError`; Pi does not pass `isError` on the result object supplied to a custom renderer.
+- Pi's `Text` wraps ANSI/Unicode-aware expanded content to the render width. `TruncatedText` keeps collapsed content to one ANSI/Unicode-aware line. Use these components instead of implementing width algorithms.
+- Pi's tool shell already supplies pending/success/error backgrounds and horizontal padding. Keep the default shell; DCP renders only the inner call/result content.
+- pi-status commit `18d8354` supplies the reference behavior for `NO_COLOR` presence and per-method safe theme calls. Pi commit `7bd01fb92` supplies the renderer contracts and TUI component behavior; the installed package declarations remain authoritative where the checkout differs.
 
-Moderate complexity: SDK callbacks, width-aware components, and optional metadata must agree. Historical results, partial arguments, and errors make this more involved than text formatting, but it does not change panel navigation.
+## Visible Rendering Contract
 
-**Usable result:** Both compression modes show compact calls and results, support expanded detail, and safely display older results without metadata. Phase 1 reports and the existing panel continue working.
+Assert visible text after stripping ANSI and trimming component-added right padding; exact colors are asserted separately by role calls.
 
-**Prerequisites:** [Previous phase](2026-10-12-dcp-ui-refactor-phase-01-text-notifications.md). Phase 1 must be integrated and verified. Import formatDcpTokens(tokens: number, estimated?: boolean): string and flattenDcpLabel(value: string): string from src/tui/formatters.ts.
+### Calls
 
-**Boundary:** Include production integration, tests, documentation, and verification in one phase commit. Do not ship unused helpers, break existing callers, or require unimplemented later code. After this complete commit, continue with [phase 3](2026-10-12-dcp-ui-refactor-phase-03-framed-overlay.md).
+| Input | Visible collapsed text |
+| --- | --- |
+| Range, topic `" Auth\n system "`, two entries | `compress range · Auth system · 2 ranges` |
+| Message, topic `"Auth"`, one target | `compress message · Auth · 1 message` |
+| Range with missing topic and missing `content` | `compress range` |
+| Message with whitespace-only topic and empty `targets` | `compress message · 0 messages` |
+
+- Count the registered mode's array (`content` for range, `targets` for message); ignore the other property.
+- Include a count only when the selected property is an array. Do not validate or display selection contents in the renderer.
+- Never display submitted `summary` values or stringify the full arguments object.
+- Style `compress` with `toolTitle` + bold, mode/topic with `accent`/`text`, and separators/count with `muted`.
+- Return `TruncatedText` so a collapsed call is exactly one bounded line at any positive render width.
+
+### Results
+
+For metadata `{ mode: "range", topic: " Auth\n system ", messagesCompressed: 5, compressedTokens: 12_400, summaryTokens: 2_100, blockIds: [1, 2] }`:
+
+- Collapsed visible text: `Range compression · Auth system · 5 messages · ~12.4k input · ~2.1k summary`.
+- Expanded visible text: the same header, then the unchanged original text content, then `Blocks: b1, b2`.
+- Use singular `message` only for exactly `1`. Token counts are estimates and use `formatDcpTokens(value, true)`.
+- Omit the topic segment when its flattened value is empty. Omit the blocks line when `blockIds` is empty.
+- Join every text content item in source order with `\n`; do not assume `content[0]`. Leave the result object and non-text content untouched so Pi can keep handling supported non-text items.
+- Metadata-backed success uses `toolTitle`, `accent`, `text`, `muted`, and `toolOutput` roles. Expanded block IDs use `accent`.
+- If `options.isPartial` is true, return one warning-styled `Compression in progress` line before inspecting metadata.
+- If `context.isError` is true, render original text with the `error` role even when metadata exists. Use `Compression failed` only when the error has no text.
+- If metadata is absent or fails the runtime shape guard, render original text with `toolOutput`. Use `Compression result unavailable` only when no text exists.
+- Error/legacy collapsed output uses `TruncatedText`; expanded output uses `Text` and preserves all original lines.
+- Metadata is valid only when mode is `range`/`message`, topic is a string, all three counts are finite non-negative numbers, and `blockIds` is an array of finite non-negative integers. Invalid metadata takes the legacy path without throwing.
+
+## File Responsibilities
+
+| File | Responsibility |
+| --- | --- |
+| `src/tui/theme.ts` (new) | `DcpTheme` and safe active-theme adaptation, including `NO_COLOR`. |
+| `src/tui/compress-render.ts` (new) | Display metadata creation/guarding, text fallback extraction, and pure call/result component factories. |
+| `src/index.ts` | Attach both render callbacks and successful display details at the existing registration/execution boundary. |
+| `tests/theme.test.ts` (new) | Adapter delegation, `NO_COLOR`, per-method failure, and non-string return coverage. |
+| `tests/compress-render.test.ts` (new) | Exact call/result copy, role use, metadata privacy/copying, fallback precedence, and rendered-width coverage. |
+| `tests/index.test.ts` | Existing mocked registration/execution characterization: both modes expose renderers and rejection paths keep empty details. |
+| `tests/sdk-contract.test.ts` | Real Pi `1.1.0` registration plus end-to-end successful/denied result details through the existing fake-provider lifecycle. |
+| `README.md`, `CHANGELOG.md` | User-visible compact tool rendering and expansion behavior under Unreleased. |
 
 ## Execution Rules
 
-- [ ] Confirm a clean or understood worktree and the prerequisite implementation/checks before editing product code; follow the execution workflow's isolation rules.
-- [ ] Run `pnpm check` as a fresh baseline. The parent's observation of 83 passing focused tests is historical evidence, not this phase's verification.
-- [ ] Execute this phase sequentially. Demonstrate its expected test failures, integrate the complete behavior, and verify before committing.
-- [ ] Record completed checkboxes and the phase commit only when implementation happens. All implementation steps are initially unchecked.
+- [ ] Confirm the worktree is clean or understood and phase 1 is present before editing.
+- [ ] Run `pnpm check` as a fresh baseline; do not rely on this plan's recorded result.
+- [ ] Execute Tasks 1–3 in order because each consumes the preceding task's interface.
+- [ ] For each task, add the named failing assertions, run the focused command and observe the expected failure, implement the minimum behavior, then rerun the focused command.
+- [ ] Do not mark implementation checkboxes or add an implementation record until the corresponding work and verification actually occur.
 
-## Implementation Steps (Extracted from Parent Phase 2)
+---
 
-**Files:** Create `src/tui/theme.ts`, `src/tui/compress-render.ts`, `tests/theme.test.ts`, and `tests/compress-render.test.ts`. Modify `src/index.ts`; extend tool-registration/execution coverage in `tests/index.test.ts`, `tests/sdk-contract.test.ts`, and the existing harness only as required. Update README and CHANGELOG.
+### Task 1: Safe Active-Theme Adapter
+
+**Files:**
+- Create: `src/tui/theme.ts`
+- Create: `tests/theme.test.ts`
 
 **Interfaces:**
+- Produces: `DcpTheme = Pick<Theme, "fg" | "bg" | "bold" | "inverse">`.
+- Produces: `createDcpTheme(theme: Theme, env?: NodeJS.ProcessEnv): DcpTheme`.
+- Contract: `NO_COLOR` is enabled by property presence, including `NO_COLOR=""` and `NO_COLOR="0"`; every method delegates at call time and independently falls back to its input text on throw or non-string return.
 
-- Consume phase 1's token and label formatters.
-- Produce `DcpTheme = Pick<Theme, "fg" | "bg" | "bold" | "inverse">` and `createDcpTheme(theme: Theme, env?: NodeJS.ProcessEnv): DcpTheme`. `NO_COLOR` presence returns identity styling. Theme methods that throw fall back to their plain input; no fixed colors/configuration are introduced.
-- Produce `CompressionDisplayDetails` with optional `dcpCompression: Pick<CompressResult, "topic" | "messagesCompressed" | "compressedTokens" | "summaryTokens" | "blockIds"> & { mode: CompressArgs["mode"] }`.
-- Produce `createCompressionDisplayDetails(mode: CompressArgs["mode"], result: CompressResult): CompressionDisplayDetails` using a copied block-ID array.
-- Produce `renderCompressCall(mode: CompressArgs["mode"], args: unknown, theme: Theme): Component` and `renderCompressResult(result: AgentToolResult<CompressionDisplayDetails>, options: ToolRenderResultOptions, theme: Theme, context: Pick<ToolRenderContext, "isError">): Component`, using the installed SDK's types. Both tool definitions wire these callbacks; call rendering closes over the registered mode.
+- [ ] **Step 1: Write failing adapter tests.** Cover normal delegation for all four methods, live delegation after the underlying implementation changes, `NO_COLOR` presence/truthiness cases, one throwing method with working siblings, and a non-string method return.
 
-- [ ] **Step 1: Add failing renderer/metadata tests.** Assert call output contains the flattened topic, registered mode, and range/target count without the submitted summaries. Assert collapsed metadata-backed results include message count and estimated compressed/summary tokens; expanded results additionally include original result text and `bN` identifiers. Assert metadata uses the exact execution result counts/IDs and does not contain summaries.
+- [ ] **Step 2: Run the adapter test and verify the intended failure.**
 
-  Pin representative data assertions:
+  Run: `pnpm exec vitest run tests/theme.test.ts`
+
+  Expected: FAIL because `src/tui/theme.ts` does not exist.
+
+- [ ] **Step 3: Implement the adapter.** Keep `safeThemeCall` private, call `Object.hasOwn(env, "NO_COLOR")`, return identity functions when color is disabled, and do not add palettes or hard-coded ANSI.
+
+- [ ] **Step 4: Rerun the adapter test.**
+
+  Run: `pnpm exec vitest run tests/theme.test.ts`
+
+  Expected: PASS.
+
+---
+
+### Task 2: Pure Compression Metadata and Renderers
+
+**Files:**
+- Create: `src/tui/compress-render.ts`
+- Create: `tests/compress-render.test.ts`
+
+**Interfaces:**
+- Consumes: `formatDcpTokens`, `flattenDcpLabel`, `createDcpTheme`, Pi `Theme`/tool renderer types, and TUI `Text`/`TruncatedText`.
+- Produces: `CompressionDisplayMetadata` with `mode`, `topic`, `messagesCompressed`, `compressedTokens`, `summaryTokens`, and copied `blockIds`.
+- Produces: `CompressionDisplayDetails` with optional `dcpCompression?: CompressionDisplayMetadata`.
+- Produces: `createCompressionDisplayDetails(mode: CompressArgs["mode"], result: CompressResult): CompressionDisplayDetails`.
+- Produces: `renderCompressCall(mode: CompressArgs["mode"], args: unknown, theme: Theme): Component`.
+- Produces: `renderCompressResult(result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme, context: Pick<ToolRenderContext, "isError">): Component`. Treat `details` as an untrusted runtime boundary and narrow it with the private guard.
+
+- [ ] **Step 1: Write failing metadata tests.** Assert all exact result fields, a copied `blockIds` array, and absence of submitted/combined summary text from serialized details.
 
   ```ts
-  expect(createCompressionDisplayDetails("range", result).dcpCompression)
-    .toMatchObject({ mode: "range", messagesCompressed: 5, blockIds: [1, 2] });
+  expect(createCompressionDisplayDetails("range", result).dcpCompression).toEqual({
+    mode: "range",
+    topic: "Auth",
+    messagesCompressed: 5,
+    compressedTokens: 12_400,
+    summaryTokens: 2_100,
+    blockIds: [1, 2],
+  });
   expect(JSON.stringify(details)).not.toContain("private summary text");
-  expect(renderedLines.every(line => visibleWidth(line) <= 60)).toBe(true);
   ```
 
-  Cover both modes, partial/missing arguments, zero-message results, metadata-free historical results, error results even if metadata is present, expanded multiline output, Unicode, `NO_COLOR`, and a throwing theme. Legacy/error results display their original text rather than fabricated counts; partial results are not labeled completed. Use actual SDK callback invocation through registered tools for integration coverage.
-- [ ] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/theme.test.ts tests/compress-render.test.ts tests/index.test.ts tests/sdk-contract.test.ts`; expect missing-renderer/metadata failures.
-- [ ] **Step 3: Implement and register both-mode rendering.** Use Pi components that honor the render width: truncate collapsed rows and wrap expanded text. Add optional metadata only to normally completed compression results. Leave rejected approval/policy results with empty details. Keep result `content`, schemas, activation, execution mode, prompts, timing, and approval unchanged. Do not parse metric counts from human-readable legacy text or read live state to reconstruct historical results. Do not strip supported content types from fallback results.
-- [ ] **Step 4: Verify the phase.** Run the step-2 command and `pnpm check`; expect exit `0`. Verify real Pi collapsed/expanded rendering in both configured modes, plus native approval. No model or network call is required for unit tests.
-- [ ] **Step 5: Document and commit the usable result.** Document the compact tool presentation and host expansion behavior. Run `git diff --check`, stage phase files, and commit with `feat: render DCP compression calls and results`.
+- [ ] **Step 2: Write failing call-renderer tests.** Pin the four call-table strings, both singular/plural forms, wrong-mode-array exclusion, Unicode topics, no submitted summaries, expected semantic role calls, and `visibleWidth(line) <= width` at widths `1`, `12`, and `60`.
+
+- [ ] **Step 3: Write failing result-renderer tests.** Pin the collapsed/expanded strings and ordering, multiple text items, empty blocks/topic, zero/one/many messages, partial-before-metadata precedence, error-before-metadata precedence, empty error text, empty legacy text, absent details, malformed details, multiline Unicode content, `NO_COLOR`, and one throwing theme method.
+
+- [ ] **Step 4: Run the renderer tests and verify the intended failure.**
+
+  Run: `pnpm exec vitest run tests/theme.test.ts tests/compress-render.test.ts`
+
+  Expected: FAIL because the compression presentation module does not exist.
+
+- [ ] **Step 5: Implement metadata creation and runtime guarding.** Keep the guard and text extraction private; never parse human-readable result text or read live DCP state.
+
+- [ ] **Step 6: Implement the two component factories.** Apply the visible rendering contract and use `TruncatedText` for every collapsed path and `Text` for expanded paths.
+
+- [ ] **Step 7: Rerun the renderer tests.**
+
+  Run: `pnpm exec vitest run tests/theme.test.ts tests/compress-render.test.ts`
+
+  Expected: PASS, including every width assertion.
+
+---
+
+### Task 3: Register Renderers and Attach Success Metadata
+
+**Files:**
+- Modify: `src/index.ts` inside `executeCompressTool` and both branches of `registerCompressTool`
+- Modify: `tests/index.test.ts`
+- Modify: `tests/sdk-contract.test.ts`
+
+**Interfaces:**
+- Consumes: Task 2's three exports.
+- Produces: both registered definitions expose `renderCall` and `renderResult`; `renderCall` closes over the definition's `mode`.
+- Produces: only normally completed `handleCompress` calls return `createCompressionDisplayDetails(mode, result)`; every existing rejection still returns `{}` and unexpected exceptions still throw.
+- Preserves: `content`, `isError`, parameters, description, activation, execution mode, approval order, notification timing, and policy checks.
+
+- [ ] **Step 1: Add failing mocked registration tests.** For initial range and trusted-project message registration, assert both callbacks exist; invoke the registered callbacks with partial arguments/results and prove the closure uses the registered mode without throwing.
+
+- [ ] **Step 2: Add failing execution-boundary tests.** Assert successful range/message results carry exact metadata and no summaries. Assert capability denial, approval false/cancel/abort, and post-approval policy rejection retain `details: {}` and `isError: true`; retain existing assertions that unexpected `handleCompress` failures reject.
+
+- [ ] **Step 3: Extend the real SDK lifecycle test.** Capture `tool_execution_end.result.details` in the existing approved/denied fake-provider test: approved execution has exact `dcpCompression` values/IDs, denied execution has `{}`. Also assert `session.getToolDefinition("compress")` exposes both renderer callbacks before invoking the renderer once with the installed SDK types.
+
+- [ ] **Step 4: Run integration tests and verify the intended failure.**
+
+  Run: `pnpm exec vitest run tests/compress-render.test.ts tests/index.test.ts tests/sdk-contract.test.ts`
+
+  Expected: FAIL because registered tools have no custom renderers and successful results still return empty details.
+
+- [ ] **Step 5: Wire the registered callbacks.** Add `renderCall: (args, theme) => renderCompressCall(mode, args, theme)` and `renderResult: renderCompressResult` to both schema branches without changing the schemas or merging the branches.
+
+- [ ] **Step 6: Attach metadata after normal compression.** Build details from the same `mode` and `CompressResult` used for content/notification; leave every earlier return and thrown path unchanged.
+
+- [ ] **Step 7: Rerun integration and regression tests.**
+
+  Run: `pnpm exec vitest run tests/theme.test.ts tests/compress-render.test.ts tests/index.test.ts tests/sdk-contract.test.ts tests/compress-permission.test.ts tests/notification-delivery.test.ts tests/compression-timing.test.ts`
+
+  Expected: PASS.
+
+---
+
+### Task 4: Documentation, Full Verification, and Atomic Commit
+
+**Files:**
+- Modify: `README.md`
+- Modify: `CHANGELOG.md`
+- Modify: this plan only to record completed checks/evidence after implementation
+
+**Interfaces:**
+- README describes the compact range/message call line, compact estimated metrics, host expansion, and historical/error text fallback.
+- CHANGELOG adds one Phase 2 item under the existing `## [Unreleased]` section without editing released entries or changing the package version.
+
+- [ ] **Step 1: Update user documentation.** Describe behavior that is actually implemented; do not advertise the Phase 3 frame or Phase 4 tabs.
+
+- [ ] **Step 2: Run the complete focused suite.**
+
+  Run: `pnpm exec vitest run tests/theme.test.ts tests/compress-render.test.ts tests/index.test.ts tests/sdk-contract.test.ts tests/compress-permission.test.ts tests/notification-delivery.test.ts tests/compression-timing.test.ts`
+
+  Expected: PASS.
+
+- [ ] **Step 3: Run the repository gate.**
+
+  Run: `pnpm check`
+
+  Expected: formatting, lint, type checking, and all tests exit `0`.
+
+- [ ] **Step 4: Inspect the complete diff.**
+
+  Run: `git diff --check`
+
+  Expected: exit `0`. Confirm no schema, prompt, model-facing content, approval/policy, notification, metric calculation, persistence, or dependency changes.
+
+- [ ] **Step 5: Perform real-Pi inspection when interactive Pi is available.** Exercise range and message modes; inspect collapsed and expanded success, native approval, denial, and a resumed historical result. Record terminal width/theme and observed visible strings. If interactive Pi is unavailable, record that limitation and rely on the real SDK lifecycle plus component width tests; do not claim visual inspection occurred.
+
+- [ ] **Step 6: Record implementation evidence in this plan.** Include baseline/final test counts, focused command results, real-Pi status, and the final commit hash only after those facts exist.
+
+- [ ] **Step 7: Commit the usable phase atomically.** Stage only Phase 2 files and commit with `feat: render DCP compression calls and results`.
 
 ## Phase Completion and Rollback
 
-- [ ] The usable result above works in production without future-phase scaffolding.
-- [ ] The focused commands and `pnpm check` pass; document concrete visual checks or explain any real-Pi check that could not be performed.
-- [ ] README/CHANGELOG describe this phase's actual delivered behavior, and the complete diff forms one atomic commit.
-- [ ] Confirm unchanged domain algorithms, policy/callback semantics, metric calculations, and snapshot compatibility for the affected paths.
+- [ ] Both modes expose the exact compact call/result behavior without depending on later phases.
+- [ ] Historical, malformed, partial, and error results remain readable and never display fabricated success metrics.
+- [ ] Successful details are summary-free and preserve exact result values with copied block IDs; rejected/thrown paths do not claim them.
+- [ ] Focused tests, `pnpm check`, and `git diff --check` pass; any unavailable real-Pi inspection is explicit.
+- [ ] README/CHANGELOG match delivered behavior and the complete diff is one atomic commit.
 
-Revert dependent later phases before reverting this phase. No snapshot migration is introduced. Optional compression display metadata is backward-compatible with the legacy-result fallback from phase 2.
+Revert dependent later phases before reverting this phase. No snapshot migration is introduced. Removing this phase restores Pi's default tool rendering; persisted results with `details.dcpCompression` remain harmless structured tool-result details.
