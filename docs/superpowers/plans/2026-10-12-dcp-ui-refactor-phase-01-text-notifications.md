@@ -90,7 +90,7 @@ Lowest complexity: mostly pure formatting, with one compression-notification del
 - Export `formatDcpTokens(tokens: number, estimated?: boolean): string`, with `estimated = false`. Valid inputs are existing finite nonnegative token values; callers own missing-value handling. Below `1_000`, truncate to an integer. Otherwise choose the unit from the original value (`k` below `1_000_000`, `M` from there), round to one decimal with `toFixed(1)`, and remove `.0`. Do not promote units after rounding: `999_999` is `1000k`, matching pi-status. Prefix `~` only when estimated is true.
 - Export `flattenDcpLabel(value: string): string`: collapse whitespace (including CR/LF, tabs, and repeated spaces) to one space and trim. Preserve Unicode. Use it for topic/tool labels, not summary bodies or model-facing text.
 - Estimates: pruning `tokensSaved`, compression `compressedTokens`/`summaryTokens`, context `tokens`, session `totalPruneTokens`/`pruneTokenCounter`, and lifetime `totalTokensSaved`. The installed SDK explicitly calls context tokens estimated; the DCP savings and summary values originate from text-length estimates.
-- Exact values: context-window capacity, all tool/message/block/cache/turn/session counts. Keep counts as integers, never abbreviated and never prefixed with `~`. Keep the supplied context percentage at one decimal; do not recompute it from rounded display tokens.
+- Context-window capacity uses compact token units without `~`. Exact tool/message/block/cache/turn/session counts remain integers, never abbreviated and never prefixed with `~`. Keep the supplied context percentage at one decimal; do not recompute it from rounded display tokens.
 
 | Call                                                              | Exact result      |
 | ----------------------------------------------------------------- | ----------------- |
@@ -209,3 +209,11 @@ Revert dependent later phases before reverting this phase. No snapshot migration
 **Real-Pi inspection:** unavailable in this environment. The production notification strings were verified through the real SDK extension harness, including the pruning per-pass/cumulative provenance, both compression modes, both transports, both verbosity levels, both `showCompression` values, no-UI and off suppression, and the one-line detailed-status contract. Interactive footer/pi-status width clipping was not observed directly.
 
 **Commit:** `feat: unify DCP text and notification presentation` (one atomic commit for this phase).
+
+## Code Review — 2026-10-13
+
+Reviewed implementation `02fd46ac1e2d8985c19bc222c2fcc975bd3e5a94` against planning base `d8bf525f2f136e62be88aefe193aaf88ef967955`. Independent review found no production defects. Corrected the README's `showCompression` description and clarified that context-window capacity uses compact units without an estimate marker.
+
+Strengthened compression delivery assertions for the `dcp` status key and `info` severity, covered minimal notifications with `showCompression: true`, and added pruning delivery/suppression cases that verify pruning still completes with notifications off or UI absent. The independent follow-up review found no remaining issues.
+
+**Verification:** `pnpm check` exited `0`: formatting, lint, type checking, and **63 files / 1,005 tests passed**. The delivery suite passes 31 tests. In isolated temporary copies, the strengthened tests rejected five intentional regressions: wrong compression status key, wrong toast severity, missing pruning off/no-UI guards, and missing detailed pruning tool names. `git diff --check` passed. Real-Pi visual inspection remains unverified as recorded above.

@@ -257,7 +257,7 @@ For a session using `openai-codex/gpt-5.6-sol`, DCP leaves messages unchanged, r
 
 - `mode` — compression mode: `"range"` or `"message"`.
 - `permission` — compression permission: `"allow"`, `"ask"`, or `"deny"`. `allow` runs normally, `ask` keeps the tool exposed and confirms each call, and `deny` hides the tool and blocks direct calls. `dcp:permission` cycles the in-session value.
-- `showCompression` — when `true`, detailed notifications include the compression summary text.
+- `showCompression` — when `true`, detailed toast notifications include the compression summary text. Status notifications retain only the numeric summary token metric.
 - `maxContextPercent` / `minContextPercent` — legacy percentage thresholds.
 - `maxContextLimit` / `minContextLimit` — accept a positive integer token count or a percentage string greater than 0 and at most 100 (for example `"80%"`). Anything else is dropped with a warning.
 - `modelMaxLimits` / `modelMinLimits` — per-model overrides keyed by `provider/modelId`; each value follows the same context-limit rules as the global limits.
