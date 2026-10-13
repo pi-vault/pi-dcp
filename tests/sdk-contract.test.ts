@@ -13,7 +13,21 @@ import {
 import type { AgentSession, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import createExtension from "../src/index.ts";
+import type { DcpPanelComponent } from "../src/tui/panel.ts";
 import * as sessionState from "../src/state/state.ts";
+
+function fakeUiTheme(): Theme {
+  const identity = (text: string) => text;
+  return {
+    fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
+    bold: identity,
+    italic: identity,
+    underline: identity,
+    inverse: identity,
+    strikethrough: identity,
+  } as unknown as Theme;
+}
 
 const FAKE_MODEL = {
   provider: "test",
@@ -408,5 +422,71 @@ describe("DCP public SDK contract", () => {
     });
 
     expect(result.systemPromptOptions.sections.dcp).toBeUndefined();
+  });
+
+  it("routes informational commands to matching tabs through the real extension runner", async () => {
+    const { session } = await createHostSession();
+    const runner = session.extensionRunner;
+    const captured: Array<{ options: unknown; component: DcpPanelComponent }> = [];
+    const notify = vi.fn();
+    const stream = vi.fn<StreamFn>(() => {
+      throw new Error("Informational commands must not start model streaming");
+    });
+    session.agent.streamFunction = stream;
+    const custom = vi.fn(
+      (
+        factory: (
+          tui: unknown,
+          theme: Theme,
+          keybindings: unknown,
+          done: (result: unknown) => void,
+        ) => DcpPanelComponent | Promise<DcpPanelComponent>,
+        options: unknown,
+      ) =>
+        new Promise((resolve, reject) => {
+          const tui = { terminal: { rows: 40, columns: 120 }, requestRender: () => {} };
+          Promise.resolve(factory(tui, fakeUiTheme(), {}, resolve))
+            .then((component) => {
+              captured.push({ options, component });
+              component.render(110);
+              component.handleInput("q");
+            })
+            .catch(reject);
+        }),
+    );
+    runner.setUIContext({ ...runner.getUIContext(), notify, custom } as never, "tui");
+
+    const expected = [
+      ["dcp", "Model"],
+      ["dcp:help", "Open the interactive DCP panel"],
+      ["dcp:context", "Model"],
+      ["dcp:stats", "Session"],
+      ["dcp:lifetime", "Session"],
+    ] as const;
+
+    for (const [name, marker] of expected) {
+      captured.length = 0;
+      custom.mockClear();
+      notify.mockClear();
+      await session.prompt(`/${name}`);
+
+      expect(custom).toHaveBeenCalledTimes(1);
+      expect(captured[0]?.options).toMatchObject({
+        overlay: true,
+        overlayOptions: { anchor: "center", width: "92%", maxHeight: "85%" },
+      });
+      const selected = captured[0]?.component.render(120).find((line) => line.includes("▸"));
+      expect(selected).toContain(marker);
+      expect(notify).not.toHaveBeenCalled();
+      expect(stream).not.toHaveBeenCalled();
+    }
+
+    runner.setUIContext({ ...runner.getUIContext(), notify, custom } as never, "rpc");
+    custom.mockClear();
+    notify.mockClear();
+    await session.prompt("/dcp:help");
+    expect(custom).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("DCP Commands:"), "info");
+    expect(stream).not.toHaveBeenCalled();
   });
 });

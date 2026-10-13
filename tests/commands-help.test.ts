@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { helpCommand } from "../src/commands/help.ts";
+import { DCP_COMMAND_HELP, helpCommand } from "../src/commands/help.ts";
 
 describe("help command", () => {
   it("returns the exact list of all eleven commands", () => {
@@ -29,5 +29,26 @@ describe("help command", () => {
     expect(result).toContain("dcp:recompress <blockId>");
     expect(result).toContain("dcp:compress [focus]");
     expect(result).not.toContain("\u001b[");
+  });
+
+  it("exposes an ordered descriptor for every command", () => {
+    expect(DCP_COMMAND_HELP.map((entry) => entry.id)).toEqual([
+      "dcp",
+      "dcp:help",
+      "dcp:context",
+      "dcp:stats",
+      "dcp:sweep",
+      "dcp:manual",
+      "dcp:decompress",
+      "dcp:recompress",
+      "dcp:lifetime",
+      "dcp:permission",
+      "dcp:compress",
+    ]);
+    expect(DCP_COMMAND_HELP).toHaveLength(11);
+    for (const entry of DCP_COMMAND_HELP) {
+      expect(helpCommand()).toContain(entry.syntax);
+      expect(helpCommand()).toContain(entry.description);
+    }
   });
 });

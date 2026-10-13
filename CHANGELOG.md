@@ -8,10 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Five-tab `dcp` dashboard (Overview, Controls, Blocks, Statistics, Help) with independent per-tab selection and scroll state. `Tab`/`Shift-Tab` switch tabs, Enter or Space runs a selected action, and Escape or `q` closes from any tab. Informational commands route to a matching tab in TUI mode — `dcp`/`dcp:context` to Overview, `dcp:stats`/`dcp:lifetime` to Statistics, and `dcp:help` to Help — while RPC, print, JSON, and no-UI sessions keep their plain-text responses.
+- Compression block rows carry a structured lifecycle label (`Active`, `User-deactivated`, `Consumed`, or `Inactive`) that is independent of pipeline policy, and the Help tab shares one ordered command-help descriptor list with the plain-text help output.
 - Compact, theme-aware `compress` call and result rendering in the TUI. Calls show the mode, flattened topic, and selection count; successful results collapse to estimated input/summary metrics and expand to the unchanged result text plus created block IDs. Partial results show progress; error, historical, and malformed results keep their original text, and display details never include submitted or combined summary text.
 
 ### Changed
 
+- The `dcp` panel is now a tabbed dashboard that sizes from the longest tab body to avoid jumping on tab switches. Empty Blocks shows `No compression blocks.`, block rows reserve stable ID and lifecycle before topic/metric detail, and the tiny-terminal fallback stays bounded and close-only.
 - Informational reports and automatic notifications now share compact token formatting (`k`/`M`, one fractional digit, and a `~` estimate marker) with aligned label/value rows. Detailed status notifications stay on one line; topics and summary bodies appear only in detailed toasts, and `showCompression` now affects the summary body in detailed toasts only.
 - The `dcp` panel now opens as a centered, bounded overlay (92% width, 85% height) with a heavy Pi-theme frame, two-column padding, an accent `▸` selection marker, compact estimated metrics, a scrolling list that keeps the selection visible, and a persistent close-key footer. Short terminals prioritize controls over information. A row runs only after it has rendered at the current terminal size, so resizing or moving the selection invalidates activation until the row renders again, and tiny terminals or renderer failures fall back to a bounded close-only view.
 
