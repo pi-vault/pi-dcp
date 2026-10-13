@@ -520,4 +520,26 @@ describe("renderCompressResult", () => {
       for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
     }
   });
+
+  it.each([
+    { name: "success", details: { dcpCompression: metadata }, isError: false },
+    { name: "legacy", details: {}, isError: false },
+    { name: "error", details: { dcpCompression: metadata }, isError: true },
+  ])("bounds expanded $name Unicode content through resizing", ({ details, isError }) => {
+    const { theme } = makeSpyTheme();
+    const result = makeResult({
+      content: [{ type: "text", text: "認証 👋\n二行目" }],
+      details,
+    });
+    const component = renderCompressResult(result, expanded, theme, { isError });
+
+    for (const width of [60, 1, 12, 60]) {
+      const lines = component.render(width);
+      for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      if (width === 60) {
+        expect(visibleLines(component, width)).toContain("認証 👋");
+        expect(visibleLines(component, width)).toContain("二行目");
+      }
+    }
+  });
 });

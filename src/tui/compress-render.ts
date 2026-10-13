@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Theme, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
-import { Text, TruncatedText } from "@earendil-works/pi-tui";
+import { Text, TruncatedText, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 import type { CompressArgs, CompressResult } from "../compress/blocks.ts";
 import { flattenDcpLabel, formatDcpTokens } from "./formatters.ts";
@@ -108,6 +108,13 @@ function buildBlocksLine(theme: DcpTheme, blockIds: number[]): string {
   return `${theme.fg("muted", "Blocks: ")}${ids}`;
 }
 
+/** Pi's wrapping retains wide graphemes even when only one column is available. */
+class BoundedText extends Text {
+  override render(width: number): string[] {
+    return super.render(width).map((line) => truncateToWidth(line, width));
+  }
+}
+
 /** Render a compact, bounded call line for the registered mode. */
 export function renderCompressCall(
   mode: CompressArgs["mode"],
@@ -153,7 +160,7 @@ export function renderCompressResult(
 
   if (context.isError) {
     const text = dcpTheme.fg("error", originalText || "Compression failed");
-    return options.expanded ? new Text(text, 0, 0) : new TruncatedText(text);
+    return options.expanded ? new BoundedText(text, 0, 0) : new TruncatedText(text);
   }
 
   const details = asRecord(result.details);
@@ -164,9 +171,9 @@ export function renderCompressResult(
     const lines = [header];
     if (originalText) lines.push(dcpTheme.fg("toolOutput", originalText));
     if (meta.blockIds.length > 0) lines.push(buildBlocksLine(dcpTheme, meta.blockIds));
-    return new Text(lines.join("\n"), 0, 0);
+    return new BoundedText(lines.join("\n"), 0, 0);
   }
 
   const text = dcpTheme.fg("toolOutput", originalText || "Compression result unavailable");
-  return options.expanded ? new Text(text, 0, 0) : new TruncatedText(text);
+  return options.expanded ? new BoundedText(text, 0, 0) : new TruncatedText(text);
 }
