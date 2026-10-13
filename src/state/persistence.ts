@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { isCanonicalMessageRef, parseMessageRef } from "../utils/message-ids.ts";
+import { restoreCompressionBlocks } from "../compress/blocks.ts";
 import { resetSessionState } from "./state.ts";
 import type {
   CompressionBlock,
@@ -285,24 +286,6 @@ export function parseDcpSnapshot(
     : { version: 2, ...parsed };
 }
 
-function restoreBlock(block: DcpSnapshotBlockV1): CompressionBlock {
-  return {
-    ...block,
-    active: false,
-    batchTopic: block.batchTopic,
-    startIndex: -1,
-    endIndex: -1,
-    anchorIndex: -1,
-    parentBlockIds: [],
-    directMessageIndices: [],
-    directToolIds: [],
-    effectiveMessageIndices: [],
-    effectiveToolIds: [],
-    deactivatedAt: undefined,
-    deactivatedByBlockId: undefined,
-  };
-}
-
 /** Restore a valid snapshot into the existing session state. */
 export function restoreDcpSnapshot(
   rawSnapshot: unknown,
@@ -328,17 +311,11 @@ export function restoreDcpSnapshot(
   state.nudges.contextLimitAnchors = new Set(snapshot.nudges.contextLimitAnchors);
   state.nudges.turnAnchors = new Set(snapshot.nudges.turnAnchors);
   state.nudges.iterationAnchors = new Set(snapshot.nudges.iterationAnchors);
-  for (const block of snapshot.blocks) {
-    state.prune.messages.blocksById.set(block.blockId, restoreBlock(block));
-  }
-  state.prune.messages.nextBlockId = Math.max(
-    snapshot.nextBlockId,
-    ...snapshot.blocks.map((block) => block.blockId + 1),
-  );
-  state.prune.messages.nextRunId = Math.max(
-    snapshot.nextRunId,
-    ...snapshot.blocks.map((block) => block.runId + 1),
-  );
+  restoreCompressionBlocks(state, {
+    blocks: snapshot.blocks,
+    nextBlockId: snapshot.nextBlockId,
+    nextRunId: snapshot.nextRunId,
+  });
   if (snapshot.ownerSessionId === currentSessionId) {
     Object.assign(state.stats, snapshot.stats);
   }

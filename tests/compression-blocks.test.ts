@@ -4,12 +4,17 @@ import {
   handleCompress,
   decompressBlock,
   recompressBlock,
+  createCompressionBlockState,
+  clearCompressionBlocks,
+  restoreCompressionBlocks,
+  recordCompressionDuration,
   type CompressArgs,
 } from "../src/compress/blocks.ts";
 import { createSessionState } from "../src/state/state.ts";
+import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 import { runPipeline } from "../src/pipeline.ts";
 import type { DcpConfig } from "../src/config.ts";
-import type { SessionState } from "../src/state/types.ts";
+import type { CompressionBlock, DcpSnapshotBlockV1, SessionState } from "../src/state/types.ts";
 import { countMessageTokens, countTokens } from "../src/utils/tokens.ts";
 import {
   makeDefaultConfig,
@@ -64,6 +69,62 @@ function compressionSnapshot(state: SessionState) {
     nextRunId: state.prune.messages.nextRunId,
     stats: { ...state.stats },
   });
+}
+
+/** Durable snapshot block fixture for owner-restoration tests. */
+function durableBlock(overrides: Partial<DcpSnapshotBlockV1> = {}): DcpSnapshotBlockV1 {
+  return {
+    blockId: 7,
+    runId: 3,
+    deactivatedByUser: false,
+    compressedTokens: 120,
+    summaryTokens: 30,
+    durationMs: 1_500,
+    mode: "range",
+    topic: "topic",
+    compressToolCallId: "call",
+    startKey: "user:1:0",
+    endKey: "assistant:2:0",
+    anchorKey: "user:1:0",
+    consumedBlockIds: [],
+    createdAt: 1_000,
+    summary: "summary",
+    ...overrides,
+  };
+}
+
+/** Live in-memory block fixture for owner-operation tests. */
+function storedBlock(blockId: number, overrides: Partial<CompressionBlock> = {}): CompressionBlock {
+  return {
+    blockId,
+    runId: 1,
+    active: true,
+    deactivatedByUser: false,
+    compressedTokens: 10,
+    summaryTokens: 2,
+    durationMs: 0,
+    mode: "range",
+    topic: "topic",
+    batchTopic: undefined,
+    startIndex: 0,
+    endIndex: 0,
+    anchorIndex: 0,
+    compressToolCallId: "call",
+    startKey: `start-${blockId}`,
+    endKey: `end-${blockId}`,
+    anchorKey: `anchor-${blockId}`,
+    consumedBlockIds: [],
+    parentBlockIds: [],
+    directMessageIndices: [],
+    directToolIds: [],
+    effectiveMessageIndices: [],
+    effectiveToolIds: [],
+    createdAt: blockId,
+    deactivatedAt: undefined,
+    deactivatedByBlockId: undefined,
+    summary: "summary",
+    ...overrides,
+  };
 }
 
 describe("compression block lifecycle", () => {
@@ -759,5 +820,384 @@ describe("compression block lifecycle", () => {
       .join("\n");
     expect(again).toContain("read the file");
     expect(again).not.toContain("file contents");
+  });
+
+  it("restores nested consumption and user exclusion through the next context pass", () => {
+    const build = (): { state: SessionState; config: DcpConfig; raw: AgentMessage[] } => {
+      const state = createSessionState();
+      state.sessionId = SESSION_ID;
+      const config = compressionConfig();
+      let raw: AgentMessage[] = [
+        makeUserMessage("child user", 12_000),
+        makeAssistantMessage("child assistant", 12_001),
+        makeUserMessage("tail user", 12_002),
+      ];
+      runPipeline(state, config, raw, undefined);
+      handleCompress(state, config, raw, "compress-child", {
+        topic: "child",
+        mode: "range",
+        content: [{ startId: "m1", endId: "m2", summary: "child summary" }],
+      });
+      raw = [
+        ...raw,
+        makeCompressOwner("compress-child", 12_003),
+        makeToolResultMessage("compress-child", "compress", "ok", false, 12_004),
+      ];
+      runPipeline(state, config, raw, undefined);
+      handleCompress(state, config, raw, "compress-parent", {
+        topic: "parent",
+        mode: "range",
+        content: [{ startId: "b1", endId: "b1", summary: "parent summary" }],
+      });
+      raw = [
+        ...raw,
+        makeCompressOwner("compress-parent", 12_005),
+        makeToolResultMessage("compress-parent", "compress", "ok", false, 12_006),
+      ];
+      runPipeline(state, config, raw, undefined);
+      return { state, config, raw };
+    };
+
+    const blockView = (state: SessionState) => {
+      const messages = state.prune.messages;
+      return {
+        activeBlockIds: [...messages.activeBlockIds].sort((a, b) => a - b),
+        activeByAnchorIndex: [...messages.activeByAnchorIndex.entries()].sort(
+          (a, b) => a[0] - b[0],
+        ),
+        coverage: [...messages.byMessageIndex.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([index, entry]) => ({
+            index,
+            blockIds: [...entry.blockIds].sort((a, b) => a - b),
+            activeBlockIds: [...entry.activeBlockIds].sort((a, b) => a - b),
+          })),
+        blocks: [...messages.blocksById.values()]
+          .sort((a, b) => a.blockId - b.blockId)
+          .map((block) => ({
+            blockId: block.blockId,
+            runId: block.runId,
+            active: block.active,
+            deactivatedByUser: block.deactivatedByUser,
+            consumedBlockIds: [...block.consumedBlockIds].sort((a, b) => a - b),
+            parentBlockIds: [...block.parentBlockIds].sort((a, b) => a - b),
+            summary: block.summary,
+            compressedTokens: block.compressedTokens,
+            summaryTokens: block.summaryTokens,
+            durationMs: block.durationMs,
+            startIndex: block.startIndex,
+            endIndex: block.endIndex,
+            anchorIndex: block.anchorIndex,
+          })),
+        nextBlockId: messages.nextBlockId,
+        nextRunId: messages.nextRunId,
+        stats: { ...state.stats },
+      };
+    };
+
+    const assertParity = (built: {
+      state: SessionState;
+      config: DcpConfig;
+      raw: AgentMessage[];
+    }) => {
+      const { state, config, raw } = built;
+      const snapshot = requireDefined(serializeDcpSnapshot(state), "embedded snapshot");
+      const restored = createSessionState();
+      expect(restoreDcpSnapshot(snapshot, restored, SESSION_ID)).toBe(true);
+
+      expect(restored.prune.messages.blocksById.size).toBe(2);
+      for (const block of restored.prune.messages.blocksById.values()) {
+        expect(block.active).toBe(false);
+        expect(block.startIndex).toBe(-1);
+        expect(block.endIndex).toBe(-1);
+        expect(block.anchorIndex).toBe(-1);
+        expect(block.parentBlockIds).toEqual([]);
+        expect(block.directMessageIndices).toEqual([]);
+        expect(block.effectiveMessageIndices).toEqual([]);
+        expect(block.effectiveToolIds).toEqual([]);
+      }
+      expect(restored.prune.messages.byMessageIndex.size).toBe(0);
+      expect(restored.prune.messages.activeBlockIds.size).toBe(0);
+      expect(restored.prune.messages.activeByAnchorIndex.size).toBe(0);
+
+      const uninterrupted = runPipeline(state, config, [...raw], undefined);
+      const restoredPass = runPipeline(restored, config, [...raw], undefined);
+      expect(restoredPass.messages).toEqual(uninterrupted.messages);
+      expect(blockView(restored)).toEqual(blockView(state));
+
+      // Deactivating the parent must expose the same eligible/excluded child either way.
+      expect(decompressBlock(state, "2")).toContain("deactivated");
+      expect(decompressBlock(restored, "2")).toContain("deactivated");
+      const uninterruptedAfter = runPipeline(state, config, [...raw], undefined);
+      const restoredAfter = runPipeline(restored, config, [...raw], undefined);
+      expect(restoredAfter.messages).toEqual(uninterruptedAfter.messages);
+      expect(blockView(restored)).toEqual(blockView(state));
+      return {
+        text: uninterruptedAfter.messages.map(getMessageText).join("\n"),
+        state,
+        restored,
+      };
+    };
+
+    // Active parent with an eligible consumed child.
+    const eligible = assertParity(build());
+    expect(eligible.text).toContain("child summary");
+    expect(eligible.text).not.toContain("child user");
+
+    // Active parent with a user-deactivated child: deactivate parent, deactivate
+    // child, then recompress the parent so only the child stays excluded.
+    const excluded = build();
+    decompressBlock(excluded.state, "2");
+    runPipeline(excluded.state, excluded.config, excluded.raw, undefined);
+    decompressBlock(excluded.state, "1");
+    runPipeline(excluded.state, excluded.config, excluded.raw, undefined);
+    recompressBlock(excluded.state, "2");
+    runPipeline(excluded.state, excluded.config, excluded.raw, undefined);
+    expect(excluded.state.prune.messages.blocksById.get(1)?.deactivatedByUser).toBe(true);
+    expect(excluded.state.prune.messages.blocksById.get(2)?.active).toBe(true);
+
+    const excludedParity = assertParity(excluded);
+    expect(excludedParity.text).not.toContain("child summary");
+    expect(excludedParity.text).toContain("child user");
+    expect(excludedParity.restored.prune.messages.blocksById.get(1)?.deactivatedByUser).toBe(true);
+    expect(excludedParity.restored.prune.messages.blocksById.get(1)?.active).toBe(false);
+  });
+});
+
+describe("compression block owner lifecycle", () => {
+  it("creates current empty block state", () => {
+    const first = createCompressionBlockState();
+    const second = createCompressionBlockState();
+    expect(first.byMessageIndex.size).toBe(0);
+    expect(first.blocksById.size).toBe(0);
+    expect(first.activeBlockIds.size).toBe(0);
+    expect(first.activeByAnchorIndex.size).toBe(0);
+    expect(first.nextBlockId).toBe(1);
+    expect(first.nextRunId).toBe(1);
+    expect(first.byMessageIndex).not.toBe(second.byMessageIndex);
+    expect(first.blocksById).not.toBe(second.blocksById);
+    expect(first.activeBlockIds).not.toBe(second.activeBlockIds);
+    expect(first.activeByAnchorIndex).not.toBe(second.activeByAnchorIndex);
+  });
+
+  it("distinguishes compaction clearing from session reset", () => {
+    const state = createSessionState();
+    state.sessionId = "keep-session";
+    state.stats.totalPruneTokens = 42;
+    state.prune.messages.byMessageIndex.set(0, {
+      tokenCount: 1,
+      blockIds: [1],
+      activeBlockIds: [1],
+    });
+    state.prune.messages.blocksById.set(1, storedBlock(1));
+    state.prune.messages.activeBlockIds.add(1);
+    state.prune.messages.activeByAnchorIndex.set(0, 1);
+    state.prune.messages.nextBlockId = 8;
+    state.prune.messages.nextRunId = 4;
+
+    const container = state.prune.messages;
+    const blockMap = container.blocksById;
+    const messageIndex = container.byMessageIndex;
+    const activeIds = container.activeBlockIds;
+    const anchorIndex = container.activeByAnchorIndex;
+
+    clearCompressionBlocks(state, "compaction");
+    expect(state.prune.messages.nextBlockId).toBe(8);
+    expect(state.prune.messages.nextRunId).toBe(4);
+    expect(state.prune.messages.blocksById.size).toBe(0);
+    expect(state.prune.messages.byMessageIndex.size).toBe(0);
+    expect(state.prune.messages.activeBlockIds.size).toBe(0);
+    expect(state.prune.messages.activeByAnchorIndex.size).toBe(0);
+    expect(state.prune.messages).toBe(container);
+    expect(state.prune.messages.blocksById).toBe(blockMap);
+    expect(state.prune.messages.byMessageIndex).toBe(messageIndex);
+    expect(state.prune.messages.activeBlockIds).toBe(activeIds);
+    expect(state.prune.messages.activeByAnchorIndex).toBe(anchorIndex);
+    expect(state.sessionId).toBe("keep-session");
+    expect(state.stats.totalPruneTokens).toBe(42);
+
+    state.prune.messages.byMessageIndex.set(1, {
+      tokenCount: 1,
+      blockIds: [2],
+      activeBlockIds: [2],
+    });
+    state.prune.messages.blocksById.set(2, storedBlock(2));
+    state.prune.messages.activeBlockIds.add(2);
+    state.prune.messages.activeByAnchorIndex.set(1, 2);
+
+    clearCompressionBlocks(state, "session");
+    expect(state.prune.messages.nextBlockId).toBe(1);
+    expect(state.prune.messages.nextRunId).toBe(1);
+    expect(state.prune.messages.blocksById.size).toBe(0);
+    expect(state.prune.messages.byMessageIndex.size).toBe(0);
+    expect(state.prune.messages.activeBlockIds.size).toBe(0);
+    expect(state.prune.messages.activeByAnchorIndex.size).toBe(0);
+    expect(state.prune.messages).toBe(container);
+    expect(state.prune.messages.blocksById).toBe(blockMap);
+    expect(state.sessionId).toBe("keep-session");
+    expect(state.stats.totalPruneTokens).toBe(42);
+  });
+
+  it("restores decoded facts before runtime visibility", () => {
+    const state = createSessionState();
+    state.sessionId = "keep-session";
+    state.stats.totalPruneTokens = 42;
+    state.prune.messages.byMessageIndex.set(0, {
+      tokenCount: 1,
+      blockIds: [99],
+      activeBlockIds: [99],
+    });
+    state.prune.messages.blocksById.set(99, storedBlock(99));
+    state.prune.messages.activeBlockIds.add(99);
+    state.prune.messages.activeByAnchorIndex.set(0, 99);
+    state.prune.messages.nextBlockId = 100;
+    state.prune.messages.nextRunId = 50;
+
+    const container = state.prune.messages;
+    const blockMap = container.blocksById;
+    const messageIndex = container.byMessageIndex;
+    const activeIds = container.activeBlockIds;
+    const anchorIndex = container.activeByAnchorIndex;
+
+    const child = durableBlock({ blockId: 7, runId: 3, deactivatedByUser: true });
+    const parent = durableBlock({
+      blockId: 8,
+      runId: 3,
+      consumedBlockIds: [7],
+      mode: "message",
+    });
+    restoreCompressionBlocks(state, {
+      blocks: [child, parent],
+      nextBlockId: 9,
+      nextRunId: 4,
+    });
+
+    expect(state.prune.messages.blocksById.has(99)).toBe(false);
+    expect(state.prune.messages.blocksById.size).toBe(2);
+    expect(state.prune.messages).toBe(container);
+    expect(state.prune.messages.blocksById).toBe(blockMap);
+    expect(state.prune.messages.byMessageIndex).toBe(messageIndex);
+    expect(state.prune.messages.activeBlockIds).toBe(activeIds);
+    expect(state.prune.messages.activeByAnchorIndex).toBe(anchorIndex);
+
+    const restoredChild = requireDefined(state.prune.messages.blocksById.get(7), "restored child");
+    expect(restoredChild.active).toBe(false);
+    expect(restoredChild.startIndex).toBe(-1);
+    expect(restoredChild.endIndex).toBe(-1);
+    expect(restoredChild.anchorIndex).toBe(-1);
+    expect(restoredChild.parentBlockIds).toEqual([]);
+    expect(restoredChild.directMessageIndices).toEqual([]);
+    expect(restoredChild.directToolIds).toEqual([]);
+    expect(restoredChild.effectiveMessageIndices).toEqual([]);
+    expect(restoredChild.effectiveToolIds).toEqual([]);
+    expect(restoredChild.deactivatedAt).toBeUndefined();
+    expect(restoredChild.deactivatedByBlockId).toBeUndefined();
+    expect(restoredChild.summary).toBe(child.summary);
+    expect(restoredChild.compressedTokens).toBe(child.compressedTokens);
+    expect(restoredChild.durationMs).toBe(child.durationMs);
+    expect(restoredChild.deactivatedByUser).toBe(true);
+
+    const restoredParent = requireDefined(
+      state.prune.messages.blocksById.get(8),
+      "restored parent",
+    );
+    expect(restoredParent.active).toBe(false);
+    expect(restoredParent.deactivatedByUser).toBe(false);
+    expect(restoredParent.consumedBlockIds).toEqual([7]);
+
+    expect(state.prune.messages.byMessageIndex.size).toBe(0);
+    expect(state.prune.messages.activeBlockIds.size).toBe(0);
+    expect(state.prune.messages.activeByAnchorIndex.size).toBe(0);
+    expect(state.sessionId).toBe("keep-session");
+    expect(state.stats.totalPruneTokens).toBe(42);
+    // Block-only restoration does not rebuild unrelated reference caches.
+    expect(state.messageIds.byRawId.size).toBe(0);
+    expect(state.messageIds.byIndex.size).toBe(0);
+  });
+
+  it("repairs restored allocation counters without altering durable facts", () => {
+    const state = createSessionState();
+    const block = durableBlock({
+      blockId: 7,
+      runId: 3,
+      deactivatedByUser: true,
+      durationMs: 1_500,
+      consumedBlockIds: [],
+    });
+
+    restoreCompressionBlocks(state, { blocks: [block], nextBlockId: 2, nextRunId: 2 });
+
+    expect(state.prune.messages.nextBlockId).toBe(8);
+    expect(state.prune.messages.nextRunId).toBe(4);
+    const restored = requireDefined(state.prune.messages.blocksById.get(7), "restored block");
+    expect(restored.summary).toBe(block.summary);
+    expect(restored.durationMs).toBe(1_500);
+    expect(restored.deactivatedByUser).toBe(true);
+    expect(restored.consumedBlockIds).toEqual([]);
+  });
+
+  it("uses decoded counters when restoring empty or lower-ID state", () => {
+    const state = createSessionState();
+    state.prune.messages.nextBlockId = 50;
+    state.prune.messages.nextRunId = 40;
+
+    restoreCompressionBlocks(state, {
+      blocks: [durableBlock({ blockId: 7, runId: 3 })],
+      nextBlockId: 2,
+      nextRunId: 2,
+    });
+    expect(state.prune.messages.nextBlockId).toBe(8);
+    expect(state.prune.messages.nextRunId).toBe(4);
+
+    restoreCompressionBlocks(state, { blocks: [], nextBlockId: 8, nextRunId: 4 });
+    expect(state.prune.messages.blocksById.size).toBe(0);
+    expect(state.prune.messages.byMessageIndex.size).toBe(0);
+    expect(state.prune.messages.activeBlockIds.size).toBe(0);
+    expect(state.prune.messages.activeByAnchorIndex.size).toBe(0);
+    expect(state.prune.messages.nextBlockId).toBe(8);
+    expect(state.prune.messages.nextRunId).toBe(4);
+
+    // Repeating an empty restore proves no stale state survives.
+    state.prune.messages.blocksById.set(42, storedBlock(42));
+    restoreCompressionBlocks(state, { blocks: [], nextBlockId: 8, nextRunId: 4 });
+    expect(state.prune.messages.blocksById.size).toBe(0);
+    expect(state.prune.messages.nextBlockId).toBe(8);
+    expect(state.prune.messages.nextRunId).toBe(4);
+
+    // Decoded counters higher than any restored ID are retained.
+    restoreCompressionBlocks(state, {
+      blocks: [durableBlock({ blockId: 2, runId: 1 })],
+      nextBlockId: 30,
+      nextRunId: 20,
+    });
+    expect(state.prune.messages.nextBlockId).toBe(30);
+    expect(state.prune.messages.nextRunId).toBe(20);
+  });
+
+  it("records duration for every block owned by a call", () => {
+    const state = createSessionState();
+    const first = storedBlock(1, { compressToolCallId: "call-a", durationMs: 0 });
+    const second = storedBlock(2, {
+      compressToolCallId: "call-a",
+      durationMs: 0,
+      active: false,
+      deactivatedByUser: true,
+    });
+    const control = storedBlock(3, { compressToolCallId: "call-b", durationMs: 30 });
+    state.prune.messages.blocksById.set(1, first);
+    state.prune.messages.blocksById.set(2, second);
+    state.prune.messages.blocksById.set(3, control);
+    state.prune.messages.nextBlockId = 4;
+    state.prune.messages.nextRunId = 2;
+    state.stats.messagesCompressed = 5;
+
+    recordCompressionDuration(state, "call-a", 75);
+
+    expect(first.durationMs).toBe(75);
+    expect(second.durationMs).toBe(75);
+    expect(control.durationMs).toBe(30);
+    expect(state.prune.messages.nextBlockId).toBe(4);
+    expect(state.prune.messages.nextRunId).toBe(2);
+    expect(state.stats.messagesCompressed).toBe(5);
   });
 });

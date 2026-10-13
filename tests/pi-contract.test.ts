@@ -1221,3 +1221,259 @@ describe("DCP compression block lifecycle integration", () => {
     },
   );
 });
+
+describe("DCP compaction durability", () => {
+  function compressOwner(toolCallId: string, timestamp: number): AgentMessage {
+    return {
+      role: "assistant",
+      content: [{ type: "toolCall", id: toolCallId, name: "compress", arguments: {} }],
+      stopReason: "toolUse",
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        totalTokens: 0,
+      },
+      timestamp,
+    } as unknown as AgentMessage;
+  }
+
+  const compactionEntry = {
+    type: "compaction" as const,
+    id: "compaction-1",
+    parentId: null,
+    timestamp: "2026-07-29T00:00:00.000Z",
+    summary: "compacted summary",
+    firstKeptEntryId: "retained-1",
+    tokensBefore: 500,
+  };
+
+  function snapshotFrom(harness: ReturnType<typeof createExtensionHarness>, label: string) {
+    return requireDefined(
+      parseDcpSnapshot(
+        harness.entries.filter((entry) => entry.customType === "pi-dcp-state").at(-1)?.data,
+      ),
+      label,
+    );
+  }
+
+  it("continues block run and message references after compaction and resume", async () => {
+    vi.useFakeTimers();
+    try {
+      writeConfig({});
+      const sessionId = "compact-session";
+      const baseOptions = {
+        activeTools: ["read", "compress"],
+        sessionId,
+        contextUsage: { tokens: 1000, contextWindow: 200_000, percent: 0.5 },
+      };
+      const live = createExtensionHarness(baseOptions);
+      createExtension(live.api);
+      await live.emit("session_start", { type: "session_start", reason: "new" });
+
+      const preCompactionRaw: AgentMessage[] = [
+        makeUserMessage("older user", 1),
+        {
+          ...assistantMetadata,
+          role: "assistant",
+          content: [{ type: "text", text: "older assistant" }],
+          stopReason: "stop",
+          timestamp: 2,
+        } satisfies AgentMessage,
+      ];
+      await live.emit("context", { type: "context", messages: structuredClone(preCompactionRaw) });
+      live.entries.length = 0;
+
+      vi.setSystemTime(1_000);
+      preCompactionRaw.push(compressOwner("compress-1", 3));
+      const first = (await live.executeTool(
+        "compress",
+        {
+          topic: "older context",
+          content: [{ startId: "m0001", endId: "m0002", summary: "older summary" }],
+        },
+        { toolCallId: "compress-1" },
+      )) as { content: Array<{ text: string }> };
+      vi.setSystemTime(2_000);
+      await live.emit("tool_execution_end", {
+        type: "tool_execution_end",
+        toolName: "compress",
+        toolCallId: "compress-1",
+        result: first,
+        isError: false,
+      });
+      const pre = snapshotFrom(live, "pre-compaction checkpoint");
+      expect(pre).toMatchObject({
+        version: 2,
+        ownerSessionId: sessionId,
+        nextBlockId: 2,
+        nextRunId: 2,
+        stats: { messagesCompressed: 2 },
+        blocks: [{ blockId: 1, runId: 1 }],
+      });
+      expect(pre.messageIds.nextRefIndex).toBe(3);
+
+      live.entries.length = 0;
+      vi.setSystemTime(3_000);
+      live.setBranch([{ ...compactionEntry }]);
+      await live.emit("session_compact", {
+        type: "session_compact",
+        compactionEntry: { ...compactionEntry },
+        fromExtension: false,
+        reason: "manual",
+        willRetry: false,
+      });
+
+      expect(live.entries).toHaveLength(1);
+      const post = snapshotFrom(live, "post-compaction checkpoint");
+      expect(post).toMatchObject({
+        version: 2,
+        ownerSessionId: sessionId,
+        manualMode: false,
+        compressPermission: "allow",
+        lastCompaction: 3_000,
+        stats: { messagesCompressed: 2 },
+        blocks: [],
+        nextBlockId: 2,
+        nextRunId: 2,
+      });
+      expect(post.messageIds.nextRefIndex).toBe(3);
+      expect(post.messageIds.byRawId).toEqual(pre.messageIds.byRawId);
+
+      const postRaw: AgentMessage[] = [
+        {
+          role: "compactionSummary",
+          summary: "compacted summary",
+          tokensBefore: 500,
+          timestamp: 10,
+        } as AgentMessage,
+        preCompactionRaw[1] as AgentMessage,
+        makeUserMessage("new user", 11),
+      ];
+
+      const [liveViewResult] = (await live.emit("context", {
+        type: "context",
+        messages: structuredClone(postRaw),
+      })) as [{ messages: AgentMessage[] }];
+      const liveRetained = requireDefined(
+        liveViewResult.messages.find((message) =>
+          getMessageText(message).includes("older assistant"),
+        ),
+        "live retained message",
+      );
+      expect(getMessageText(liveRetained)).toContain("@m2");
+      const liveNew = requireDefined(
+        liveViewResult.messages.find((message) => getMessageText(message).includes("new user")),
+        "live new message",
+      );
+      const liveNewMarker = requireDefined(
+        getMessageText(liveNew).match(/@m\d+(?::\d+)?@/)?.[0],
+        "live new marker",
+      );
+
+      const resumed = createExtensionHarness({
+        ...baseOptions,
+        branch: [{ type: "custom", customType: "pi-dcp-state", data: post }],
+      });
+      createExtension(resumed.api);
+      await resumed.emit("session_start", { type: "session_start", reason: "resume" });
+      const [resumedViewResult] = (await resumed.emit("context", {
+        type: "context",
+        messages: structuredClone(postRaw),
+      })) as [{ messages: AgentMessage[] }];
+      expect(resumedViewResult.messages).toEqual(liveViewResult.messages);
+      const resumedRetained = requireDefined(
+        resumedViewResult.messages.find((message) =>
+          getMessageText(message).includes("older assistant"),
+        ),
+        "resumed retained message",
+      );
+      expect(getMessageText(resumedRetained)).toContain("@m2");
+      const resumedNew = requireDefined(
+        resumedViewResult.messages.find((message) => getMessageText(message).includes("new user")),
+        "resumed new message",
+      );
+      const resumedNewMarker = requireDefined(
+        getMessageText(resumedNew).match(/@m\d+(?::\d+)?@/)?.[0],
+        "resumed new marker",
+      );
+      expect(resumedNewMarker).toBe(liveNewMarker);
+
+      vi.setSystemTime(4_000);
+      const liveSecond = (await live.executeTool(
+        "compress",
+        {
+          topic: "new context",
+          content: [{ startId: liveNewMarker, endId: liveNewMarker, summary: "new summary" }],
+        },
+        { toolCallId: "compress-2" },
+      )) as { content: Array<{ text: string }> };
+      const resumedSecond = (await resumed.executeTool(
+        "compress",
+        {
+          topic: "new context",
+          content: [{ startId: resumedNewMarker, endId: resumedNewMarker, summary: "new summary" }],
+        },
+        { toolCallId: "compress-2" },
+      )) as { content: Array<{ text: string }> };
+
+      await live.emit("tool_execution_end", {
+        type: "tool_execution_end",
+        toolName: "compress",
+        toolCallId: "compress-2",
+        result: liveSecond,
+        isError: false,
+      });
+      const liveRaw2 = [
+        ...postRaw,
+        compressOwner("compress-2", 12),
+        makeToolResultMessage(
+          "compress-2",
+          "compress",
+          liveSecond.content[0]?.text ?? "",
+          false,
+          13,
+        ),
+      ];
+      await live.emit("context", { type: "context", messages: structuredClone(liveRaw2) });
+
+      await resumed.emit("tool_execution_end", {
+        type: "tool_execution_end",
+        toolName: "compress",
+        toolCallId: "compress-2",
+        result: resumedSecond,
+        isError: false,
+      });
+      const resumedRaw2 = [
+        ...postRaw,
+        compressOwner("compress-2", 12),
+        makeToolResultMessage(
+          "compress-2",
+          "compress",
+          resumedSecond.content[0]?.text ?? "",
+          false,
+          13,
+        ),
+      ];
+      await resumed.emit("context", { type: "context", messages: structuredClone(resumedRaw2) });
+
+      const liveFinal = snapshotFrom(live, "live final checkpoint");
+      const resumedFinal = snapshotFrom(resumed, "resumed final checkpoint");
+      expect(liveFinal).toMatchObject({
+        nextBlockId: 3,
+        nextRunId: 3,
+        blocks: [{ blockId: 2, runId: 2 }],
+      });
+      expect(resumedFinal).toMatchObject({
+        nextBlockId: 3,
+        nextRunId: 3,
+        blocks: [{ blockId: 2, runId: 2 }],
+      });
+      expect(resumedFinal.blocks).toEqual(liveFinal.blocks);
+      expect(resumedFinal.stats).toEqual(liveFinal.stats);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

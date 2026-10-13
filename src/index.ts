@@ -17,7 +17,13 @@ import {
   buildCompressNotificationMinimal,
   buildCompressNotificationDetailed,
 } from "./tui/notification.ts";
-import { handleCompress, type CompressArgs, type CompressResult } from "./compress/blocks.ts";
+import {
+  clearCompressionBlocks,
+  handleCompress,
+  recordCompressionDuration,
+  type CompressArgs,
+  type CompressResult,
+} from "./compress/blocks.ts";
 import { requestCompressionApproval } from "./compress/permission.ts";
 import { stripHallucinationsFromString } from "./messages/strip.ts";
 import { mapText } from "./utils/message-content.ts";
@@ -124,10 +130,7 @@ export function applyCompressionTiming(
   state.compressionTiming.startTimes.delete(event.toolCallId);
   if (event.isError) return;
 
-  const durationMs = now - startTime;
-  for (const block of state.prune.messages.blocksById.values()) {
-    if (block.compressToolCallId === event.toolCallId) block.durationMs = durationMs;
-  }
+  recordCompressionDuration(state, event.toolCallId, now - startTime);
 }
 
 export default function createExtension(pi: ExtensionAPI): void {
@@ -455,10 +458,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("session_compact", async (_event, _ctx) => {
     state.prune.tools.clear();
-    state.prune.messages.byMessageIndex.clear();
-    state.prune.messages.blocksById.clear();
-    state.prune.messages.activeBlockIds.clear();
-    state.prune.messages.activeByAnchorIndex.clear();
+    clearCompressionBlocks(state, "compaction");
     state.messageIds.byIndex.clear();
     // Retain byRawId and byRef — stable keys survive compaction.
     // Only clear index cache (rebuilt each pipeline pass).

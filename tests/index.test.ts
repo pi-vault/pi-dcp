@@ -9,7 +9,7 @@ import { assignMessageRefs } from "../src/messages/inject.ts";
 import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 import { createSessionState } from "../src/state/state.ts";
 import * as subagentResults from "../src/subagents/subagent-results.ts";
-import { getMessageText, makeAssistantMessage, requireDefined, requireMessage } from "./helpers.ts";
+import { getMessageText, makeAssistantMessage, requireMessage } from "./helpers.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
 const disabledModel = { provider: "openai-codex", id: "gpt-5.6-sol" };
@@ -607,10 +607,7 @@ describe("dcp extension", () => {
 
   it("restores the newest valid branch snapshot and appends a child-owned fork", async () => {
     const { api, handlers, entries } = createMockApi();
-    const parent = createSessionState();
-    parent.sessionId = "parent";
-    parent.stats.totalPruneTokens = 99;
-    const snapshot = requireDefined(serializeDcpSnapshot(parent), "serialized DCP snapshot");
+    const snapshot = structuredClone(persistedCompressionSnapshot);
     createExtension(api);
 
     const start = handlers.get("session_start")?.[0];
@@ -632,7 +629,19 @@ describe("dcp extension", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       customType: "pi-dcp-state",
-      data: { ownerSessionId: "child", stats: { totalPruneTokens: 0 } },
+      data: {
+        version: 2,
+        ownerSessionId: "child",
+        stats: {
+          pruneTokenCounter: 0,
+          totalPruneTokens: 0,
+          toolsPruned: 0,
+          messagesCompressed: 0,
+        },
+        blocks: [{ blockId: 1, summaryTokens: 10, summary: "existing summary" }],
+        nextBlockId: 2,
+        nextRunId: 2,
+      },
     });
   });
 
@@ -732,36 +741,57 @@ describe("dcp extension", () => {
     expect(entries).toHaveLength(0);
   });
 
-  it("appends a repair snapshot after falling back past malformed branch state", async () => {
-    const { api, handlers, entries } = createMockApi();
-    const saved = createSessionState();
-    saved.sessionId = "session";
-    const snapshot = serializeDcpSnapshot(saved);
-    if (!snapshot) throw new Error("expected snapshot");
-    createExtension(api);
+  it.each([
+    { name: "malformed", newest: { invalid: true } },
+    {
+      name: "unsupported version 3",
+      newest: { ...persistedCompressionSnapshot, version: 3 },
+    },
+  ])(
+    "appends one repair snapshot after falling back past $name branch state",
+    async ({ newest }) => {
+      const { api, handlers, entries } = createMockApi();
+      const older = structuredClone(persistedCompressionSnapshot);
+      createExtension(api);
 
-    const start = handlers.get("session_start")?.[0];
-    const ctx = {
-      sessionManager: {
-        getSessionDir: () => "/tmp/test-session-dir",
-        getSessionId: () => "session",
-        getBranch: () => [] as unknown[],
-      },
-      getContextUsage: () => undefined,
-    };
-    await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
-    entries.length = 0;
-    ctx.sessionManager.getBranch = () => [
-      { type: "custom", customType: "pi-dcp-state", data: snapshot },
-      { type: "custom", customType: "pi-dcp-state", data: { invalid: true } },
-    ];
+      const start = handlers.get("session_start")?.[0];
+      const ctx = {
+        sessionManager: {
+          getSessionDir: () => "/tmp/test-session-dir",
+          getSessionId: () => "session",
+          getBranch: () => [] as unknown[],
+        },
+        getContextUsage: () => undefined,
+      };
+      await (start as (...args: unknown[]) => Promise<void>)({ reason: "new" }, ctx);
+      entries.length = 0;
+      ctx.sessionManager.getBranch = () => [
+        { type: "custom", customType: "pi-dcp-state", data: older },
+        { type: "custom", customType: "pi-dcp-state", data: newest },
+      ];
 
-    const tree = handlers.get("session_tree")?.[0];
-    await (tree as (...args: unknown[]) => Promise<void>)({}, ctx);
+      const tree = handlers.get("session_tree")?.[0];
+      await (tree as (...args: unknown[]) => Promise<void>)({}, ctx);
 
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.data).toMatchObject({ ownerSessionId: "session" });
-  });
+      expect(entries).toHaveLength(1);
+      const repair = entries[0]?.data;
+      expect(repair).toMatchObject({
+        version: 2,
+        ownerSessionId: "session",
+        blocks: [{ blockId: 1, summaryTokens: 10, summary: "existing summary" }],
+        nextBlockId: 2,
+        nextRunId: 2,
+      });
+
+      // Restoring the repair does not append another checkpoint.
+      entries.length = 0;
+      ctx.sessionManager.getBranch = () => [
+        { type: "custom", customType: "pi-dcp-state", data: repair },
+      ];
+      await (tree as (...args: unknown[]) => Promise<void>)({}, ctx);
+      expect(entries).toHaveLength(0);
+    },
+  );
 
   it("appends a baseline snapshot when tree navigation has no native state", async () => {
     const { api, handlers, entries } = createMockApi();
@@ -1079,12 +1109,19 @@ describe("dcp extension", () => {
       vi.setSystemTime(2_500);
       const toolEnd = handlers.get("tool_execution_end")?.[0];
       await (toolEnd as (...args: unknown[]) => Promise<void>)(
-        { toolName: "compress", toolCallId: "compress-call", isError: false },
+        { toolName: "compress", toolCallId: "compress-call", isError: false, durationMs: 999 },
         ctx,
       );
 
       expect(entries).toHaveLength(1);
       expect(entries[0]?.data).toMatchObject({ blocks: [{ durationMs: 1_500 }] });
+
+      // A repeated completion must not append a duplicate checkpoint.
+      await (toolEnd as (...args: unknown[]) => Promise<void>)(
+        { toolName: "compress", toolCallId: "compress-call", isError: false, durationMs: 999 },
+        ctx,
+      );
+      expect(entries).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
