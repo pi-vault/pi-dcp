@@ -62,18 +62,59 @@ function informationLines(model: DcpPanelModel): string[] {
   ];
 }
 
-function renderRow(row: DcpPanelRow, selected: boolean, width: number, theme: DcpTheme): string {
+function renderRow(
+  row: DcpPanelRow,
+  selected: boolean,
+  width: number,
+  theme: DcpTheme,
+): string | undefined {
   const marker = selected ? `${theme.fg("accent", "▸")} ` : "  ";
-  const label = flattenDcpLabel(row.label);
+  let label = flattenDcpLabel(row.label);
   const detail = row.detail === undefined ? "" : ` · ${flattenDcpLabel(row.detail)}`;
   const reason =
     row.unavailableReason === undefined ? "" : ` [${flattenDcpLabel(row.unavailableReason)}]`;
   const availableWidth = Math.max(0, width - visibleWidth(marker));
-  const minimumLabelWidth = Math.min(visibleWidth(label), Math.floor(availableWidth / 3));
-  const suffixText = truncate(
-    `${detail}${reason}`,
-    Math.max(0, availableWidth - minimumLabelWidth),
+  const blockId = row.id.startsWith("block:") ? row.id.slice("block:".length) : undefined;
+  const identityWidth = blockId === undefined ? 0 : visibleWidth(`Block b${blockId}:`);
+  const minimumLabelWidth = Math.min(
+    visibleWidth(label),
+    Math.max(identityWidth, Math.floor(availableWidth / 3)),
   );
+  let suffixText = truncate(`${detail}${reason}`, Math.max(0, availableWidth - minimumLabelWidth));
+  const lifecycle =
+    blockId === undefined
+      ? undefined
+      : detail.endsWith(" · Deactivate")
+        ? "Deactivate"
+        : detail.endsWith(" · Reactivate")
+          ? "Reactivate"
+          : row.unavailableReason === "Inactive"
+            ? "Inactive"
+            : undefined;
+  if (lifecycle !== undefined) {
+    let stateSuffix = ` · ${lifecycle}`;
+    let requiredLabelWidth = identityWidth;
+    if (requiredLabelWidth + visibleWidth(stateSuffix) > availableWidth) {
+      label = `b${blockId}`;
+      requiredLabelWidth = visibleWidth(label);
+      if (requiredLabelWidth + visibleWidth(stateSuffix) > availableWidth) {
+        stateSuffix = ` ${lifecycle}`;
+      }
+    }
+    if (requiredLabelWidth + visibleWidth(stateSuffix) > availableWidth) return undefined;
+
+    const labelBudget = Math.min(
+      visibleWidth(label),
+      Math.max(requiredLabelWidth, Math.floor(availableWidth / 3)),
+      availableWidth - visibleWidth(stateSuffix),
+    );
+    const detailWithoutState = detail.endsWith(` · ${lifecycle}`)
+      ? detail.slice(0, -` · ${lifecycle}`.length)
+      : detail;
+    const optionalSuffix = `${detailWithoutState}${row.unavailableReason === "Inactive" ? "" : reason}`;
+    const optionalWidth = availableWidth - labelBudget - visibleWidth(stateSuffix);
+    suffixText = `${visibleWidth(optionalSuffix) <= optionalWidth ? optionalSuffix : ""}${stateSuffix}`;
+  }
   const labelText = truncate(label, Math.max(0, availableWidth - visibleWidth(suffixText)));
   const labelColor = selected ? "accent" : row.action === undefined ? "dim" : "text";
   return `${marker}${theme.fg(labelColor, labelText)}${theme.fg("dim", suffixText)}`;
@@ -148,7 +189,7 @@ export function renderDcpPanel(
 
   const information = informationLines(model)
     .slice(0, headerCount)
-    .map((line) => truncate(line, contentWidth));
+    .map((line) => theme.fg("text", truncate(flattenDcpLabel(line), contentWidth)));
   const title = truncate(theme.bold(theme.fg("accent", "DCP Panel")), contentWidth);
   const divider = truncate(theme.fg("borderMuted", "─".repeat(contentWidth)), contentWidth);
   const feedbackText =
@@ -168,7 +209,9 @@ export function renderDcpPanel(
       listLines.push(" ".repeat(contentWidth));
       continue;
     }
-    listLines.push(pad(renderRow(row, row === selectedRow, contentWidth, theme), contentWidth));
+    const line = renderRow(row, row === selectedRow, contentWidth, theme);
+    if (line === undefined) return renderDcpPanelFallback(width, terminalRows);
+    listLines.push(pad(line, contentWidth));
   }
 
   const content = [title, ...information, divider, ...listLines, feedback, hint];

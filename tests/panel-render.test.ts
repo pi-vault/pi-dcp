@@ -168,7 +168,26 @@ describe("renderDcpPanel", () => {
     );
     expect(calls.some(({ role }) => role === "borderAccent")).toBe(true);
     expect(calls.some(({ role }) => role === "dim")).toBe(true);
+    expect(
+      calls.some(({ role, text: value }) => role === "text" && value === "Model test/test-model"),
+    ).toBe(true);
     expect(text(result)).toContain("▸");
+  });
+
+  it("keeps dynamic information values on one terminal line", () => {
+    const model = modelWithBlocks(1);
+    for (const field of [...model.status, ...model.statistics]) {
+      field.value += "\r\n extra\tvalue";
+    }
+
+    const result = renderDcpPanel(model, { offset: 0 }, identity, 160, 40);
+
+    for (const line of result.lines) {
+      expect(line).not.toMatch(/[\r\n\t]/);
+      expect(visibleWidth(line)).toBe(160);
+    }
+    expect(text(result)).toContain("Model test/test-model extra value");
+    expect(text(result)).toContain("Lifetime tools 4 extra value · messages 2 extra value");
   });
 
   it("reveals the selected block and clamps offsets without mutating inputs", () => {
@@ -264,6 +283,100 @@ describe("renderDcpPanel", () => {
     expect(result.actionsVisible).toBe(true);
     expect(result.lines).toHaveLength(9);
   });
+
+  it.each([1, 1234])("keeps selected block b%i identifiable at the minimum width", (blockId) => {
+    const state = createSessionState();
+    for (const id of [1, 1234]) {
+      state.prune.messages.blocksById.set(id, makeBlock(id, "same topic"));
+    }
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    const result = renderDcpPanel(
+      model,
+      { selectedRowId: `block:${blockId}`, offset: 0 },
+      identity,
+      26,
+      11,
+    );
+
+    expect(result.actionsVisible).toBe(true);
+    const selected = result.lines.find((line) => line.includes("▸"));
+    expect(selected).toContain(`b${blockId}`);
+    expect(visibleWidth(selected ?? "")).toBe(26);
+  });
+
+  it.each([26, 40, 50])("keeps complete block actions and states at %i columns", (width) => {
+    const state = createSessionState();
+    for (const id of [1, 2, 1234]) {
+      const block = makeBlock(id, "long topic ".repeat(20));
+      block.active = id === 1;
+      block.deactivatedByUser = id === 2;
+      state.prune.messages.blocksById.set(id, block);
+    }
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    for (const [id, lifecycle] of [
+      [1, "Deactivate"],
+      [2, "Reactivate"],
+      [1234, "Inactive"],
+    ] as const) {
+      const result = renderDcpPanel(
+        model,
+        { selectedRowId: `block:${id}`, offset: 0 },
+        identity,
+        width,
+        11,
+      );
+      const selected = result.lines.find((line) => line.includes("▸"));
+
+      expect(result.actionsVisible).toBe(true);
+      expect(selected).toContain(`b${id}`);
+      expect(selected).toContain(lifecycle);
+      expect(visibleWidth(selected ?? "")).toBe(width);
+    }
+  });
+
+  it("disables controls when a block identity and action cannot both fit", () => {
+    const state = createSessionState();
+    const id = Number.MAX_SAFE_INTEGER;
+    state.prune.messages.blocksById.set(id, makeBlock(id, "topic"));
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    const result = renderDcpPanel(
+      model,
+      { selectedRowId: `block:${id}`, offset: 0 },
+      identity,
+      26,
+      11,
+    );
+
+    expect(result.actionsVisible).toBe(false);
+    expect(text(result)).toContain("Esc/q close");
+  });
+
+  it.each([60, 80, 140])(
+    "shows a complete block policy reason or omits it at %i columns",
+    (width) => {
+      const state = createSessionState();
+      state.prune.messages.blocksById.set(1, makeBlock(1, "long topic ".repeat(20)));
+      const model = buildDcpPanelModel(
+        baseInput({ state, config: { ...makeDefaultConfig(), enabled: false } }),
+      );
+
+      const result = renderDcpPanel(
+        model,
+        { selectedRowId: "block:1", offset: 0 },
+        identity,
+        width,
+        11,
+      );
+      const selected = result.lines.find((line) => line.includes("▸"));
+
+      expect(selected).toContain("Deactivate");
+      if (width === 140) expect(selected).toContain("[DCP is disabled by configuration.]");
+      else expect(selected).not.toContain(" [");
+    },
+  );
 
   it("reserves a separate feedback row and picks the longest fitting hint", () => {
     const model = modelWithBlocks(1);

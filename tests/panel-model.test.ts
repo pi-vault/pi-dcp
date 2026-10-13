@@ -91,8 +91,8 @@ describe("buildDcpPanelModel", () => {
   it("compacts estimated metrics while leaving integer counts exact", () => {
     const state = createSessionState();
     state.stats.totalPruneTokens = 1_000;
-    state.stats.toolsPruned = 7;
-    state.stats.messagesCompressed = 5;
+    state.stats.toolsPruned = 7_123;
+    state.stats.messagesCompressed = 5_123;
     addBlock(state, { blockId: 1, compressedTokens: 12_400 });
 
     const model = buildDcpPanelModel(
@@ -101,20 +101,21 @@ describe("buildDcpPanelModel", () => {
         contextUsage: { tokens: 0, contextWindow: 200_000, percent: 0 },
         lifetimeStats: {
           totalTokensSaved: 1_234_567,
-          totalToolsPruned: 9,
-          totalMessagesCompressed: 6,
-          sessionCount: 3,
+          totalToolsPruned: 9_123,
+          totalMessagesCompressed: 6_123,
+          sessionCount: 3_123,
         },
       }),
     );
 
     expect(field(model, "Context")).toBe("~0 / 200k (0%)");
     expect(statistic(model, "Session tokens saved")).toBe("~1k");
-    expect(statistic(model, "Session tools pruned")).toBe("7");
-    expect(statistic(model, "Session messages compressed")).toBe("5");
+    expect(statistic(model, "Session tools pruned")).toBe("7123");
+    expect(statistic(model, "Session messages compressed")).toBe("5123");
     expect(statistic(model, "Lifetime tokens saved")).toBe("~1.2M");
-    expect(statistic(model, "Lifetime tools pruned")).toBe("9");
-    expect(statistic(model, "Lifetime messages compressed")).toBe("6");
+    expect(statistic(model, "Lifetime tools pruned")).toBe("9123");
+    expect(statistic(model, "Lifetime messages compressed")).toBe("6123");
+    expect(statistic(model, "Lifetime sessions")).toBe("3123");
     expect(model.blocks[0]?.detail).toContain("range · ~12.4k tokens · Deactivate");
   });
 

@@ -62,7 +62,9 @@ function formatLifetime(
   select: (stats: LifetimeStats) => number,
   estimated = false,
 ): string {
-  return stats === undefined ? "Unavailable" : formatDcpTokens(select(stats), estimated);
+  if (stats === undefined) return "Unavailable";
+  const value = select(stats);
+  return estimated ? formatDcpTokens(value, true) : String(value);
 }
 
 function buildBlockRow(block: CompressionBlock, policyMessage: string | undefined): DcpPanelRow {
