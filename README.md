@@ -107,7 +107,7 @@ In TUI mode with dialog UI, the informational commands open the dashboard on a m
 
 | Command                    | Purpose                                         |
 | -------------------------- | ----------------------------------------------- |
-| `dcp`                       | Open the interactive DCP status panel           |
+| `dcp`                       | Open the interactive DCP dashboard              |
 | `dcp:help`                 | List all available commands                     |
 | `dcp:context`              | Show context usage and DCP state                |
 | `dcp:stats`                | Show compression and token savings statistics   |
