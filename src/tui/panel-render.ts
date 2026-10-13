@@ -29,13 +29,6 @@ const PADDING_X = 2;
 const CHROME_ROWS = 9;
 const MIN_WIDTH = 26;
 const MIN_CAP = 10;
-const HINTS = [
-  "Tab/Shift-Tab tabs · ↑/↓ j/k rows · Enter/Space run · Esc/q close",
-  "↑/↓ j/k rows · Enter/Space run · Esc/q close",
-  "↑/↓ j/k rows · Esc/q close",
-  "Esc/q close",
-  "q",
-];
 
 function maxOverlayRows(terminalRows: number): number {
   return Math.max(1, Math.floor(terminalRows * 0.85));
@@ -187,17 +180,32 @@ function renderRow(
   const detail = row.detail === undefined ? "" : ` ${flattenDcpLabel(row.detail)}`;
   const reason =
     row.unavailableReason === undefined ? "" : ` [${flattenDcpLabel(row.unavailableReason)}]`;
-  const labelText = truncate(label, availableWidth);
-  const suffix = truncate(
-    `${detail}${reason}`,
-    Math.max(0, availableWidth - visibleWidth(labelText)),
-  );
+  // Field values and policy reasons must remain visible beside long labels.
+  // Help retains command syntax first; available actions retain their full label.
+  const prioritizeSuffix =
+    reason !== "" || (row.action === undefined && !row.id.startsWith("help:"));
+  const labelReserve = prioritizeSuffix
+    ? Math.min(visibleWidth(label), Math.floor(availableWidth / 3))
+    : Math.min(visibleWidth(label), availableWidth);
+  const suffixBudget = Math.max(0, availableWidth - labelReserve);
+  const suffixText =
+    reason === "" ? detail : visibleWidth(reason) <= suffixBudget ? reason : " [Disabled]";
+  const suffix = truncate(suffixText, suffixBudget);
+  const labelText = truncate(label, Math.max(0, availableWidth - visibleWidth(suffix)));
   const labelColor = row.action === undefined ? "dim" : selected ? "accent" : "text";
   return `${marker}${theme.fg(labelColor, labelText)}${theme.fg("dim", suffix)}`;
 }
 
-function chooseHint(width: number): string {
-  return HINTS.find((hint) => visibleWidth(hint) <= width) ?? "q";
+function chooseHint(width: number, hasActions: boolean): string {
+  const activation = hasActions ? " · Enter/Space run" : "";
+  const hints = [
+    `Tab/Shift-Tab tabs · ↑/↓ j/k rows${activation} · Esc/q close`,
+    `Tab/Shift-Tab tabs${activation} · Esc/q close`,
+    "Tab/Shift-Tab tabs · Esc/q close",
+    "Tab tabs · Esc/q close",
+    "Tab tabs · q close",
+  ];
+  return hints.find((hint) => visibleWidth(hint) <= width) ?? "q";
 }
 
 function frame(content: string[], width: number, theme: DcpTheme): string[] {
@@ -276,7 +284,16 @@ export function renderDcpPanel(
     feedbackText === ""
       ? " ".repeat(contentWidth)
       : truncate(theme.fg("accent", feedbackText), contentWidth);
-  const hint = truncate(theme.fg("dim", chooseHint(contentWidth)), contentWidth);
+  const hint = truncate(
+    theme.fg(
+      "dim",
+      chooseHint(
+        contentWidth,
+        rows.some((row) => row.action !== undefined),
+      ),
+    ),
+    contentWidth,
+  );
 
   const bodyLines: string[] = [];
   if (rows.length === 0) {

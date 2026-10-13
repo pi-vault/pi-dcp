@@ -360,6 +360,53 @@ describe("renderDcpPanel", () => {
     expect(text(renderDcpPanel(model, view("overview"), identity, 26, 40))).toContain("q");
   });
 
+  it.each([26, 32, 40, 60])("keeps tab and close hints at %i columns", (width) => {
+    const result = renderDcpPanel(modelWithBlocks(1), view("controls"), identity, width, 40);
+    const footer = result.lines.at(-3) ?? "";
+
+    expect(footer).toContain("Tab");
+    expect(footer).toContain("close");
+  });
+
+  it.each(["overview", "statistics", "help", "blocks"] as const)(
+    "does not advertise activation on the read-only or empty %s tab",
+    (tab) => {
+      const result = renderDcpPanel(modelWithBlocks(0), view(tab), identity, 80, 40);
+      const footer = result.lines.at(-3) ?? "";
+
+      expect(footer).toContain("Tab/Shift-Tab");
+      expect(footer).not.toContain("run");
+    },
+  );
+
+  it("keeps pruning savings visible beside a long field label at compact widths", () => {
+    const state = createSessionState();
+    state.stats.totalPruneTokens = 123_400;
+    const model = buildDcpPanelModel(baseInput({ state }));
+    const rendered = renderDcpPanel(model, view("statistics"), identity, 40, 40);
+    const savingsRow = rendered.lines.find((line) => line.includes("Cumulative"));
+
+    expect(savingsRow).toContain("~123.4k");
+    expect(visibleWidth(savingsRow ?? "")).toBeLessThanOrEqual(40);
+  });
+
+  it.each([40, 60, 80])(
+    "shows disabled controls without activation hints at %i columns",
+    (width) => {
+      const model = buildDcpPanelModel(
+        baseInput({ config: { ...makeDefaultConfig(), enabled: false } }),
+      );
+      const result = renderDcpPanel(model, view("controls"), identity, width, 40);
+      const body = result.lines.slice(5, 8);
+
+      for (const line of body) {
+        expect(line).toMatch(/disabled|Disabled/);
+        expect(line).not.toMatch(/Turn on|Cycle permission/);
+      }
+      expect(result.lines.at(-3)).not.toContain("run");
+    },
+  );
+
   it("disables actions for an empty list render", () => {
     const empty: DcpPanelModel = {
       tabs: {

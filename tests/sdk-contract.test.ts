@@ -429,8 +429,12 @@ describe("DCP public SDK contract", () => {
     const runner = session.extensionRunner;
     const captured: Array<{ options: unknown; component: DcpPanelComponent }> = [];
     const notify = vi.fn();
+    const stream = vi.fn<StreamFn>(() => {
+      throw new Error("Informational commands must not start model streaming");
+    });
+    session.agent.streamFunction = stream;
     const custom = vi.fn(
-      async (
+      (
         factory: (
           tui: unknown,
           theme: Theme,
@@ -438,17 +442,22 @@ describe("DCP public SDK contract", () => {
           done: (result: unknown) => void,
         ) => DcpPanelComponent | Promise<DcpPanelComponent>,
         options: unknown,
-      ) => {
-        const tui = { terminal: { rows: 40, columns: 120 }, requestRender: () => {} };
-        const component = await factory(tui, fakeUiTheme(), {}, () => {});
-        captured.push({ options, component });
-        component.handleInput("q");
-        return undefined;
-      },
+      ) =>
+        new Promise((resolve, reject) => {
+          const tui = { terminal: { rows: 40, columns: 120 }, requestRender: () => {} };
+          Promise.resolve(factory(tui, fakeUiTheme(), {}, resolve))
+            .then((component) => {
+              captured.push({ options, component });
+              component.render(110);
+              component.handleInput("q");
+            })
+            .catch(reject);
+        }),
     );
     runner.setUIContext({ ...runner.getUIContext(), notify, custom } as never, "tui");
 
     const expected = [
+      ["dcp", "Model"],
       ["dcp:help", "Open the interactive DCP panel"],
       ["dcp:context", "Model"],
       ["dcp:stats", "Session"],
@@ -459,9 +468,7 @@ describe("DCP public SDK contract", () => {
       captured.length = 0;
       custom.mockClear();
       notify.mockClear();
-      const command = runner.getCommand(name);
-      expect(command).toBeDefined();
-      await command?.handler("", runner.createCommandContext());
+      await session.prompt(`/${name}`);
 
       expect(custom).toHaveBeenCalledTimes(1);
       expect(captured[0]?.options).toMatchObject({
@@ -471,13 +478,15 @@ describe("DCP public SDK contract", () => {
       const selected = captured[0]?.component.render(120).find((line) => line.includes("▸"));
       expect(selected).toContain(marker);
       expect(notify).not.toHaveBeenCalled();
+      expect(stream).not.toHaveBeenCalled();
     }
 
     runner.setUIContext({ ...runner.getUIContext(), notify, custom } as never, "rpc");
     custom.mockClear();
     notify.mockClear();
-    await runner.getCommand("dcp:help")?.handler("", runner.createCommandContext());
+    await session.prompt("/dcp:help");
     expect(custom).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("DCP Commands:"), "info");
+    expect(stream).not.toHaveBeenCalled();
   });
 });

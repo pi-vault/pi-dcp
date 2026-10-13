@@ -846,23 +846,94 @@ describe("dcp panel controller", () => {
   });
 
   it("retains every tab viewport across an action rebuild", async () => {
-    writeDcpConfig({});
     const harness = createPanelHarness();
-    createExtension(harness.api);
-    await harness.emit("session_start", { type: "session_start", reason: "new" });
+    const state = createSessionState();
+    for (let id = 1; id <= 40; id++) {
+      state.prune.messages.blocksById.set(id, makeBlock(id, `topic ${id}`));
+    }
+    const onStateChange = vi.fn();
+    const completions: Completion[] = [];
+    const views: string[][] = [];
+    let opened = 0;
+    harness.ui.custom.mockImplementation(
+      (factory: unknown) =>
+        new Promise((resolve) => {
+          const tui = { terminal: { rows: 12, columns: 80 }, requestRender: () => {} };
+          const component = (
+            factory as (
+              tui: unknown,
+              theme: Theme,
+              keybindings: unknown,
+              done: (result: Completion) => void,
+            ) => DcpPanelComponent
+          )(tui, fakeTheme(), {}, (result) => {
+            completions.push(result);
+            resolve(result);
+          });
+          if (opened++ === 0) {
+            component.render(60);
+            for (let step = 0; step < 13; step++) component.handleInput("j");
+            component.render(60);
+            component.handleInput("\t");
+            component.handleInput("\t");
+            for (let step = 0; step < 20; step++) component.handleInput("j");
+            component.render(60);
+            component.handleInput("\t");
+            for (let step = 0; step < 8; step++) component.handleInput("j");
+            component.render(60);
+            component.handleInput("\t");
+            for (let step = 0; step < 12; step++) component.handleInput("j");
+            component.render(60);
+            component.handleInput("\t");
+            component.handleInput("\t");
+            component.render(60);
+            component.handleInput("\r");
+          } else {
+            views.push(component.render(60));
+            component.handleInput("\t");
+            views.push(component.render(60));
+            component.handleInput("\t");
+            views.push(component.render(60));
+            component.handleInput("\t");
+            views.push(component.render(60));
+            component.handleInput("\t");
+            views.push(component.render(60));
+            component.handleInput("q");
+          }
+        }),
+    );
+    await openDcpPanel(state, makeDefaultConfig(), harness.commandContext, onStateChange, () =>
+      harness.activeTools(),
+    );
 
-    const navigation = createDcpPanelNavigation("controls");
-    navigation.tabs.overview = { selectedRowId: "overview:user-turn", offset: 0 };
-    navigation.tabs.controls = { selectedRowId: "cycle-permission", offset: 1 };
-    navigation.tabs.blocks = { selectedRowId: "block:2", offset: 0 };
-    const components = drivePanel(harness, [
-      completion({ type: "toggle-manual" }, navigation),
-      undefined,
-    ]);
-    await harness.runCommand("dcp", "");
-
-    expect(components).toHaveLength(2);
-    expect(selectedLine(components[1].render(80))).toContain("Compress permission");
+    expect(opened).toBe(2);
+    expect(state.manualMode).toBe("active");
+    expect(onStateChange).toHaveBeenCalledExactlyOnceWith(harness.commandContext);
+    expect(selectedLine(views[0])).toContain("Manual mode: on");
+    expect(views[0].join("\n")).toContain("Last action: Manual mode: on");
+    expect(selectedLine(views[1])).toContain("Block b21:");
+    expect(selectedLine(views[2])).toContain("Total tools pruned");
+    expect(selectedLine(views[3])).toContain("Move between rows");
+    expect(selectedLine(views[4])).toContain("Current user turn");
+    for (const result of completions) {
+      expect(result.navigation.tabs.overview).toEqual({
+        selectedRowId: "overview:user-turn",
+        offset: 13,
+      });
+      expect(result.navigation.tabs.controls).toEqual({
+        selectedRowId: "toggle-manual",
+        offset: 0,
+      });
+      expect(result.navigation.tabs.blocks).toEqual({ selectedRowId: "block:21", offset: 20 });
+      expect(result.navigation.tabs.statistics).toEqual({
+        selectedRowId: "statistics:lifetime-tools-pruned",
+        offset: 8,
+      });
+      expect(result.navigation.tabs.help).toEqual({
+        selectedRowId: "help:navigation:rows",
+        offset: 12,
+      });
+    }
   });
 
   it("does not invoke the state callback on close", async () => {
