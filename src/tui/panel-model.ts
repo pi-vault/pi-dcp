@@ -4,6 +4,7 @@ import type { DcpAction } from "../commands/actions.ts";
 import type { CompressionBlock, ContextUsage, SessionState } from "../state/types.ts";
 import type { LifetimeStats } from "../state/persistence.ts";
 import { resolveContextLimits } from "../utils/context-limits.ts";
+import { formatDcpTokens } from "./formatters.ts";
 
 /** Selectable panel action with a type discriminant. */
 export type DcpPanelAction =
@@ -49,23 +50,24 @@ export interface DcpPanelModel {
 function formatContext(usage: ContextUsage | undefined): string {
   if (usage === undefined || usage.tokens === null) return "Unavailable";
   const percent = usage.percent === null ? "unknown" : `${usage.percent}%`;
-  return `${usage.tokens} / ${usage.contextWindow} (${percent})`;
+  return `${formatDcpTokens(usage.tokens, true)} / ${formatDcpTokens(usage.contextWindow)} (${percent})`;
 }
 
 function formatLimit(value: number | undefined): string {
-  return value === undefined ? "Unavailable" : String(value);
+  return value === undefined ? "Unavailable" : formatDcpTokens(value);
 }
 
 function formatLifetime(
   stats: LifetimeStats | undefined,
   select: (stats: LifetimeStats) => number,
+  estimated = false,
 ): string {
-  return stats === undefined ? "Unavailable" : String(select(stats));
+  return stats === undefined ? "Unavailable" : formatDcpTokens(select(stats), estimated);
 }
 
 function buildBlockRow(block: CompressionBlock, policyMessage: string | undefined): DcpPanelRow {
   const label = `Block b${block.blockId}: ${block.topic}`;
-  const detail = `${block.mode ?? "unknown"} · ${block.compressedTokens} tokens`;
+  const detail = `${block.mode ?? "unknown"} · ${formatDcpTokens(block.compressedTokens, true)} tokens`;
   if (block.active) {
     return {
       id: `block:${block.blockId}`,
@@ -133,12 +135,12 @@ export function buildDcpPanelModel(input: DcpPanelModelInput): DcpPanelModel {
   ];
 
   const statistics: DcpPanelField[] = [
-    { label: "Session tokens saved", value: String(state.stats.totalPruneTokens) },
+    { label: "Session tokens saved", value: formatDcpTokens(state.stats.totalPruneTokens, true) },
     { label: "Session tools pruned", value: String(state.stats.toolsPruned) },
     { label: "Session messages compressed", value: String(state.stats.messagesCompressed) },
     {
       label: "Lifetime tokens saved",
-      value: formatLifetime(lifetimeStats, (stats) => stats.totalTokensSaved),
+      value: formatLifetime(lifetimeStats, (stats) => stats.totalTokensSaved, true),
     },
     {
       label: "Lifetime tools pruned",

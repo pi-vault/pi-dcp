@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Key, matchesKey } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DcpConfig } from "../config.ts";
@@ -12,26 +12,27 @@ import {
   type DcpPanelModel,
   type DcpPanelRow,
 } from "./panel-model.ts";
+import { renderDcpPanel, renderDcpPanelFallback, type DcpPanelView } from "./panel-render.ts";
+import { createDcpTheme } from "./theme.ts";
 
 export interface DcpPanelComponentOptions {
   theme: Theme;
   getHeight: () => number;
+  /** Terminal columns, used to invalidate activation when the view resizes. */
+  getWidth: () => number;
   requestRender: () => void;
   onAction: (action: DcpPanelAction) => void;
   initialRowId?: string;
   lastActionMessage?: string;
 }
 
-function flattenLabel(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
 /**
  * Bounded, scrolling terminal component for the DCP panel.
  *
- * Renders a compact status/statistics header, a scrolling action/block list, and
- * a close-key footer. Performs no domain mutations; it only tracks selection and
- * reports one action back to the controller.
+ * Delegates layout to the pure renderer, tracks selection and scroll offset, and
+ * reports one action back to the controller. It never mutates domain state, and
+ * it activates a row only after rendering that selection at the current terminal
+ * size.
  */
 export class DcpPanelComponent {
   private readonly model: DcpPanelModel;
@@ -41,6 +42,9 @@ export class DcpPanelComponent {
   private scrollOffset = 0;
   private completed = false;
   private actionsVisible = true;
+  private renderedRowId: string | undefined;
+  private renderedColumns: number | undefined;
+  private renderedRows: number | undefined;
 
   constructor(model: DcpPanelModel, options: DcpPanelComponentOptions) {
     this.model = model;
@@ -53,7 +57,7 @@ export class DcpPanelComponent {
   }
 
   invalidate(): void {
-    // No cached render state; every render is recomputed from the model.
+    this.renderedRowId = undefined;
   }
 
   handleInput(data: string): void {
@@ -72,17 +76,42 @@ export class DcpPanelComponent {
       return;
     }
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
-      const row = this.rows[this.selectedPosition];
-      if (row?.action) this.complete(row.action);
+      this.activate();
     }
   }
 
   render(width: number): string[] {
+    let terminalColumns = 0;
+    let terminalRows = 1;
     try {
-      return this.renderThemed(width);
+      terminalColumns = this.options.getWidth();
+      terminalRows = this.options.getHeight();
+      const view: DcpPanelView = {
+        selectedRowId: this.rows[this.selectedPosition]?.id,
+        offset: this.scrollOffset,
+        ...(this.options.lastActionMessage === undefined
+          ? {}
+          : { lastActionMessage: this.options.lastActionMessage }),
+      };
+      const result = renderDcpPanel(
+        this.model,
+        view,
+        createDcpTheme(this.options.theme),
+        width,
+        terminalRows,
+      );
+      this.actionsVisible = result.actionsVisible;
+      this.scrollOffset = result.offset;
+      this.renderedColumns = terminalColumns;
+      this.renderedRows = terminalRows;
+      this.renderedRowId = result.actionsVisible ? this.rows[this.selectedPosition]?.id : undefined;
+      return result.lines;
     } catch {
       this.actionsVisible = false;
-      return this.renderFallback(width);
+      this.renderedRowId = undefined;
+      this.renderedColumns = undefined;
+      this.renderedRows = undefined;
+      return renderDcpPanelFallback(width, terminalRows).lines;
     }
   }
 
@@ -91,127 +120,30 @@ export class DcpPanelComponent {
     const next = Math.min(Math.max(this.selectedPosition + delta, 0), this.rows.length - 1);
     if (next === this.selectedPosition) return;
     this.selectedPosition = next;
+    this.renderedRowId = undefined;
     this.options.requestRender();
+  }
+
+  private activate(): void {
+    const row = this.rows[this.selectedPosition];
+    if (row?.action === undefined) return;
+    if (this.renderedRowId !== row.id) return;
+    let columns: number;
+    let rows: number;
+    try {
+      columns = this.options.getWidth();
+      rows = this.options.getHeight();
+    } catch {
+      return;
+    }
+    if (columns !== this.renderedColumns || rows !== this.renderedRows) return;
+    this.complete(row.action);
   }
 
   private complete(action: DcpPanelAction): void {
     if (this.completed) return;
     this.completed = true;
     this.options.onAction(action);
-  }
-
-  private statusValue(label: string): string {
-    return this.model.status.find((entry) => entry.label === label)?.value ?? "Unavailable";
-  }
-
-  private statisticValue(label: string): string {
-    return this.model.statistics.find((entry) => entry.label === label)?.value ?? "Unavailable";
-  }
-
-  private renderThemed(width: number): string[] {
-    const theme = this.options.theme;
-    const height = Math.max(1, this.options.getHeight());
-
-    const footer: string[] = [];
-    if (this.options.lastActionMessage) {
-      footer.push(
-        theme.fg(
-          "accent",
-          truncateToWidth(
-            `Last action: ${flattenLabel(this.options.lastActionMessage)}`,
-            width,
-            "…",
-          ),
-        ),
-      );
-    }
-    footer.push(
-      theme.fg("dim", truncateToWidth("↑/↓ j/k navigate · Enter run · Esc/q close", width, "…")),
-    );
-    if (height < footer.length + 2) {
-      this.actionsVisible = false;
-      return footer.slice(-height);
-    }
-
-    const header: string[] = [
-      theme.bold(theme.fg("accent", "DCP Panel")),
-      theme.fg("text", `Model ${this.statusValue("Model")}`),
-      theme.fg("text", `Context ${this.statusValue("Context")}`),
-      theme.fg(
-        "text",
-        `Limits max ${this.statusValue("Max limit")} / min ${this.statusValue("Min limit")} · Mode ${this.statusValue("Compression mode")}`,
-      ),
-      theme.fg(
-        "text",
-        `Permission ${this.statusValue("Permission")} · Manual ${this.statusValue("Manual mode")}`,
-      ),
-      theme.fg("text", `Pipeline ${this.statusValue("Pipeline")}`),
-      theme.fg("text", `Tool ${this.statusValue("Compress tool")}`),
-      theme.fg(
-        "text",
-        `Session saved ${this.statisticValue("Session tokens saved")} · pruned ${this.statisticValue("Session tools pruned")} · compressed ${this.statisticValue("Session messages compressed")}`,
-      ),
-      theme.fg(
-        "text",
-        `Lifetime saved ${this.statisticValue("Lifetime tokens saved")} · sessions ${this.statisticValue("Lifetime sessions")}`,
-      ),
-      theme.fg(
-        "text",
-        `Lifetime tools ${this.statisticValue("Lifetime tools pruned")} · messages ${this.statisticValue("Lifetime messages compressed")}`,
-      ),
-    ];
-
-    const maxHeaderLines = Math.max(0, height - footer.length - 1 - (this.rows.length > 0 ? 1 : 0));
-    const headerLines = header
-      .slice(0, maxHeaderLines)
-      .map((line) => truncateToWidth(line, width, "…"));
-    const listHeight = Math.max(0, height - headerLines.length - footer.length - 1);
-    this.actionsVisible = listHeight > 0;
-    const divider = theme.fg("borderMuted", truncateToWidth("─".repeat(Math.max(0, width)), width));
-
-    const selectedRowIndex = this.rows.length > 0 ? this.selectedPosition : -1;
-    const maxScroll = Math.max(0, this.rows.length - listHeight);
-    this.scrollOffset = Math.min(this.scrollOffset, maxScroll);
-    if (selectedRowIndex >= 0 && listHeight > 0) {
-      if (selectedRowIndex < this.scrollOffset) this.scrollOffset = selectedRowIndex;
-      if (selectedRowIndex >= this.scrollOffset + listHeight) {
-        this.scrollOffset = selectedRowIndex - listHeight + 1;
-      }
-    }
-
-    const listLines = this.rows
-      .slice(this.scrollOffset, this.scrollOffset + listHeight)
-      .map((row, index) =>
-        this.renderRow(row, this.scrollOffset + index === selectedRowIndex, width),
-      );
-
-    return [...headerLines, divider, ...listLines, ...footer];
-  }
-
-  private renderRow(row: DcpPanelRow, selected: boolean, width: number): string {
-    const theme = this.options.theme;
-    const marker = selected ? "> " : "  ";
-    const detail = row.detail === undefined ? "" : ` · ${flattenLabel(row.detail)}`;
-    const reason =
-      row.unavailableReason === undefined ? "" : ` [${flattenLabel(row.unavailableReason)}]`;
-    const label = flattenLabel(row.label);
-    const availableWidth = Math.max(0, width - visibleWidth(marker));
-    // Keep the row identifiable when its policy reason also needs truncation.
-    const minimumLabelWidth = Math.min(visibleWidth(label), Math.floor(availableWidth / 3));
-    const suffix = truncateToWidth(`${detail}${reason}`, availableWidth - minimumLabelWidth, "…");
-    const labelWidth = Math.max(0, availableWidth - visibleWidth(suffix));
-    const text = `${marker}${truncateToWidth(label, labelWidth, "…")}${suffix}`;
-    if (selected) return theme.inverse(truncateToWidth(text, width, "…"));
-    if (row.action === undefined) return theme.fg("dim", truncateToWidth(text, width, "…"));
-    return truncateToWidth(text, width, "…");
-  }
-
-  private renderFallback(width: number): string[] {
-    const height = Math.max(1, this.options.getHeight());
-    return [
-      truncateToWidth("DCP panel (rendering unavailable)", width, "…"),
-      truncateToWidth("Esc/q close", width, "…"),
-    ].slice(-height);
   }
 }
 
@@ -260,16 +192,22 @@ export async function openDcpPanel(
 
     let action: DcpPanelAction | undefined;
     try {
-      action = await ctx.ui.custom<DcpPanelAction | undefined>((tui, theme, _keybindings, done) => {
-        return new DcpPanelComponent(model, {
-          theme,
-          getHeight: () => tui.terminal.rows,
-          requestRender: () => tui.requestRender(),
-          onAction: (next) => done(next),
-          initialRowId,
-          lastActionMessage,
-        });
-      });
+      action = await ctx.ui.custom<DcpPanelAction | undefined>(
+        (tui, theme, _keybindings, done) =>
+          new DcpPanelComponent(model, {
+            theme,
+            getHeight: () => tui.terminal.rows,
+            getWidth: () => tui.terminal.columns,
+            requestRender: () => tui.requestRender(),
+            onAction: (next) => done(next),
+            initialRowId,
+            lastActionMessage,
+          }),
+        {
+          overlay: true,
+          overlayOptions: { anchor: "center", width: "92%", maxHeight: "85%" },
+        },
+      );
     } catch {
       ctx.ui.notify("DCP panel closed: interactive UI failed.", "error");
       return;

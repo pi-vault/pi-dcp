@@ -76,17 +76,53 @@ describe("buildDcpPanelModel", () => {
     const model = buildDcpPanelModel(input);
 
     expect(field(model, "Model")).toBe("test/test-model");
-    expect(field(model, "Context")).toContain("20000");
-    expect(field(model, "Context")).toContain("200000");
-    expect(field(model, "Max limit")).toBe("100000");
-    expect(field(model, "Min limit")).toBe("50000");
+    expect(field(model, "Context")).toBe("~20k / 200k (10%)");
+    expect(field(model, "Max limit")).toBe("100k");
+    expect(field(model, "Min limit")).toBe("50k");
     expect(field(model, "Compression mode")).toBe("range");
     expect(field(model, "Permission")).toBe("allow");
     expect(field(model, "Manual mode")).toBe("off");
     expect(field(model, "Pipeline")).toBe("enabled");
     expect(field(model, "Compress tool")).toBe("active");
-    expect(statistic(model, "Lifetime tokens saved")).toBe("1000");
+    expect(statistic(model, "Lifetime tokens saved")).toBe("~1k");
     expect(statistic(model, "Lifetime sessions")).toBe("3");
+  });
+
+  it("compacts estimated metrics while leaving integer counts exact", () => {
+    const state = createSessionState();
+    state.stats.totalPruneTokens = 1_000;
+    state.stats.toolsPruned = 7;
+    state.stats.messagesCompressed = 5;
+    addBlock(state, { blockId: 1, compressedTokens: 12_400 });
+
+    const model = buildDcpPanelModel(
+      baseInput({
+        state,
+        contextUsage: { tokens: 0, contextWindow: 200_000, percent: 0 },
+        lifetimeStats: {
+          totalTokensSaved: 1_234_567,
+          totalToolsPruned: 9,
+          totalMessagesCompressed: 6,
+          sessionCount: 3,
+        },
+      }),
+    );
+
+    expect(field(model, "Context")).toBe("~0 / 200k (0%)");
+    expect(statistic(model, "Session tokens saved")).toBe("~1k");
+    expect(statistic(model, "Session tools pruned")).toBe("7");
+    expect(statistic(model, "Session messages compressed")).toBe("5");
+    expect(statistic(model, "Lifetime tokens saved")).toBe("~1.2M");
+    expect(statistic(model, "Lifetime tools pruned")).toBe("9");
+    expect(statistic(model, "Lifetime messages compressed")).toBe("6");
+    expect(model.blocks[0]?.detail).toContain("range · ~12.4k tokens · Deactivate");
+  });
+
+  it("keeps an unknown percentage while compacting token values", () => {
+    const model = buildDcpPanelModel(
+      baseInput({ contextUsage: { tokens: 20_000, contextWindow: 200_000, percent: null } }),
+    );
+    expect(field(model, "Context")).toBe("~20k / 200k (unknown)");
   });
 
   it("uses the current model view for thresholds without mutating cached state", () => {
@@ -105,7 +141,7 @@ describe("buildDcpPanelModel", () => {
     const model = buildDcpPanelModel(input);
 
     expect(field(model, "Model")).toBe("anthropic/claude");
-    expect(field(model, "Max limit")).toBe("100000");
+    expect(field(model, "Max limit")).toBe("100k");
     expect(state.modelProvider).toBe("stale");
     expect(state.modelId).toBe("stale-model");
     expect(state.modelContextWindow).toBe(100);

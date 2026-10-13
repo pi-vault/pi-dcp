@@ -105,10 +105,10 @@ Reuse `src/tui/formatters.ts` (`formatDcpTokens`, `flattenDcpLabel`) and `src/tu
 
 ## Execution Rules
 
-- [ ] Confirm a clean or understood worktree, phases 1–2 present, and execution-workflow isolation before product edits.
-- [ ] Run `pnpm check` as a fresh baseline; the readiness counts above are historical by implementation time.
-- [ ] Execute Tasks 1–4 sequentially; demonstrate each expected test failure before implementation and rerun relevant tests afterward.
-- [ ] Leave implementation checkboxes unchecked until work occurs; record actual checks and commit IDs only afterward.
+- [x] Confirm a clean or understood worktree, phases 1–2 present, and execution-workflow isolation before product edits.
+- [x] Run `pnpm check` as a fresh baseline; the readiness counts above are historical by implementation time.
+- [x] Execute Tasks 1–4 sequentially; demonstrate each expected test failure before implementation and rerun relevant tests afterward.
+- [x] Leave implementation checkboxes unchecked until work occurs; record actual checks and commit IDs only afterward.
 
 ### Task 1: Compact Existing Panel Metrics
 
@@ -116,10 +116,10 @@ Reuse `src/tui/formatters.ts` (`formatDcpTokens`, `flattenDcpLabel`) and `src/tu
 
 **Interfaces:** Preserve existing public types and numeric owners; consume `formatDcpTokens` at those owners. No raw metric fields for the renderer or compact counts.
 
-- [ ] **Step 1: Add failing projection assertions.** Replace raw-token expectations with the exact examples above. Cover zero/large estimates, unchanged integer counts, null tokens, unknown percentage, unavailable model/limits/lifetime, and block action suffixes. Retain current-policy, stable-ID ordering, live-input preference, and no-state-mutation assertions.
-- [ ] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/panel-model.test.ts`; expect compact-token assertions to fail on raw numeric strings.
-- [ ] **Step 3: Implement compact projection.** Format numeric values before making strings; keep missing-value handling and all actions/reasons unchanged. Any lifetime-formatting helper change stays private and limited to existing fields.
-- [ ] **Step 4: Verify projection.** Run `pnpm exec vitest run tests/panel-model.test.ts tests/panel.test.ts`; migrate only component assertions affected by compact tokens now. Expect exit `0`; no controller/geometry change yet.
+- [x] **Step 1: Add failing projection assertions.** Replace raw-token expectations with the exact examples above. Cover zero/large estimates, unchanged integer counts, null tokens, unknown percentage, unavailable model/limits/lifetime, and block action suffixes. Retain current-policy, stable-ID ordering, live-input preference, and no-state-mutation assertions.
+- [x] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/panel-model.test.ts`; expect compact-token assertions to fail on raw numeric strings.
+- [x] **Step 3: Implement compact projection.** Format numeric values before making strings; keep missing-value handling and all actions/reasons unchanged. Any lifetime-formatting helper change stays private and limited to existing fields.
+- [x] **Step 4: Verify projection.** Run `pnpm exec vitest run tests/panel-model.test.ts tests/panel.test.ts`; migrate only component assertions affected by compact tokens now. Expect exit `0`; no controller/geometry change yet.
 
 ### Task 2: Pure Framed Renderer and Close-Only Fallback
 
@@ -127,17 +127,17 @@ Reuse `src/tui/formatters.ts` (`formatDcpTokens`, `flattenDcpLabel`) and `src/tu
 
 **Interfaces:** Produce the view/result types and two renderer exports above. Consume existing `DcpPanelModel`, `DcpTheme`, and `flattenDcpLabel`; helpers remain local.
 
-- [ ] **Step 1: Add failing renderer tests.** Pin heavy corners, two-column side padding, four outer frame rows, semantic role calls, accent selection without row inversion, and footer choices. Use identity/ANSI themes, widths `60/80/120`, heights `11/20/24/40`, models with zero/one/many blocks, feedback present/absent, and empty action/block arrays. Assert exact normal width/computed height, selected visible row, and a complete final bottom border.
+- [x] **Step 1: Add failing renderer tests.** Pin heavy corners, two-column side padding, four outer frame rows, semantic role calls, accent selection without row inversion, and footer choices. Use identity/ANSI themes, widths `60/80/120`, heights `11/20/24/40`, models with zero/one/many blocks, feedback present/absent, and empty action/block arrays. Assert exact normal width/computed height, selected visible row, and a complete final bottom border.
 
   Pin `60 × 24` with forty blocks to `20` rows and three list rows; pin `60 × 11` to `9` rows and one list row. A tall terminal fits all nine information lines and existing metrics; smaller heights show the documented header prefix.
 
-- [ ] **Step 2: Add failing viewport/boundary tests.** A late selected block stays visible through shrink/enlarge; negative/oversized offsets clamp; stale selected ID selects the first row; frozen inputs stay unchanged. Cover long CJK/emoji/combining topics and CR/LF/tabs in status, detail, reason, and feedback. At `60/80/120`, block identity and Deactivate/Reactivate/Inactive survive long topics/reasons.
+- [x] **Step 2: Add failing viewport/boundary tests.** A late selected block stays visible through shrink/enlarge; negative/oversized offsets clamp; stale selected ID selects the first row; frozen inputs stay unchanged. Cover long CJK/emoji/combining topics and CR/LF/tabs in status, detail, reason, and feedback. At `60/80/120`, block identity and Deactivate/Reactivate/Inactive survive long topics/reasons.
 
   Cover widths `1/6/7/8/25/26` and terminal heights `1/10/11`: fallback at width `25` or cap `8`, normal at width `26` and cap `9`. Every fallback has `actionsVisible: false` and bounded lines; every positive-width fallback has an intact close hint. Directly verify `renderDcpPanelFallback` without theme/model. Width `0` is the sole close-hint exception and returns one empty line with actions disabled.
 
-- [ ] **Step 3: Demonstrate failure.** Run `pnpm exec vitest run tests/panel-render.test.ts`; expect the module to be missing.
-- [ ] **Step 4: Implement rendering.** Adapt reference frame/viewport behavior to the DCP budget. No input handling, live-state access, action execution, or domain-exception catches. Return fitted offset and close-only output at the documented thresholds.
-- [ ] **Step 5: Verify rendering.** Run `pnpm exec vitest run tests/panel-render.test.ts tests/panel-model.test.ts`; expect exit `0`.
+- [x] **Step 3: Demonstrate failure.** Run `pnpm exec vitest run tests/panel-render.test.ts`; expect the module to be missing.
+- [x] **Step 4: Implement rendering.** Adapt reference frame/viewport behavior to the DCP budget. No input handling, live-state access, action execution, or domain-exception catches. Return fitted offset and close-only output at the documented thresholds.
+- [x] **Step 5: Verify rendering.** Run `pnpm exec vitest run tests/panel-render.test.ts tests/panel-model.test.ts`; expect exit `0`.
 
 ### Task 3: Integrate Overlay and Safe Component Activation
 
@@ -145,32 +145,44 @@ Reuse `src/tui/formatters.ts` (`formatDcpTokens`, `flattenDcpLabel`) and `src/tu
 
 **Interfaces:** Consume renderer/theme adapter. Preserve `onAction`, stable initial selection, action/reopen loop, lifetime-load timing, and `openDcpPanel` signature; wire the terminal-column getter in its factory.
 
-- [ ] **Step 1: Add failing integration assertions.** Every `ui.custom` open/reopen receives exactly `{ overlay: true, overlayOptions: { anchor: "center", width: "92%", maxHeight: "85%" } }`, without sidebar offsets. Invoke its factory with rows/columns, render at the supplied width, and prove width is not reduced again. Retain non-TUI rejection and all action/controller characterization tests.
-- [ ] **Step 2: Add failing activation tests.** Enter before first render does nothing; render then Enter runs once. Move then Enter before rendering does nothing; render the moved selection then Enter executes that row. Multiple moves before rendering still update selection. Invalidate or change terminal rows/columns before Enter: no action until rendering. Tiny/error view plus Enter/j/k: no action; enlarge/re-render: controls and selected ID recover. Esc/`q` completes once before rendering and in every failure state.
+- [x] **Step 1: Add failing integration assertions.** Every `ui.custom` open/reopen receives exactly `{ overlay: true, overlayOptions: { anchor: "center", width: "92%", maxHeight: "85%" } }`, without sidebar offsets. Invoke its factory with rows/columns, render at the supplied width, and prove width is not reduced again. Retain non-TUI rejection and all action/controller characterization tests.
+- [x] **Step 2: Add failing activation tests.** Enter before first render does nothing; render then Enter runs once. Move then Enter before rendering does nothing; render the moved selection then Enter executes that row. Multiple moves before rendering still update selection. Invalidate or change terminal rows/columns before Enter: no action until rendering. Tiny/error view plus Enter/j/k: no action; enlarge/re-render: controls and selected ID recover. Esc/`q` completes once before rendering and in every failure state.
 
   Replace theme-throw-as-renderer-failure expectations: safe theme adaptation keeps plain controls usable, including `NO_COLOR=""` and a non-string theme return. Independently spy on `renderDcpPanel` to throw; assert bounded plain fallback, no action, and close. Restore the spy and verify recovery on a separate non-completed component.
 
-- [ ] **Step 3: Demonstrate failure.** Run `pnpm exec vitest run tests/panel.test.ts`; expect absent-overlay-option and readiness failures.
-- [ ] **Step 4: Integrate shell/readiness.** Remove obsolete inline header/row/fallback functions and duplicate whitespace helper. Delegate through `createDcpTheme`, consume offset/visibility, and track rendered selection/dimensions. Keep domain execution outside the UI-error catch; never retry an action after UI failure.
-- [ ] **Step 5: Migrate presentation assertions.** Replace `startsWith("> ")` with frame-aware `▸` checks; use compact tokens and the 85% cap. Give block-label/long-topic tests enough list space (e.g. terminal height `40`) or select/scroll to their blocks; at height `24` the default viewport contains only three global-action rows. The old eight-row-terminal test now expects close-only fallback; use eleven rows for normal resized-selection coverage. Add terminal `columns` and `getWidth` to every component/factory fixture. Render before activation in input tests, including after movement. Preserve full callback/result-message assertions at sufficient feedback width (e.g. `160`), and test truncation separately. Add missing-initial-ID and once-per-invocation lifetime-loading checks across action rebuilds and load failure.
-- [ ] **Step 6: Verify integration.** Run `pnpm exec vitest run tests/panel-render.test.ts tests/panel.test.ts tests/panel-model.test.ts tests/theme.test.ts tests/dcp-actions.test.ts tests/commands-register.test.ts`; expect exit `0`. Confirm approval remains untouched and policy is rechecked between projection and activation.
+- [x] **Step 3: Demonstrate failure.** Run `pnpm exec vitest run tests/panel.test.ts`; expect absent-overlay-option and readiness failures.
+- [x] **Step 4: Integrate shell/readiness.** Remove obsolete inline header/row/fallback functions and duplicate whitespace helper. Delegate through `createDcpTheme`, consume offset/visibility, and track rendered selection/dimensions. Keep domain execution outside the UI-error catch; never retry an action after UI failure.
+- [x] **Step 5: Migrate presentation assertions.** Replace `startsWith("> ")` with frame-aware `▸` checks; use compact tokens and the 85% cap. Give block-label/long-topic tests enough list space (e.g. terminal height `40`) or select/scroll to their blocks; at height `24` the default viewport contains only three global-action rows. The old eight-row-terminal test now expects close-only fallback; use eleven rows for normal resized-selection coverage. Add terminal `columns` and `getWidth` to every component/factory fixture. Render before activation in input tests, including after movement. Preserve full callback/result-message assertions at sufficient feedback width (e.g. `160`), and test truncation separately. Add missing-initial-ID and once-per-invocation lifetime-loading checks across action rebuilds and load failure.
+- [x] **Step 6: Verify integration.** Run `pnpm exec vitest run tests/panel-render.test.ts tests/panel.test.ts tests/panel-model.test.ts tests/theme.test.ts tests/dcp-actions.test.ts tests/commands-register.test.ts`; expect exit `0`. Confirm approval remains untouched and policy is rechecked between projection and activation.
 
 ### Task 4: Documentation, Verification, and Atomic Commit
 
 **Files:** Modify `README.md`, `CHANGELOG.md`; update this plan only with real implementation evidence.
 
-- [ ] **Step 1: Document delivery.** Describe centered 92%-width/85%-height single-list frame, active theme/NO_COLOR, compact estimated metrics, scrolling, persistent close keys, and tiny close-only behavior. Short terminals prioritize controls over information. Keep Enter/direct commands; do not advertise tabs, Space, or informational-command overlay routing.
-- [ ] **Step 2: Run the focused gate.** Run Task 3's step-6 command; expect exit `0`.
-- [ ] **Step 3: Run the repository gate.** Run `pnpm check`; expect formatting, lint, type checking, and all tests to exit `0`.
-- [ ] **Step 4: Inspect real Pi when available.** With pi-status enabled, inspect placement without sidebar adjustment at terminal widths `60/80/120`, resize from a selected late block, cross the tiny fallback boundary, and exercise manual/permission/sweep/block controls and Esc/`q`. Check feedback, footer, borders, theme/NO_COLOR, and reopen selection. Record dimensions/theme/observations. If interactive Pi is unavailable, record that limitation; component tests and SDK inspection do not constitute a visual check.
-- [ ] **Step 5: Review scope and whitespace.** Run `git diff --check`; expect exit `0`. Confirm unchanged domain algorithms, metric sources, permission/approval, callback identities/counts, tool selection, persistence/schema, and dependencies. Only presentation and safe activation lifecycle change.
-- [ ] **Step 6: Record evidence and commit.** Record baseline/final focused/full results, real-Pi status, and implementation commit only after they exist. Stage the eight production/test/documentation files above plus this plan explicitly and commit with `feat: present DCP controls in a framed overlay`.
+- [x] **Step 1: Document delivery.** Describe centered 92%-width/85%-height single-list frame, active theme/NO_COLOR, compact estimated metrics, scrolling, persistent close keys, and tiny close-only behavior. Short terminals prioritize controls over information. Keep Enter/direct commands; do not advertise tabs, Space, or informational-command overlay routing.
+- [x] **Step 2: Run the focused gate.** Run Task 3's step-6 command; expect exit `0`.
+- [x] **Step 3: Run the repository gate.** Run `pnpm check`; expect formatting, lint, type checking, and all tests to exit `0`.
+- [x] **Step 4: Inspect real Pi when available.** With pi-status enabled, inspect placement without sidebar adjustment at terminal widths `60/80/120`, resize from a selected late block, cross the tiny fallback boundary, and exercise manual/permission/sweep/block controls and Esc/`q`. Check feedback, footer, borders, theme/NO_COLOR, and reopen selection. Record dimensions/theme/observations. If interactive Pi is unavailable, record that limitation; component tests and SDK inspection do not constitute a visual check.
+- [x] **Step 5: Review scope and whitespace.** Run `git diff --check`; expect exit `0`. Confirm unchanged domain algorithms, metric sources, permission/approval, callback identities/counts, tool selection, persistence/schema, and dependencies. Only presentation and safe activation lifecycle change.
+- [x] **Step 6: Record evidence and commit.** Record baseline/final focused/full results, real-Pi status, and implementation commit only after they exist. Stage the eight production/test/documentation files above plus this plan explicitly and commit with `feat: present DCP controls in a framed overlay`.
+
+## Implementation Evidence — 2026-10-13
+
+Baseline on branch `20261013-dcp-ui-refactor-phase-03-framed-overlay` at `b0f5a33` (clean tree, Node `v24.21.0`, pnpm `12.9.1`): the pre-change `pnpm check` passed `65` files / `1,070` tests; the post-change run passes `66` files / `1,112` tests.
+
+- **Task 1:** `pnpm exec vitest run tests/panel-model.test.ts` failed on raw numeric context/limit/lifetime strings, then passed after the numeric owners were formatted with `formatDcpTokens`; the affected copy expectation in `tests/panel.test.ts` was migrated.
+- **Task 2:** `tests/panel-render.test.ts` failed with the module missing, then `25` renderer tests passed covering frame geometry, the 85% cap, viewport clamping, wide glyphs, close-only fallbacks, and frozen inputs.
+- **Task 3:** `tests/panel.test.ts` failed on overlay options and activation readiness (`21 failed | 43 passed` before implementation), then passed. Overlay, activation, theme-safety, renderer-failure, controller, and guarded-characterization suites are green.
+- **Focused gate:** `pnpm exec vitest run tests/panel-render.test.ts tests/panel.test.ts tests/panel-model.test.ts tests/theme.test.ts tests/dcp-actions.test.ts tests/commands-register.test.ts` → `6` files / `150` tests passed.
+- **Repository gate:** `pnpm check` → format, lint, typecheck, and `66` files / `1,112` tests passed. `git diff --check` exited `0`.
+- **Real Pi inspection:** not performed; no interactive Pi session with pi-status was available in this environment. Component tests and installed-SDK inspection cover the layout arithmetic but are not a visual check.
+- **Commit:** `feat: present DCP controls in a framed overlay` (this commit).
 
 ## Phase Completion and Rollback
 
-- [ ] Existing controls work through the guarded executor without future-phase code.
-- [ ] Geometry, viewport, activation, fallback, theme, controller, and command tests pass with `pnpm check`/`git diff --check`; unperformed real-Pi inspection is explicit.
-- [ ] README/CHANGELOG match delivery and the diff forms one atomic implementation commit.
-- [ ] Domain/persistence invariants remain unchanged and evidence is recorded.
+- [x] Existing controls work through the guarded executor without future-phase code.
+- [x] Geometry, viewport, activation, fallback, theme, controller, and command tests pass with `pnpm check`/`git diff --check`; unperformed real-Pi inspection is explicit.
+- [x] README/CHANGELOG match delivery and the diff forms one atomic implementation commit.
+- [x] Domain/persistence invariants remain unchanged and evidence is recorded.
 
 Continue with [phase 4](2026-10-12-dcp-ui-refactor-phase-04-tabbed-dashboard.md) after integration. Revert dependent later phases first. No snapshot migration; phase 2 compression metadata and legacy fallback remain unchanged.
