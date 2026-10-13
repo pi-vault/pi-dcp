@@ -137,6 +137,20 @@ Automatic pruning and compression feedback is plain text with no ANSI styling. T
 
 Status notifications (`nudgeNotificationType: "status"`) are always a single line and always use the minimal compact metrics, even when `nudgeNotification` is `"detailed"`. Detailed topics, tool names, and configured summaries appear only in toasts. With `nudgeNotification: "detailed"` and `nudgeNotificationType: "toast"`, a detailed pruning toast adds `Pruned: grep, ls`, and a detailed compression toast adds a flattened `Topic:` line. `showCompression` exposes the summary body only in a detailed toast; status and all minimal output keep the numeric `summary` token metric instead.
 
+## Compression tool rendering
+
+In the TUI, `compress` calls and results render compactly and follow Pi's active theme. A collapsed call shows the mode, the flattened topic, and the selection count:
+
+- `compress range · Auth system · 2 ranges`
+- `compress message · Auth · 1 message`
+
+A successful result collapses to a single estimated-metrics line, and Pi's standard expand toggle reveals the unchanged result text plus the block IDs it created:
+
+- Collapsed: `Range compression · Auth system · 5 messages · ~12.4k input · ~2.1k summary`
+- Expanded: the same header, then the original result text, then `Blocks: b1, b2`
+
+Token values are estimates and use the same compact `k`/`M` formatting as notifications. A partial result shows `Compression in progress`, and a failed call keeps its original error text. Historical results and results with missing or malformed display metadata fall back to the original text (or `Compression result unavailable` when no text exists); Pi continues handling non-text content. DCP never infers metrics from human-readable text. `NO_COLOR` disables DCP styling. Successful stored tool results include summary-free display metadata; model-facing tool output and submitted summaries stay unchanged.
+
 ## Typical workflows
 
 **Default:** install it and let DCP prune duplicates and stale failed inputs automatically.

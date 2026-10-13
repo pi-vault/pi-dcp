@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
 import { Logger } from "../src/logger.ts";
@@ -9,7 +11,7 @@ import { assignMessageRefs } from "../src/messages/inject.ts";
 import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 import { createSessionState } from "../src/state/state.ts";
 import * as subagentResults from "../src/subagents/subagent-results.ts";
-import { getMessageText, makeAssistantMessage, requireMessage } from "./helpers.ts";
+import { getMessageText, makeAssistantMessage, requireDefined, requireMessage } from "./helpers.ts";
 
 const agentDir = vi.hoisted(() => `/tmp/dcp-index-test-${Date.now()}-${Math.random()}`);
 const disabledModel = { provider: "openai-codex", id: "gpt-5.6-sol" };
@@ -40,6 +42,25 @@ function sessionContext(model = enabledModel, branch: unknown[] = []) {
     hasUI: false,
     ui: { notify: vi.fn(), setStatus: vi.fn() },
   };
+}
+
+function fakeTheme(): Theme {
+  return {
+    fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
+    bold: (text: string) => text,
+    inverse: (text: string) => text,
+  } as unknown as Theme;
+}
+
+function renderedLines(component: { render(width: number): string[] }, width = 200): string[] {
+  return component.render(width).map((line) => stripTerminalSequences(line).replace(/\s+$/, ""));
+}
+
+function writeConfig(value: Record<string, unknown>): void {
+  const configDir = path.join(agentDir, "extensions");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "dcp.json"), JSON.stringify(value));
 }
 
 const persistedCompressionSnapshot = {
@@ -2071,5 +2092,255 @@ describe("sub-agent support", () => {
       if (originalEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
       else process.env.PI_SUBAGENT_CHILD = originalEnv;
     }
+  });
+});
+
+describe("compression rendering and success metadata", () => {
+  interface RegisteredCompress {
+    parameters: { properties?: Record<string, unknown> };
+    renderCall?: (
+      args: unknown,
+      theme: Theme,
+      context: unknown,
+    ) => { render(width: number): string[] };
+    renderResult?: (
+      result: unknown,
+      options: { expanded: boolean; isPartial: boolean },
+      theme: Theme,
+      context: { isError: boolean },
+    ) => { render(width: number): string[] };
+    execute: (...args: unknown[]) => Promise<unknown>;
+  }
+
+  const twoMessages = () => [
+    { role: "user", content: [{ type: "text", text: "one" }], timestamp: 1 },
+    { role: "assistant", content: [{ type: "text", text: "two" }], timestamp: 2 },
+  ];
+
+  async function startWithMessages(
+    handlers: Map<string, Handler[]>,
+    ctx: ReturnType<typeof sessionContext>,
+  ): Promise<void> {
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+    await registeredHandler(handlers, "context")({ messages: twoMessages() }, ctx);
+  }
+
+  function askContext(
+    confirm: (title: string, message: string, options?: unknown) => Promise<boolean>,
+    model = enabledModel,
+  ) {
+    return {
+      ...sessionContext(model),
+      mode: "tui",
+      hasUI: true,
+      ui: { notify: vi.fn(), setStatus: vi.fn(), confirm },
+    };
+  }
+
+  it("registers both renderers on the initial range definition", () => {
+    const { api, tools } = createMockApi();
+    createExtension(api);
+
+    const tool = tools.get("compress") as RegisteredCompress;
+    expect(typeof tool.renderCall).toBe("function");
+    expect(typeof tool.renderResult).toBe("function");
+    expect(tool.parameters.properties).toHaveProperty("content");
+  });
+
+  it("renders a range call through the registered closure", () => {
+    const { api, tools } = createMockApi();
+    createExtension(api);
+
+    const tool = tools.get("compress") as RegisteredCompress;
+    const component = tool.renderCall?.(
+      { topic: "Auth", content: [{ startId: "m1", endId: "m2", summary: "s" }] },
+      fakeTheme(),
+      {},
+    );
+    expect(component).toBeDefined();
+    expect(renderedLines(requireDefined(component, "range call component"))).toEqual([
+      "compress range · Auth · 1 range",
+    ]);
+  });
+
+  it("re-registers renderers that close over the message mode", async () => {
+    writeConfig({ compress: { mode: "message" } });
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, sessionContext());
+
+    const tool = tools.get("compress") as RegisteredCompress;
+    expect(typeof tool.renderCall).toBe("function");
+    expect(typeof tool.renderResult).toBe("function");
+    expect(tool.parameters.properties).toHaveProperty("targets");
+
+    const callComponent = tool.renderCall?.(
+      { topic: "Auth", targets: [{ messageId: "m1" }] },
+      fakeTheme(),
+      {},
+    );
+    expect(renderedLines(requireDefined(callComponent, "message call component"))).toEqual([
+      "compress message · Auth · 1 message",
+    ]);
+
+    const resultComponent = tool.renderResult?.(
+      { content: [], details: {} },
+      { expanded: false, isPartial: true },
+      fakeTheme(),
+      { isError: false },
+    );
+    expect(renderedLines(requireDefined(resultComponent, "partial result component"))).toEqual([
+      "Compression in progress",
+    ]);
+  });
+
+  it("attaches summary-free display metadata on a successful range compression", async () => {
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    const ctx = sessionContext();
+    await startWithMessages(handlers, ctx);
+
+    const compress = tools.get("compress") as RegisteredCompress;
+    const result = (await compress.execute(
+      "call-1",
+      {
+        topic: "Auth",
+        content: [{ startId: "m0001", endId: "m0002", summary: "private summary text" }],
+      },
+      undefined,
+      undefined,
+      ctx,
+    )) as { details: { dcpCompression?: Record<string, unknown> } };
+
+    expect(result.details.dcpCompression).toEqual({
+      mode: "range",
+      topic: "Auth",
+      messagesCompressed: 2,
+      compressedTokens: expect.any(Number),
+      summaryTokens: expect.any(Number),
+      blockIds: [1],
+    });
+    expect(JSON.stringify(result.details)).not.toContain("private summary text");
+  });
+
+  it("attaches display metadata on a successful message compression", async () => {
+    writeConfig({ compress: { mode: "message" } });
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    const ctx = sessionContext();
+    await startWithMessages(handlers, ctx);
+
+    const compress = tools.get("compress") as RegisteredCompress;
+    const result = (await compress.execute(
+      "call-1",
+      { topic: "Auth", targets: [{ messageId: "m0001", summary: "private target summary" }] },
+      undefined,
+      undefined,
+      ctx,
+    )) as { details: { dcpCompression?: Record<string, unknown> } };
+
+    expect(result.details.dcpCompression).toEqual({
+      mode: "message",
+      topic: "Auth",
+      messagesCompressed: 1,
+      compressedTokens: expect.any(Number),
+      summaryTokens: expect.any(Number),
+      blockIds: [1],
+    });
+    expect(JSON.stringify(result.details)).not.toContain("private target summary");
+  });
+
+  it("keeps empty details when a capability denies compression", async () => {
+    writeDisabledModelConfig("openai-codex/gpt-5.6-sol");
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    const ctx = sessionContext(disabledModel);
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+
+    const compress = tools.get("compress") as RegisteredCompress;
+    const result = (await compress.execute(
+      "call-1",
+      { topic: "x", content: [] },
+      undefined,
+      undefined,
+      ctx,
+    )) as { isError?: boolean; details: unknown; content: unknown };
+
+    expect(result).toMatchObject({
+      isError: true,
+      details: {},
+      content: [{ text: "Compression is disabled for the current model." }],
+    });
+  });
+
+  it.each([
+    {
+      name: "approval is denied",
+      confirm: (async () => false) as () => Promise<boolean>,
+      signal: undefined,
+    },
+    {
+      name: "approval is cancelled",
+      confirm: (async () => {
+        throw new Error("cancelled");
+      }) as () => Promise<boolean>,
+      signal: undefined,
+    },
+    {
+      name: "the effective signal is aborted",
+      confirm: (async () => true) as () => Promise<boolean>,
+      signal: new AbortController(),
+    },
+  ])("keeps empty details when $name", async ({ confirm, signal }) => {
+    writeConfig({ compress: { permission: "ask" } });
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    const ctx = askContext(confirm);
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+    if (signal) signal.abort();
+
+    const compress = tools.get("compress") as RegisteredCompress;
+    const result = (await compress.execute(
+      "call-1",
+      { topic: "Auth", content: [{ startId: "m1", endId: "m1", summary: "s" }] },
+      signal?.signal,
+      undefined,
+      ctx,
+    )) as { isError?: boolean; details: unknown; content: unknown };
+
+    expect(result).toMatchObject({
+      isError: true,
+      details: {},
+      content: [{ text: "Compression was not approved" }],
+    });
+  });
+
+  it("keeps empty details when a policy change rejects after approval", async () => {
+    writeConfig({
+      disabledModels: ["openai-codex/gpt-5.6-sol"],
+      compress: { permission: "ask" },
+    });
+    const { api, handlers, tools } = createMockApi();
+    createExtension(api);
+    const ctx = askContext(async () => {
+      ctx.model = disabledModel;
+      return true;
+    });
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+
+    const compress = tools.get("compress") as RegisteredCompress;
+    const result = (await compress.execute(
+      "call-1",
+      { topic: "Auth", content: [{ startId: "m1", endId: "m1", summary: "s" }] },
+      undefined,
+      undefined,
+      ctx,
+    )) as { isError?: boolean; details: unknown; content: unknown };
+
+    expect(result).toMatchObject({
+      isError: true,
+      details: {},
+      content: [{ text: "Compression is disabled for the current model." }],
+    });
   });
 });
