@@ -10,7 +10,7 @@ import {
 } from "./helpers.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ContextUsage } from "../src/state/types.ts";
-import { applyCompressionState, allocateBlockId, allocateRunId } from "../src/compress/state.ts";
+import { handleCompress } from "../src/compress/blocks.ts";
 import { countTokens, extractMessageText } from "../src/utils/tokens.ts";
 import { restoreDcpSnapshot, serializeDcpSnapshot } from "../src/state/persistence.ts";
 
@@ -267,21 +267,10 @@ describe("runPipeline", () => {
       } as AgentMessage,
     ];
     runPipeline(state, config, messages, undefined);
-    applyCompressionState(state, {
-      blockId: allocateBlockId(state),
-      runId: allocateRunId(state),
+    handleCompress(state, config, messages, "compress-owner", {
       topic: "earlier context",
       mode: "range",
-      startIndex: 0,
-      endIndex: 1,
-      anchorIndex: 0,
-      compressToolCallId: "compress-owner",
-      startKey: "user:1:0",
-      endKey: "assistant:2:0",
-      anchorKey: "user:1:0",
-      summary: "compressed summary",
-      summaryTokens: 2,
-      consumedBlockIds: [],
+      content: [{ startId: "m1", endId: "m2", summary: "compressed summary" }],
     });
     state.nudges.contextLimitAnchors.add("user:3:0");
 
@@ -323,21 +312,10 @@ describe("runPipeline", () => {
       makeUserMessage("visible target", 4),
     ];
     runPipeline(state, config, messages, undefined);
-    applyCompressionState(state, {
-      blockId: allocateBlockId(state),
-      runId: allocateRunId(state),
+    handleCompress(state, config, messages, "compress-owner", {
       topic: "earlier context",
       mode: "range",
-      startIndex: 0,
-      endIndex: 1,
-      anchorIndex: 0,
-      compressToolCallId: "compress-owner",
-      startKey: "user:1:0",
-      endKey: "assistant:2:0",
-      anchorKey: "user:1:0",
-      summary: "compressed summary",
-      summaryTokens: 2,
-      consumedBlockIds: [],
+      content: [{ startId: "m1", endId: "m2", summary: "compressed summary" }],
     });
     state.nudges.turnAnchors.add("user:1:0");
 
@@ -412,21 +390,10 @@ describe("runPipeline", () => {
     const uninterrupted = createSessionState();
     uninterrupted.sessionId = "owner";
     runPipeline(uninterrupted, config, initial, undefined);
-    applyCompressionState(uninterrupted, {
-      blockId: allocateBlockId(uninterrupted),
-      runId: allocateRunId(uninterrupted),
+    handleCompress(uninterrupted, config, initial, "compress-call", {
       topic: "old context",
       mode: "range",
-      startIndex: 0,
-      endIndex: 1,
-      anchorIndex: 0,
-      compressToolCallId: "compress-call",
-      startKey: "user:1:0",
-      endKey: "assistant:2:0",
-      anchorKey: "user:1:0",
-      summary: "compressed summary",
-      summaryTokens: 2,
-      consumedBlockIds: [],
+      content: [{ startId: "m1", endId: "m2", summary: "compressed summary" }],
     });
     const checkpoint = serializeDcpSnapshot(uninterrupted);
     if (!checkpoint) throw new Error("expected checkpoint");

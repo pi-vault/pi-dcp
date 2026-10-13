@@ -17,7 +17,7 @@ import {
   buildCompressNotificationMinimal,
   buildCompressNotificationDetailed,
 } from "./tui/notification.ts";
-import { handleCompress, type CompressArgs, type CompressResult } from "./compress/handler.ts";
+import { handleCompress, type CompressArgs, type CompressResult } from "./compress/blocks.ts";
 import { requestCompressionApproval } from "./compress/permission.ts";
 import { stripHallucinationsFromString } from "./messages/strip.ts";
 import { mapText } from "./utils/message-content.ts";

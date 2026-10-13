@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSessionState } from "../src/state/state.ts";
-import { handleCompress } from "../src/compress/handler.ts";
+import { handleCompress } from "../src/compress/blocks.ts";
 import { applyCompressionTiming } from "../src/index.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { makeDefaultConfig } from "./helpers.ts";

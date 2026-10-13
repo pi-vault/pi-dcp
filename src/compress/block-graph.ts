@@ -184,18 +184,3 @@ export function rebuildCompressionState(
     }
   }
 }
-
-/**
- * Sum the summaryTokens of all active compression blocks.
- * Used by the summary buffer feature to extend the effective threshold.
- */
-export function getActiveSummaryTokenUsage(state: SessionState): number {
-  let total = 0;
-  for (const blockId of state.prune.messages.activeBlockIds) {
-    const block = state.prune.messages.blocksById.get(blockId);
-    if (block?.active) {
-      total += block.summaryTokens;
-    }
-  }
-  return total;
-}

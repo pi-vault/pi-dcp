@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createSessionState } from "../src/state/state.ts";
-import { getActiveSummaryTokenUsage } from "../src/compress/state.ts";
+import { getActiveSummaryTokenUsage } from "../src/compress/blocks.ts";
 import type { CompressionBlock } from "../src/state/types.ts";
 import { injectCompressNudges, assignMessageRefs } from "../src/messages/inject.ts";
 import { makeUserMessage, makeAssistantMessage, makeDefaultConfig } from "./helpers.ts";

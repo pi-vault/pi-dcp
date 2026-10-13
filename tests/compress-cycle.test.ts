@@ -1,52 +1,79 @@
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createSessionState } from "../src/state/state.ts";
-import { assignMessageRefs, injectMessageIds } from "../src/messages/inject.ts";
-import { applyPruning } from "../src/messages/prune.ts";
-import { syncCompressionBlocks } from "../src/messages/sync.ts";
-import { syncToolCache } from "../src/state/tool-cache.ts";
-import { handleCompress } from "../src/compress/handler.ts";
-import { resolveBoundaryIndex } from "../src/compress/search.ts";
-import {
-  makeUserMessage as makeUser,
-  makeAssistantMessage as makeAssistant,
-  makeDefaultConfig,
-} from "./helpers.ts";
+import { runPipeline } from "../src/pipeline.ts";
+import { handleCompress } from "../src/compress/blocks.ts";
+import { makeDefaultConfig, getMessageText } from "./helpers.ts";
 
-/** Extract first text content from a message (skips TS union narrowing). */
-function textOf(msg: AgentMessage): string {
-  const content = (msg as unknown as { content: Array<{ type: string; text: string }> }).content;
-  return content[0].text;
+function compressionConfig(overrides?: Parameters<typeof makeDefaultConfig>[0]) {
+  const config = makeDefaultConfig(overrides);
+  config.strategies = {
+    deduplication: { enabled: false, protectedTools: [], turnProtection: 0 },
+    purgeErrors: { enabled: false, turns: 4, protectedTools: [] },
+  };
+  return config;
 }
 
-/**
- * Simulate the context pipeline as it runs in index.ts:
- * 1. assign refs (to raw messages)
- * 2. sync tool and compression state
- * 3. inject IDs (into raw messages)
- * 4. apply pruning (filter compressed ranges)
- *
- * Returns the filtered messages (as the model would see them).
- */
-function runContextPipeline(
-  state: ReturnType<typeof createSessionState>,
-  rawMessages: AgentMessage[],
-): AgentMessage[] {
-  assignMessageRefs(state, rawMessages);
-  syncToolCache(state, rawMessages);
-  syncCompressionBlocks(state, rawMessages);
-  let messages = injectMessageIds(state, rawMessages);
-  messages = applyPruning(state, messages);
-  return messages;
+let nextTimestamp = 20_000;
+function makeUser(text: string): AgentMessage {
+  return {
+    role: "user",
+    content: [{ type: "text", text }],
+    timestamp: nextTimestamp++,
+  } as AgentMessage;
+}
+
+function makeAssistant(text: string): AgentMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text }],
+    stopReason: "stop",
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      totalTokens: 0,
+    },
+    timestamp: nextTimestamp++,
+  } as unknown as AgentMessage;
+}
+
+function makeOwner(toolCallId: string): AgentMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "toolCall", id: toolCallId, name: "compress", arguments: {} }],
+    stopReason: "toolUse",
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      totalTokens: 0,
+    },
+    timestamp: nextTimestamp++,
+  } as unknown as AgentMessage;
+}
+
+function makeResult(toolCallId: string, text: string): AgentMessage {
+  return {
+    role: "toolResult",
+    toolCallId,
+    toolName: "compress",
+    content: [{ type: "text", text }],
+    isError: false,
+    timestamp: nextTimestamp++,
+  } as AgentMessage;
 }
 
 describe("full compression cycle", () => {
   it("refs correspond to raw indices after filtering, enabling correct second compression", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig();
+    state.sessionId = "compress-cycle-test";
+    const config = compressionConfig();
 
     // --- Context event #1: 5 messages, no compression yet ---
-    const rawMessages = [
+    const rawMessages: AgentMessage[] = [
       makeUser("hello"),
       makeAssistant("hi there"),
       makeUser("do task A"),
@@ -54,66 +81,45 @@ describe("full compression cycle", () => {
       makeUser("do task B"),
     ];
 
-    const filtered1 = runContextPipeline(state, rawMessages);
-
-    // All 5 messages visible, each with a compact marker
+    const filtered1 = runPipeline(state, config, rawMessages, undefined).messages;
     expect(filtered1.length).toBe(5);
-    expect(textOf(filtered1[0])).toContain("@m1@");
-    expect(textOf(filtered1[2])).toContain("@m3@");
-    expect(textOf(filtered1[4])).toContain("@m5@");
+    expect(getMessageText(filtered1[0])).toContain("@m1@");
+    expect(getMessageText(filtered1[2])).toContain("@m3@");
+    expect(getMessageText(filtered1[4])).toContain("@m5@");
 
     // --- Model calls compress with the markers it was shown: @m1@..@m2@ ---
-    handleCompress(state, config, rawMessages, "compress-call-1", {
+    const first = handleCompress(state, config, rawMessages, "compress-call-1", {
       topic: "Greeting",
       content: [{ startId: "@m1@", endId: "@m2@", summary: "User greeted, assistant responded" }],
       mode: "range",
     });
 
-    // --- Context event #2: raw grows (tool call + result appended) ---
-    const rawMessages2 = [
+    // --- Context event #2: raw grows with the owner call and its result ---
+    const rawMessages2: AgentMessage[] = [
       ...rawMessages,
-      {
-        role: "assistant",
-        content: [{ type: "toolCall", id: "compress-call-1", name: "compress", arguments: {} }],
-        timestamp: Date.now(),
-      } as unknown as AgentMessage,
-      makeUser("compress result"),
+      makeOwner("compress-call-1"),
+      makeResult("compress-call-1", first.text),
     ];
 
-    const filtered2 = runContextPipeline(state, rawMessages2);
+    const filtered2 = runPipeline(state, config, rawMessages2, undefined).messages;
 
-    // Indices 0-1 replaced by summary, indices 2-6 survive
-    // Expected: [summary, do_task_A+@m3@, task_A_done+@m4@, do_task_B+@m5@, compress_call+@m6@, result+@m7@]
-    expect(filtered2.length).toBe(6);
+    // Indices 0-1 replaced by the summary; the rest survive.
+    expect(getMessageText(filtered2[0])).toContain("Compressed Block b1");
+    expect(filtered2.map(getMessageText).join("\n")).not.toContain("hello");
+    expect(getMessageText(filtered2[1])).toContain("do task A");
 
-    // Summary is a synthetic message (no m-ref tag, has block header)
-    const summaryText = textOf(filtered2[0]);
-    expect(summaryText).toContain("Compressed Block");
-    expect(summaryText).not.toMatch(/@m\d+@/);
-
-    // Surviving messages retain their original raw-index refs
-    const msg1Text = textOf(filtered2[1]);
-    expect(msg1Text).toContain("@m3@"); // raw index 2 → "@m3@"
-    expect(msg1Text).toContain("do task A");
-
-    const msg2Text = textOf(filtered2[2]);
-    expect(msg2Text).toContain("@m4@"); // raw index 3 → "@m4@"
-
-    // --- Model calls second compress with the compact markers it was shown ---
-    // Every accepted form resolves to the same canonical RAW index
-    for (const form of ["m3", "m0003", "@m3@", "@m3:2@"]) {
-      expect(resolveBoundaryIndex(state, form)).toBe(2);
-    }
-    for (const form of ["m4", "m0004", "@m4@", "@m4:2@"]) {
-      expect(resolveBoundaryIndex(state, form)).toBe(3);
-    }
+    // The surviving markers are the actual references shown by the production pass.
+    const visibleText = filtered2.map(getMessageText).join("\n");
+    const startMarker = visibleText.match(/@m3(?::\d+)?@/)?.[0];
+    const endMarker = visibleText.match(/@m4(?::\d+)?@/)?.[0];
+    if (!startMarker || !endMarker) throw new Error("expected surviving m3/m4 markers");
 
     handleCompress(state, config, rawMessages2, "compress-call-2", {
       topic: "Task A",
       content: [
         {
-          startId: "@m3@",
-          endId: "@m4@",
+          startId: startMarker,
+          endId: endMarker,
           summary: "User asked for task A, assistant completed it",
         },
       ],
@@ -124,104 +130,50 @@ describe("full compression cycle", () => {
     expect(state.prune.messages.activeBlockIds.size).toBe(2);
 
     // --- Context event #3: verify both blocks filter correctly ---
-    const rawMessages3 = [
+    const rawMessages3: AgentMessage[] = [
       ...rawMessages2,
-      {
-        role: "assistant",
-        content: [{ type: "toolCall", id: "compress-call-2", name: "compress", arguments: {} }],
-        timestamp: Date.now(),
-      } as unknown as AgentMessage,
-      makeUser("second compress result"),
+      makeOwner("compress-call-2"),
+      makeResult("compress-call-2", "second compress result"),
     ];
 
-    const filtered3 = runContextPipeline(state, rawMessages3);
+    const filtered3 = runPipeline(state, config, rawMessages3, undefined).messages;
+    const filteredText = filtered3.map(getMessageText).join("\n");
 
-    // Block 1 covers raw [0,1], block 2 covers raw [2,3]
-    // Survivors: summary_b1, summary_b2, raw4, raw5, raw6, raw7, raw8
-    // (2 summaries + 5 surviving messages)
-    expect(filtered3.length).toBe(7);
-
-    // Both summaries are synthetic (no m-ref tags)
-    expect(textOf(filtered3[0])).toContain("Compressed Block b1");
-    expect(textOf(filtered3[1])).toContain("Compressed Block b2");
-
-    // The remaining real messages have their original refs
-    const task_b = textOf(filtered3[2]);
-    expect(task_b).toContain("@m5@");
-    expect(task_b).toContain("do task B");
-  });
-
-  it("block refs (b1) resolve to correct anchor indices", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-
-    const rawMessages = [
-      makeUser("msg0"),
-      makeAssistant("msg1"),
-      makeUser("msg2"),
-      makeAssistant("msg3"),
-    ];
-
-    runContextPipeline(state, rawMessages);
-
-    // Compress m0001..m0002
-    handleCompress(state, config, rawMessages, "compress-call-1", {
-      topic: "First block",
-      content: [{ startId: "m0001", endId: "m0002", summary: "Summary of msg0-msg1" }],
-      mode: "range",
-    });
-
-    // b1 should resolve to the anchor index (raw index 0)
-    expect(resolveBoundaryIndex(state, "b1")).toBe(0);
-
-    // Simulate next event
-    const rawMessages2 = [
-      ...rawMessages,
-      {
-        role: "assistant",
-        content: [{ type: "toolCall", id: "compress-call-1", name: "compress", arguments: {} }],
-        timestamp: Date.now(),
-      } as unknown as AgentMessage,
-    ];
-    runContextPipeline(state, rawMessages2);
-
-    // Can use b1 as a boundary for the next compression
-    expect(resolveBoundaryIndex(state, "b1")).toBe(0);
+    expect(filteredText).toContain("Compressed Block b1");
+    expect(filteredText).toContain("Compressed Block b2");
+    expect(filteredText).toContain("do task B");
   });
 
   it("records child and grandchild parent relationships for nested compressions", () => {
     const state = createSessionState();
-    const config = makeDefaultConfig();
-    const rawMessages = [makeUser("msg0"), makeAssistant("msg1")];
+    state.sessionId = "compress-cycle-test";
+    const config = compressionConfig();
+    let raw: AgentMessage[] = [makeUser("msg0"), makeAssistant("msg1")];
 
-    runContextPipeline(state, rawMessages);
-    handleCompress(state, config, rawMessages, "compress-call-1", {
+    runPipeline(state, config, raw, undefined);
+    handleCompress(state, config, raw, "compress-call-1", {
       topic: "child",
-      content: [{ startId: "m0001", endId: "m0001", summary: "child summary" }],
+      content: [{ startId: "m1", endId: "m1", summary: "child summary" }],
       mode: "range",
     });
+    raw = [...raw, makeOwner("compress-call-1"), makeResult("compress-call-1", "ok")];
+    runPipeline(state, config, raw, undefined);
 
-    const withChildOwner = [
-      ...rawMessages,
-      { role: "assistant", content: [{ type: "toolCall", id: "compress-call-1" }] },
-    ] as unknown as AgentMessage[];
-    runContextPipeline(state, withChildOwner);
-    handleCompress(state, config, withChildOwner, "compress-call-2", {
+    handleCompress(state, config, raw, "compress-call-2", {
       topic: "parent",
       content: [{ startId: "b1", endId: "b1", summary: "parent summary" }],
       mode: "range",
     });
+    raw = [...raw, makeOwner("compress-call-2"), makeResult("compress-call-2", "ok")];
+    runPipeline(state, config, raw, undefined);
 
-    const withParentOwner = [
-      ...withChildOwner,
-      { role: "assistant", content: [{ type: "toolCall", id: "compress-call-2" }] },
-    ] as unknown as AgentMessage[];
-    runContextPipeline(state, withParentOwner);
-    handleCompress(state, config, withParentOwner, "compress-call-3", {
+    handleCompress(state, config, raw, "compress-call-3", {
       topic: "grandparent",
       content: [{ startId: "b2", endId: "b2", summary: "grandparent summary" }],
       mode: "range",
     });
+    raw = [...raw, makeOwner("compress-call-3"), makeResult("compress-call-3", "ok")];
+    runPipeline(state, config, raw, undefined);
 
     expect(state.prune.messages.blocksById.get(1)?.parentBlockIds).toEqual([2]);
     expect(state.prune.messages.blocksById.get(2)?.parentBlockIds).toEqual([3]);

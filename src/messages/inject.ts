@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ContextUsage, SessionState } from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
-import { getActiveSummaryTokenUsage } from "../compress/state.ts";
+import { getActiveSummaryTokenUsage } from "../compress/blocks.ts";
 import { isContextOverLimits } from "../utils/context-limits.ts";
 import { formatMessageMarker, formatMessageRef, getMessageKey } from "../utils/message-ids.ts";
 import type { PriorityMap } from "./priority.ts";

@@ -5,7 +5,15 @@ import * as sweepModule from "../src/commands/sweep.ts";
 import { buildDcpPanelModel } from "../src/tui/panel-model.ts";
 import { createSessionState } from "../src/state/state.ts";
 import type { CompressionBlock, SessionState } from "../src/state/types.ts";
-import { makeDefaultConfig } from "./helpers.ts";
+import {
+  makeDefaultConfig,
+  makeAssistantMessage,
+  makeToolResultMessage,
+  makeUserMessage,
+} from "./helpers.ts";
+import { handleCompress } from "../src/compress/blocks.ts";
+import { runPipeline } from "../src/pipeline.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createExtensionHarness } from "./extension-harness.ts";
 
 function makeBlock(overrides: Partial<CompressionBlock> = {}): CompressionBlock {
@@ -415,6 +423,81 @@ describe("executeDcpAction", () => {
       message: "Block 1 was not deactivated by user. Cannot reactivate.",
     });
     expect(inactiveCallback).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggles real nested blocks from current state", () => {
+    const ctx = createExtensionHarness().commandContext;
+    const state = createSessionState();
+    state.sessionId = "dcp-actions-nested";
+    const config = makeDefaultConfig();
+    config.strategies = {
+      deduplication: { enabled: false, protectedTools: [], turnProtection: 0 },
+      purgeErrors: { enabled: false, turns: 4, protectedTools: [] },
+    };
+    const owner = (id: string, timestamp: number): AgentMessage =>
+      ({
+        role: "assistant",
+        content: [{ type: "toolCall", id, name: "compress", arguments: {} }],
+        stopReason: "toolUse",
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalTokens: 0,
+        },
+        timestamp,
+      }) as unknown as AgentMessage;
+
+    let raw: AgentMessage[] = [
+      makeUserMessage("child user", 1),
+      makeAssistantMessage("child reply", 2),
+      makeUserMessage("tail user", 3),
+    ];
+    runPipeline(state, config, raw, undefined);
+    handleCompress(state, config, raw, "child-call", {
+      topic: "child",
+      mode: "range",
+      content: [{ startId: "m1", endId: "m2", summary: "child summary" }],
+    });
+    raw = [
+      ...raw,
+      owner("child-call", 4),
+      makeToolResultMessage("child-call", "compress", "ok", false, 5),
+    ];
+    runPipeline(state, config, raw, undefined);
+    handleCompress(state, config, raw, "parent-call", {
+      topic: "parent",
+      mode: "range",
+      content: [{ startId: "b1", endId: "b1", summary: "parent summary" }],
+    });
+    raw = [
+      ...raw,
+      owner("parent-call", 6),
+      makeToolResultMessage("parent-call", "compress", "ok", false, 7),
+    ];
+    runPipeline(state, config, raw, undefined);
+
+    const onStateChange = vi.fn();
+    const child = run({ type: "toggle-block", blockId: 1 }, ctx, {
+      state,
+      config,
+      onStateChange,
+    });
+    expect(child).toEqual({
+      permitted: true,
+      message: "Block 1 was not deactivated by user. Cannot reactivate.",
+    });
+    expect(onStateChange).toHaveBeenCalledTimes(1);
+
+    const parent = run({ type: "toggle-block", blockId: 2 }, ctx, {
+      state,
+      config,
+      onStateChange,
+    });
+    expect(parent.message).toContain("Block 2 deactivated");
+    expect(state.prune.messages.blocksById.get(1)?.active).toBe(true);
+    expect(onStateChange).toHaveBeenCalledTimes(2);
   });
 
   it("preserves raw command argument behavior", () => {
