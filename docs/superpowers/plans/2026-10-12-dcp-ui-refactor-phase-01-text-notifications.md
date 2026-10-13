@@ -1,6 +1,6 @@
 # DCP UI Phase 1: Consistent Text and Notifications Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (recommended for these sequential changes) or superpowers:subagent-driven-development to implement this plan step-by-step. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (recommended for these sequential changes) or superpowers:subagent-driven-development to implement this plan step-by-step. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Ship compact, consistent DCP text reports and single-line status notifications without changing command or panel interaction.
 
@@ -65,10 +65,10 @@ Lowest complexity: mostly pure formatting, with one compression-notification del
 
 ## Execution Rules
 
-- [ ] Confirm a clean or understood worktree and the prerequisite implementation/checks before editing product code; follow the execution workflow's isolation rules.
-- [ ] Run `pnpm check` as a fresh implementation baseline. Both the parent's 83 focused tests and this review's 952 tests are historical evidence once implementation begins.
-- [ ] Execute this phase sequentially. Demonstrate its expected test failures, integrate the complete behavior, and verify before committing.
-- [ ] Record completed checkboxes and the phase commit only when implementation happens. All implementation steps are initially unchecked.
+- [x] Confirm a clean or understood worktree and the prerequisite implementation/checks before editing product code; follow the execution workflow's isolation rules.
+- [x] Run `pnpm check` as a fresh implementation baseline. Both the parent's 83 focused tests and this review's 952 tests are historical evidence once implementation begins.
+- [x] Execute this phase sequentially. Demonstrate its expected test failures, integrate the complete behavior, and verify before committing.
+- [x] Record completed checkboxes and the phase commit only when implementation happens. All implementation steps are initially unchecked.
 
 ## File Responsibilities
 
@@ -141,10 +141,10 @@ Call `loadAllSessionStats` once as today; retain saved-session aggregation and t
 
 **Interfaces:** Produce the two formatter exports above; consume them in the existing builders without changing builder interfaces.
 
-- [ ] **Step 1: Add failing tests.** Use table-driven `formats compact tokens with explicit estimate markers` cases from the formatting table; `flattens whitespace and preserves Unicode` also covers `" 認証\n system " → "認証 system"`. Pin every notification-table string with `toBe`, and test detailed tool deduplication/fallback, flattened topic, summary gates (`true`, `false`, omitted), and retained multiline summary. A zero-message compression builder still returns metrics text; adapter suppression belongs to Task 3.
-- [ ] **Step 2: Observe failure.** Run `pnpm exec vitest run tests/formatters.test.ts tests/notification.test.ts tests/compress-notification.test.ts`. New formatter imports and old-copy mismatches must fail before implementation; rerun after adding the formatter to establish builder assertion failures too.
-- [ ] **Step 3: Implement and integrate.** Add the formatter exports, replace notification.ts's private `formatTokens`, and apply the exact copy/label contracts. Do not format domain result text or introduce transport/configuration logic into builders.
-- [ ] **Step 4: Verify.** Rerun the step-2 command; expect exit `0` with all cases passing.
+- [x] **Step 1: Add failing tests.** Use table-driven `formats compact tokens with explicit estimate markers` cases from the formatting table; `flattens whitespace and preserves Unicode` also covers `" 認証\n system " → "認証 system"`. Pin every notification-table string with `toBe`, and test detailed tool deduplication/fallback, flattened topic, summary gates (`true`, `false`, omitted), and retained multiline summary. A zero-message compression builder still returns metrics text; adapter suppression belongs to Task 3.
+- [x] **Step 2: Observe failure.** Run `pnpm exec vitest run tests/formatters.test.ts tests/notification.test.ts tests/compress-notification.test.ts`. New formatter imports and old-copy mismatches must fail before implementation; rerun after adding the formatter to establish builder assertion failures too.
+- [x] **Step 3: Implement and integrate.** Add the formatter exports, replace notification.ts's private `formatTokens`, and apply the exact copy/label contracts. Do not format domain result text or introduce transport/configuration logic into builders.
+- [x] **Step 4: Verify.** Rerun the step-2 command; expect exit `0` with all cases passing.
 
 ### Task 2: Informational reports without routing changes
 
@@ -152,10 +152,10 @@ Call `loadAllSessionStats` once as today; retain saved-session aggregation and t
 
 **Interfaces:** Consume `formatDcpTokens`; preserve all current command signatures and asynchronous lifetime loading.
 
-- [ ] **Step 1: Add failing report tests.** `retains every context field with compact estimated usage` pins the seven normal context rows plus the optional disabled-model row; `keeps missing context unavailable and zero usage available` covers undefined usage, each nullable field, and zero. `retains all four session counters with estimate provenance` explicitly sets `pruneTokenCounter` nonzero. `formats saved-session totals without changing aggregation` retains the existing two-session v1 fixture (`~2k`, `10`, `5`, `2 sessions`), adds a single-session case, and pins zero totals for empty/missing directories. Assert titles, row order, aligned value columns, and no added ANSI. Extend help coverage to all eleven exact command entries, including `dcp:help` and argument syntax.
-- [ ] **Step 2: Observe failure.** Run `pnpm exec vitest run tests/commands-context.test.ts tests/commands-stats.test.ts tests/commands-lifetime.test.ts tests/commands-help.test.ts tests/commands-register.test.ts`. Expect compact-value/alignment assertions to fail; unchanged help/registration characterization may already pass.
-- [ ] **Step 3: Implement the three metric reports.** Format only values identified as token quantities, align local label/value rows, and apply the unavailable/session grammar rules. Leave help production text and registration handlers in place. In registration tests, exercise `dcp:help`, `dcp:context`, `dcp:stats`, and `dcp:lifetime` with a temporary session directory in TUI/RPC/print/JSON and with UI absent; each still invokes `notify(text, "info")` and never `ui.custom`.
-- [ ] **Step 4: Verify.** Rerun the step-2 command; expect exit `0`. Replace old raw-number assertions with exact expected fields, not looser substring checks that could hide a lost metric.
+- [x] **Step 1: Add failing report tests.** `retains every context field with compact estimated usage` pins the seven normal context rows plus the optional disabled-model row; `keeps missing context unavailable and zero usage available` covers undefined usage, each nullable field, and zero. `retains all four session counters with estimate provenance` explicitly sets `pruneTokenCounter` nonzero. `formats saved-session totals without changing aggregation` retains the existing two-session v1 fixture (`~2k`, `10`, `5`, `2 sessions`), adds a single-session case, and pins zero totals for empty/missing directories. Assert titles, row order, aligned value columns, and no added ANSI. Extend help coverage to all eleven exact command entries, including `dcp:help` and argument syntax.
+- [x] **Step 2: Observe failure.** Run `pnpm exec vitest run tests/commands-context.test.ts tests/commands-stats.test.ts tests/commands-lifetime.test.ts tests/commands-help.test.ts tests/commands-register.test.ts`. Expect compact-value/alignment assertions to fail; unchanged help/registration characterization may already pass.
+- [x] **Step 3: Implement the three metric reports.** Format only values identified as token quantities, align local label/value rows, and apply the unavailable/session grammar rules. Leave help production text and registration handlers in place. In registration tests, exercise `dcp:help`, `dcp:context`, `dcp:stats`, and `dcp:lifetime` with a temporary session directory in TUI/RPC/print/JSON and with UI absent; each still invokes `notify(text, "info")` and never `ui.custom`.
+- [x] **Step 4: Verify.** Rerun the step-2 command; expect exit `0`. Replace old raw-number assertions with exact expected fields, not looser substring checks that could hide a lost metric.
 
 ### Task 3: Delivery selection, production regression coverage, and phase acceptance
 
@@ -173,27 +173,39 @@ Call `loadAllSessionStats` once as today; retain saved-session aggregation and t
 | minimal / status     | Minimal cumulative message via `setStatus("dcp", ...)` | Minimal per-call message via `setStatus("dcp", ...)`                          |
 | detailed / status    | Same as minimal/status                                 | Same as minimal/status, for both showCompression values                       |
 
-- [ ] **Step 1: Add failing delivery/regression tests.** `compression uses the configured transport in both modes` covers the matrix, asserting exactly one call on the chosen transport and none on the other. Detailed status contains compact compressed/summary/message metrics and no `\r`, `\n`, topic value, `Topic:`, or `Summary (` section; do not assert that the numeric `summary` metric is absent. Detailed toast toggles showCompression and retains the multiline combined summary for multiple blocks. `automatic delivery is suppressed without UI or completed work` covers hasUI false, empty compression selections, and zero pruning; zero-message compression produces no UI call. Existing approval rejection and policy tests remain unchanged.
+- [x] **Step 1: Add failing delivery/regression tests.** `compression uses the configured transport in both modes` covers the matrix, asserting exactly one call on the chosen transport and none on the other. Detailed status contains compact compressed/summary/message metrics and no `\r`, `\n`, topic value, `Topic:`, or `Summary (` section; do not assert that the numeric `summary` metric is absent. Detailed toast toggles showCompression and retains the multiline combined summary for multiple blocks. `automatic delivery is suppressed without UI or completed work` covers hasUI false, empty compression selections, and zero pruning; zero-message compression produces no UI call. Existing approval rejection and policy tests remain unchanged.
 
   `pruning toast stays per-pass while status stays cumulative` uses two successive deduplication passes with 400-character tool results (100 estimated tokens each): toasts each report `DCP · saved ~100 tokens · pruned 1 output`, while statuses progress from `DCP · saved ~100 tokens · pruned 1 output` to `DCP · saved ~200 tokens · pruned 2 outputs`. Repeating the unchanged second context emits no toast but still refreshes cumulative status. Assert the zero-savings/nonzero-prune distinction: toast reports `~0` when a pass prunes an empty output; status remains suppressed while cumulative savings are zero. Update old `items pruned`/`tokens saved` and raw-stat assertions in `tests/index.test.ts` to the new exact presentation.
 
-- [ ] **Step 2: Observe the adapter failure.** Run `pnpm exec vitest run tests/notification-delivery.test.ts tests/index.test.ts`. With Task 1 complete, detailed compression/status must still fail the one-line assertions before changing delivery selection. Diagnose fixture/configuration failures separately; they are not evidence of the intended regression.
-- [ ] **Step 3: Implement the delivery decision.** In `sendCompressNotification`, use detailed output only when verbosity is detailed **and** delivery is toast; status always uses the minimal builder. Preserve the existing early returns, result-to-metric mapping, summary extraction, notification point inside registered `execute`, severity, and `dcp` key. Keep pruning's per-pass toast and cumulative status gates as they are. Do not add status clearing, alternate keys, mode-dependent transport changes, caching, or delayed delivery.
-- [ ] **Step 4: Verify the complete phase.** Run the focused command below and `pnpm check`; both must exit `0`. The full check includes existing native approval, action, SDK, persistence, and domain regression tests. Review the diff against the global constraints and confirm no model-facing compression text, metric calculations, or snapshot changes.
+- [x] **Step 2: Observe the adapter failure.** Run `pnpm exec vitest run tests/notification-delivery.test.ts tests/index.test.ts`. With Task 1 complete, detailed compression/status must still fail the one-line assertions before changing delivery selection. Diagnose fixture/configuration failures separately; they are not evidence of the intended regression.
+- [x] **Step 3: Implement the delivery decision.** In `sendCompressNotification`, use detailed output only when verbosity is detailed **and** delivery is toast; status always uses the minimal builder. Preserve the existing early returns, result-to-metric mapping, summary extraction, notification point inside registered `execute`, severity, and `dcp` key. Keep pruning's per-pass toast and cumulative status gates as they are. Do not add status clearing, alternate keys, mode-dependent transport changes, caching, or delayed delivery.
+- [x] **Step 4: Verify the complete phase.** Run the focused command below and `pnpm check`; both must exit `0`. The full check includes existing native approval, action, SDK, persistence, and domain regression tests. Review the diff against the global constraints and confirm no model-facing compression text, metric calculations, or snapshot changes.
 
   ```sh
   pnpm exec vitest run tests/formatters.test.ts tests/notification.test.ts tests/compress-notification.test.ts tests/notification-delivery.test.ts tests/index.test.ts tests/commands-help.test.ts tests/commands-context.test.ts tests/commands-stats.test.ts tests/commands-lifetime.test.ts tests/commands-register.test.ts
   pnpm check
   ```
 
-- [ ] **Step 5: Document and inspect.** README describes compact units/estimate markers and gives the exact minimal examples; clarify that showCompression exposes summary text only in detailed toasts and status keeps numeric summary tokens. Add this phase's entry under a new `## [Unreleased]` / `### Changed` section in CHANGELOG (or append there if already present); do not edit released entries or bump the package version. In real Pi, inspect pruning status and both compression modes with detailed/status and detailed/toast, then read the four informational commands. If available, repeat status inspection with pi-status enabled and its `dcp` segment visible; host width clipping is allowed, multiline status payloads are not. Record the environment and observed strings, or explicitly record that real-Pi inspection was unavailable. No frame/tab/overlay checks are required for this phase.
-- [ ] **Step 6: Commit the atomic result.** Run `git diff --check`, inspect `git status --short`, stage only the phase's changed/new files, and commit with `feat: unify DCP text and notification presentation`. Update this plan's implementation checkboxes and record the commit only after actual implementation and verification.
+- [x] **Step 5: Document and inspect.** README describes compact units/estimate markers and gives the exact minimal examples; clarify that showCompression exposes summary text only in detailed toasts and status keeps numeric summary tokens. Add this phase's entry under a new `## [Unreleased]` / `### Changed` section in CHANGELOG (or append there if already present); do not edit released entries or bump the package version. In real Pi, inspect pruning status and both compression modes with detailed/status and detailed/toast, then read the four informational commands. If available, repeat status inspection with pi-status enabled and its `dcp` segment visible; host width clipping is allowed, multiline status payloads are not. Record the environment and observed strings, or explicitly record that real-Pi inspection was unavailable. No frame/tab/overlay checks are required for this phase.
+- [x] **Step 6: Commit the atomic result.** Run `git diff --check`, inspect `git status --short`, stage only the phase's changed/new files, and commit with `feat: unify DCP text and notification presentation`. Update this plan's implementation checkboxes and record the commit only after actual implementation and verification.
 
 ## Phase Completion and Rollback
 
-- [ ] The usable result above works in production without future-phase scaffolding.
-- [ ] The focused commands and `pnpm check` pass; document concrete visual checks or explain any real-Pi check that could not be performed.
-- [ ] README/CHANGELOG describe this phase's actual delivered behavior, and the complete diff forms one atomic commit.
-- [ ] Confirm unchanged domain algorithms, policy/callback semantics, metric calculations, and snapshot compatibility for the affected paths.
+- [x] The usable result above works in production without future-phase scaffolding.
+- [x] The focused commands and `pnpm check` pass; document concrete visual checks or explain any real-Pi check that could not be performed.
+- [x] README/CHANGELOG describe this phase's actual delivered behavior, and the complete diff forms one atomic commit.
+- [x] Confirm unchanged domain algorithms, policy/callback semantics, metric calculations, and snapshot compatibility for the affected paths.
 
 Revert dependent later phases before reverting this phase. No snapshot migration or compression display metadata is introduced here.
+
+## Implementation Record — 2026-10-12
+
+**Environment:** Node `v24.21.0`, pnpm `12.9.1`, coding-agent/TUI SDK `1.1.0`, branch `20261012-dcp-ui-refactor-phase-01-text-notifications`.
+
+**Baseline:** `pnpm check` exited `0` with 61 test files / 952 tests passed before implementation.
+
+**Verification:** Task 1 and Task 2 failed for the expected copy/alignment reasons before implementation. Task 3's detailed/status cases failed the one-line assertions before the delivery decision; the zero-message guard was exercised with a scoped `handleCompress` spy because valid `handleCompress` results always report at least one compressed message. The focused command passed 10 files / 140 tests, and the final `pnpm check` exited `0` with 63 files / 995 tests. `git diff --check` is clean.
+
+**Real-Pi inspection:** unavailable in this environment. The production notification strings were verified through the real SDK extension harness, including the pruning per-pass/cumulative provenance, both compression modes, both transports, both verbosity levels, both `showCompression` values, no-UI and off suppression, and the one-line detailed-status contract. Interactive footer/pi-status width clipping was not observed directly.
+
+**Commit:** `feat: unify DCP text and notification presentation` (one atomic commit for this phase).

@@ -528,13 +528,9 @@ describe("dcp extension", () => {
 
     await (contextHandlers[0] as (...args: unknown[]) => Promise<unknown>)({ messages }, mockCtx);
 
-    // setStatus should have been called with the new formatted message
     expect(setStatus).toHaveBeenCalled();
     const calledWith = setStatus.mock.calls[0][1] as string;
-    // New format: "DCP: ~N tokens saved (N items pruned)" — includes "items pruned"
-    expect(calledWith).toContain("items pruned");
-    // Old format was "DCP: N tokens saved" without "items pruned"
-    expect(calledWith).toContain("tokens saved");
+    expect(calledWith).toMatch(/^DCP · saved ~\d+ tokens? · pruned 1 output$/);
   });
 
   it("context handler does not call ui methods when hasUI is false", async () => {
@@ -1605,15 +1601,15 @@ describe("static model disablement", () => {
     expect(entries).toHaveLength(0);
     await context.handler("", disabledCtx);
     const disabledStatus = disabledCtx.ui.notify.mock.calls[0]?.[0] as string;
-    expect(disabledStatus).toContain("Manual mode: active");
-    expect(disabledStatus).toContain("DCP status: disabled for the current model");
+    expect(disabledStatus).toMatch(/Manual mode:\s+active/);
+    expect(disabledStatus).toMatch(/DCP status:\s+disabled for the current model/);
 
     const reenabledCtx = sessionContext(enabledModel);
     await selectModel(handlers, enabledModel, disabledModel);
     expect(entries).toHaveLength(0);
     await context.handler("", reenabledCtx);
     const enabledStatus = reenabledCtx.ui.notify.mock.calls[0]?.[0] as string;
-    expect(enabledStatus).toContain("Manual mode: active");
+    expect(enabledStatus).toMatch(/Manual mode:\s+active/);
     expect(enabledStatus).not.toContain("disabled for the current model");
   });
 
@@ -1647,8 +1643,8 @@ describe("static model disablement", () => {
     };
     await context.handler("", ctx);
     const status = ctx.ui.notify.mock.calls[0]?.[0] as string;
-    expect(status).toContain("Manual mode: active");
-    expect(status).toContain("DCP status: disabled for the current model");
+    expect(status).toMatch(/Manual mode:\s+active/);
+    expect(status).toMatch(/DCP status:\s+disabled for the current model/);
     expect(entries).toHaveLength(0);
   });
 
@@ -2017,8 +2013,8 @@ describe("sub-agent support", () => {
     const statsBeforeNotify = vi.fn();
     await statsHandler.handler("", { ui: { notify: statsBeforeNotify } });
     const statsBefore = statsBeforeNotify.mock.calls[0]?.[0] as string;
-    expect(statsBefore).toContain("Tools pruned this session: 1");
-    expect(statsBefore).toMatch(/Cumulative tokens saved by pruning: \d+/);
+    expect(statsBefore).toMatch(/Tools pruned this session:\s+1/);
+    expect(statsBefore).toMatch(/Cumulative tokens saved by pruning: ~[\d.]+k?/);
 
     const contextCommandHandler = commands.get("dcp:context") as {
       handler: (...args: unknown[]) => Promise<void>;

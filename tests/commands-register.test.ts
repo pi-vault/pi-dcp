@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerDcpCommands } from "../src/commands/register.ts";
@@ -173,6 +176,60 @@ describe("guarded command callback characterization", () => {
       }
     },
   );
+});
+
+describe("informational command routing", () => {
+  const cases = [
+    ["dcp:help", "DCP Commands:"],
+    ["dcp:context", "DCP Context Usage:"],
+    ["dcp:stats", "DCP Session Statistics:"],
+    ["dcp:lifetime", "DCP Lifetime Statistics:"],
+  ] as const;
+
+  function createRoutingHarness(mode: "tui" | "rpc" | "print" | "json", hasUI: boolean) {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-register-info-"));
+    const sessionDir = path.join(tempRoot, "sessions", "session-1");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    const harness = createExtensionHarness({
+      mode,
+      hasUI,
+      sessionDir,
+      contextUsage: { tokens: 5000, contextWindow: 200_000, percent: 2.5 },
+    });
+    registerDcpCommands(harness.api, createSessionState(), makeDefaultConfig(), () => {});
+    return { harness, cleanup: () => fs.rmSync(tempRoot, { recursive: true, force: true }) };
+  }
+
+  it.each(["tui", "rpc", "print", "json"] as const)(
+    "notifies plain text and never opens custom UI in %s mode",
+    async (mode) => {
+      const { harness, cleanup } = createRoutingHarness(mode, true);
+      try {
+        for (const [name, title] of cases) {
+          harness.ui.notify.mockClear();
+          await harness.runCommand(name, "");
+          expect(harness.ui.notify).toHaveBeenCalledWith(expect.stringContaining(title), "info");
+          expect(harness.ui.custom).not.toHaveBeenCalled();
+        }
+      } finally {
+        cleanup();
+      }
+    },
+  );
+
+  it("notifies plain text when no UI is available", async () => {
+    const { harness, cleanup } = createRoutingHarness("tui", false);
+    try {
+      for (const [name, title] of cases) {
+        harness.ui.notify.mockClear();
+        await harness.runCommand(name, "");
+        expect(harness.ui.notify).toHaveBeenCalledWith(expect.stringContaining(title), "info");
+        expect(harness.ui.custom).not.toHaveBeenCalled();
+      }
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("guarded command error propagation", () => {

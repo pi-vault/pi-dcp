@@ -5,74 +5,94 @@ import {
 } from "../src/tui/notification.ts";
 
 describe("compression notification", () => {
-  it("minimal: shows tokens and message count", () => {
-    const msg = buildCompressNotificationMinimal({
-      compressedTokens: 12400,
-      summaryTokens: 2100,
-      messagesCompressed: 5,
-      topic: "Auth System",
-    });
-    expect(msg).toContain("~12.4K");
-    expect(msg).toContain("~2.1K");
-    expect(msg).toContain("5 messages");
+  it.each([
+    [12_400, 2_100, 5, "DCP · compressed ~12.4k tokens · summary ~2.1k · 5 messages"],
+    [1, 1, 1, "DCP · compressed ~1 token · summary ~1 · 1 message"],
+  ])(
+    "minimal: compressed %d, summary %d, messages %d",
+    (compressedTokens, summaryTokens, messagesCompressed, expected) => {
+      expect(
+        buildCompressNotificationMinimal({
+          compressedTokens,
+          summaryTokens,
+          messagesCompressed,
+          topic: "Auth System",
+        }),
+      ).toBe(expected);
+    },
+  );
+
+  it("minimal: reports metrics even for zero messages", () => {
+    expect(
+      buildCompressNotificationMinimal({
+        compressedTokens: 0,
+        summaryTokens: 0,
+        messagesCompressed: 0,
+        topic: "Auth System",
+      }),
+    ).toBe("DCP · compressed ~0 tokens · summary ~0 · 0 messages");
   });
 
-  it("minimal: singular message", () => {
-    const msg = buildCompressNotificationMinimal({
-      compressedTokens: 500,
-      summaryTokens: 100,
-      messagesCompressed: 1,
-      topic: "Setup",
-    });
-    expect(msg).toContain("1 message");
-    expect(msg).not.toContain("1 messages");
-  });
-
-  it("detailed: includes topic", () => {
+  it("detailed: appends the flattened topic", () => {
     const msg = buildCompressNotificationDetailed({
-      compressedTokens: 12400,
-      summaryTokens: 2100,
+      compressedTokens: 12_400,
+      summaryTokens: 2_100,
       messagesCompressed: 5,
-      topic: "Auth System",
+      topic: "  Auth\r\n\t system ",
     });
-    expect(msg).toContain("Auth System");
-    expect(msg).toContain("~12.4K");
+    expect(msg).toBe(
+      "DCP · compressed ~12.4k tokens · summary ~2.1k · 5 messages\nTopic: Auth system",
+    );
   });
 
-  it("detailed: includes summary when showCompression is true", () => {
+  it("detailed: includes the multiline summary verbatim when showCompression is true", () => {
     const msg = buildCompressNotificationDetailed({
-      compressedTokens: 12400,
-      summaryTokens: 2100,
+      compressedTokens: 12_400,
+      summaryTokens: 2_100,
       messagesCompressed: 5,
       topic: "Auth System",
-      summary: "User explored authentication flows and decided on JWT.",
+      summary: "First line\nsecond line",
       showCompression: true,
     });
-    expect(msg).toContain("Auth System");
-    expect(msg).toContain("JWT");
+    expect(msg).toBe(
+      "DCP · compressed ~12.4k tokens · summary ~2.1k · 5 messages\nTopic: Auth System\nSummary (~2.1k): First line\nsecond line",
+    );
   });
 
   it("detailed: omits summary when showCompression is false", () => {
     const msg = buildCompressNotificationDetailed({
-      compressedTokens: 12400,
-      summaryTokens: 2100,
+      compressedTokens: 12_400,
+      summaryTokens: 2_100,
       messagesCompressed: 5,
       topic: "Auth System",
       summary: "User explored authentication flows and decided on JWT.",
       showCompression: false,
     });
-    expect(msg).toContain("Auth System");
-    expect(msg).not.toContain("JWT");
+    expect(msg).toBe(
+      "DCP · compressed ~12.4k tokens · summary ~2.1k · 5 messages\nTopic: Auth System",
+    );
   });
 
-  it("detailed: omits summary when showCompression not provided", () => {
+  it("detailed: omits summary when showCompression is omitted", () => {
     const msg = buildCompressNotificationDetailed({
-      compressedTokens: 12400,
-      summaryTokens: 2100,
+      compressedTokens: 12_400,
+      summaryTokens: 2_100,
       messagesCompressed: 5,
       topic: "Auth System",
       summary: "User explored authentication flows.",
     });
-    expect(msg).not.toContain("authentication flows");
+    expect(msg).not.toContain("Summary (");
+  });
+
+  it("detailed: omits summary when showCompression is true but summary is empty", () => {
+    const msg = buildCompressNotificationDetailed({
+      compressedTokens: 12_400,
+      summaryTokens: 2_100,
+      messagesCompressed: 5,
+      topic: "Auth System",
+      summary: "",
+      showCompression: true,
+    });
+    expect(msg).not.toContain("Summary (");
   });
 });

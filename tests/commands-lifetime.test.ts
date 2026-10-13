@@ -14,6 +14,43 @@ function sessionHeader(id: string) {
   };
 }
 
+function writeSession(
+  dir: string,
+  name: string,
+  owner: string,
+  stats: {
+    totalPruneTokens: number;
+    toolsPruned: number;
+    messagesCompressed: number;
+    pruneTokenCounter: number;
+  },
+): void {
+  const sessionDir = path.join(dir, name);
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sessionDir, "session.jsonl"),
+    `${JSON.stringify(sessionHeader(name))}\n${JSON.stringify({
+      type: "custom",
+      customType: "pi-dcp-state",
+      timestamp: "2026-07-29T00:00:01.000Z",
+      data: {
+        version: 1,
+        ownerSessionId: owner,
+        manualMode: false,
+        compressPermission: "allow",
+        stats,
+        lastCompaction: 0,
+        pruneTools: [],
+        blocks: [],
+        nextBlockId: 1,
+        nextRunId: 1,
+        messageIds: { byRawId: [], nextRefIndex: 1 },
+        nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+      },
+    })}`,
+  );
+}
+
 describe("lifetime command", () => {
   let tempDir: string;
 
@@ -25,81 +62,60 @@ describe("lifetime command", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("shows aggregate stats from multiple sessions", async () => {
-    const dir1 = path.join(tempDir, "session-1");
-    const dir2 = path.join(tempDir, "session-2");
-    fs.mkdirSync(dir1, { recursive: true });
-    fs.mkdirSync(dir2, { recursive: true });
+  it("formats saved-session totals without changing aggregation", async () => {
+    writeSession(tempDir, "session-1", "one", {
+      totalPruneTokens: 500,
+      toolsPruned: 3,
+      messagesCompressed: 1,
+      pruneTokenCounter: 0,
+    });
+    writeSession(tempDir, "session-2", "two", {
+      totalPruneTokens: 1500,
+      toolsPruned: 7,
+      messagesCompressed: 4,
+      pruneTokenCounter: 0,
+    });
 
-    fs.writeFileSync(
-      path.join(dir1, "session.jsonl"),
-      `${JSON.stringify(sessionHeader("session-1"))}\n${JSON.stringify({
-        type: "custom",
-        customType: "pi-dcp-state",
-        timestamp: "2026-07-29T00:00:01.000Z",
-        data: {
-          version: 1,
-          ownerSessionId: "one",
-          manualMode: false,
-          compressPermission: "allow",
-          stats: {
-            totalPruneTokens: 500,
-            toolsPruned: 3,
-            messagesCompressed: 1,
-            pruneTokenCounter: 0,
-          },
-          lastCompaction: 0,
-          pruneTools: [],
-          blocks: [],
-          nextBlockId: 1,
-          nextRunId: 1,
-          messageIds: { byRawId: [], nextRefIndex: 1 },
-          nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
-        },
-      })}`,
+    expect(await lifetimeCommand(tempDir)).toBe(
+      [
+        "DCP Lifetime Statistics:",
+        "  Sessions tracked:          2 sessions",
+        "  Total tokens saved:        ~2k",
+        "  Total tools pruned:        10",
+        "  Total messages compressed: 5",
+      ].join("\n"),
     );
-    fs.writeFileSync(
-      path.join(dir2, "session.jsonl"),
-      `${JSON.stringify(sessionHeader("session-2"))}\n${JSON.stringify({
-        type: "custom",
-        customType: "pi-dcp-state",
-        timestamp: "2026-07-29T00:00:01.000Z",
-        data: {
-          version: 1,
-          ownerSessionId: "two",
-          manualMode: false,
-          compressPermission: "allow",
-          stats: {
-            totalPruneTokens: 1500,
-            toolsPruned: 7,
-            messagesCompressed: 4,
-            pruneTokenCounter: 0,
-          },
-          lastCompaction: 0,
-          pruneTools: [],
-          blocks: [],
-          nextBlockId: 1,
-          nextRunId: 1,
-          messageIds: { byRawId: [], nextRefIndex: 1 },
-          nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
-        },
-      })}`,
-    );
-
-    const result = await lifetimeCommand(tempDir);
-    expect(result).toContain("2000");
-    expect(result).toContain("10");
-    expect(result).toContain("5");
-    expect(result).toContain("2 sessions");
   });
 
-  it("handles empty directory gracefully", async () => {
-    const result = await lifetimeCommand(tempDir);
-    expect(result).toContain("0 sessions");
+  it("uses singular session grammar", async () => {
+    writeSession(tempDir, "session-1", "one", {
+      totalPruneTokens: 500,
+      toolsPruned: 3,
+      messagesCompressed: 1,
+      pruneTokenCounter: 0,
+    });
+
+    expect(await lifetimeCommand(tempDir)).toBe(
+      [
+        "DCP Lifetime Statistics:",
+        "  Sessions tracked:          1 session",
+        "  Total tokens saved:        ~500",
+        "  Total tools pruned:        3",
+        "  Total messages compressed: 1",
+      ].join("\n"),
+    );
   });
 
-  it("handles non-existent directory", async () => {
-    const result = await lifetimeCommand("/tmp/nonexistent-dcp-dir-xyz");
-    expect(result).toContain("0 sessions");
+  it("pins zero totals for empty and missing directories", async () => {
+    const expected = [
+      "DCP Lifetime Statistics:",
+      "  Sessions tracked:          0 sessions",
+      "  Total tokens saved:        ~0",
+      "  Total tools pruned:        0",
+      "  Total messages compressed: 0",
+    ].join("\n");
+
+    expect(await lifetimeCommand(tempDir)).toBe(expected);
+    expect(await lifetimeCommand("/tmp/nonexistent-dcp-dir-xyz")).toBe(expected);
   });
 });

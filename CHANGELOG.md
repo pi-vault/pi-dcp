@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Informational reports and automatic notifications now share compact token formatting (`k`/`M`, one fractional digit, and a `~` estimate marker) with aligned label/value rows. Detailed status notifications stay on one line; topics and summary bodies appear only in detailed toasts, and `showCompression` now affects the summary body in detailed toasts only.
+
 ## 2026-10-05 - [0.10.0]
 
 ### Added
