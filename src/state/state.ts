@@ -1,9 +1,9 @@
+import { clearCompressionBlocks, createCompressionBlockState } from "../compress/blocks.ts";
 import type {
   CompressionTimingState,
   MessageIdState,
   Nudges,
   Prune,
-  PruneMessagesState,
   SessionState,
   SessionStats,
 } from "./types.ts";
@@ -35,7 +35,7 @@ export function resetSessionState(state: SessionState): void {
   state.manualMode = false;
   state.compressPermission = undefined;
   state.prune.tools.clear();
-  resetPruneMessages(state.prune.messages);
+  clearCompressionBlocks(state, "session");
   state.nudges.contextLimitAnchors.clear();
   state.nudges.turnAnchors.clear();
   state.nudges.iterationAnchors.clear();
@@ -68,28 +68,8 @@ function createCompressionTiming(): CompressionTimingState {
 function createPrune(): Prune {
   return {
     tools: new Map(),
-    messages: createPruneMessages(),
+    messages: createCompressionBlockState(),
   };
-}
-
-function createPruneMessages(): PruneMessagesState {
-  return {
-    byMessageIndex: new Map(),
-    blocksById: new Map(),
-    activeBlockIds: new Set(),
-    activeByAnchorIndex: new Map(),
-    nextBlockId: 1,
-    nextRunId: 1,
-  };
-}
-
-function resetPruneMessages(m: PruneMessagesState): void {
-  m.byMessageIndex.clear();
-  m.blocksById.clear();
-  m.activeBlockIds.clear();
-  m.activeByAnchorIndex.clear();
-  m.nextBlockId = 1;
-  m.nextRunId = 1;
 }
 
 function createNudges(): Nudges {

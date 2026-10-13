@@ -1,5 +1,10 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { SessionState } from "../state/types.ts";
+import type {
+  CompressionBlock,
+  DcpSnapshotBlockV1,
+  PruneMessagesState,
+  SessionState,
+} from "../state/types.ts";
 import type { DcpConfig } from "../config.ts";
 import { getProtectedTurnStart, resolveBoundaryIndex, resolveSelection } from "./search.ts";
 import {
@@ -437,4 +442,98 @@ export function getActiveSummaryTokenUsage(state: SessionState): number {
     }
   }
   return total;
+}
+
+/** Already-decoded durable block facts handed to the lifecycle owner. */
+export interface DurableCompressionBlocks {
+  blocks: readonly DcpSnapshotBlockV1[];
+  nextBlockId: number;
+  nextRunId: number;
+}
+
+/** Create independent empty compression block state with fresh counters. */
+export function createCompressionBlockState(): PruneMessagesState {
+  return {
+    byMessageIndex: new Map(),
+    blocksById: new Map(),
+    activeBlockIds: new Set(),
+    activeByAnchorIndex: new Map(),
+    nextBlockId: 1,
+    nextRunId: 1,
+  };
+}
+
+/**
+ * Empty live compression block state in place. `compaction` retains the
+ * allocation counters and the separately managed message-reference sequence;
+ * `session` returns the counters to their initial values. Unrelated session
+ * fields are untouched.
+ */
+export function clearCompressionBlocks(state: SessionState, mode: "session" | "compaction"): void {
+  const messages = state.prune.messages;
+  messages.byMessageIndex.clear();
+  messages.blocksById.clear();
+  messages.activeBlockIds.clear();
+  messages.activeByAnchorIndex.clear();
+  if (mode === "session") {
+    messages.nextBlockId = 1;
+    messages.nextRunId = 1;
+  }
+}
+
+/**
+ * Materialize already-decoded durable facts into the existing live block
+ * container. Visibility is deliberately not rebuilt here; the next context
+ * pass restores relationships and active memberships.
+ */
+export function restoreCompressionBlocks(
+  state: SessionState,
+  snapshot: DurableCompressionBlocks,
+): void {
+  const messages = state.prune.messages;
+  messages.byMessageIndex.clear();
+  messages.blocksById.clear();
+  messages.activeBlockIds.clear();
+  messages.activeByAnchorIndex.clear();
+  for (const block of snapshot.blocks) {
+    messages.blocksById.set(block.blockId, materializeRestoredBlock(block));
+  }
+  messages.nextBlockId = Math.max(
+    snapshot.nextBlockId,
+    ...snapshot.blocks.map((block) => block.blockId + 1),
+  );
+  messages.nextRunId = Math.max(
+    snapshot.nextRunId,
+    ...snapshot.blocks.map((block) => block.runId + 1),
+  );
+}
+
+/** Record a completed compression duration on every block owned by the call. */
+export function recordCompressionDuration(
+  state: SessionState,
+  toolCallId: string,
+  durationMs: number,
+): void {
+  for (const block of state.prune.messages.blocksById.values()) {
+    if (block.compressToolCallId === toolCallId) block.durationMs = durationMs;
+  }
+}
+
+/** Build a live block from durable facts with unbuilt runtime sentinels. */
+function materializeRestoredBlock(block: DcpSnapshotBlockV1): CompressionBlock {
+  return {
+    ...block,
+    active: false,
+    batchTopic: block.batchTopic,
+    startIndex: -1,
+    endIndex: -1,
+    anchorIndex: -1,
+    parentBlockIds: [],
+    directMessageIndices: [],
+    directToolIds: [],
+    effectiveMessageIndices: [],
+    effectiveToolIds: [],
+    deactivatedAt: undefined,
+    deactivatedByBlockId: undefined,
+  };
 }

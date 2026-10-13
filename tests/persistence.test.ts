@@ -400,6 +400,145 @@ describe("persistence", () => {
       expect(restored.toolParameters.size).toBe(0);
     });
 
+    it.each([
+      { version: 1, permission: "allow" },
+      { version: 1, permission: "deny" },
+      { version: 2, permission: "allow" },
+      { version: 2, permission: "ask" },
+      { version: 2, permission: "deny" },
+    ] as const)(
+      "preserves nonempty v$version block facts through restoration ($permission)",
+      ({ version, permission }) => {
+        const blocks = [
+          {
+            blockId: 7,
+            runId: 3,
+            deactivatedByUser: true,
+            compressedTokens: 120,
+            summaryTokens: 30,
+            durationMs: 1_500,
+            mode: "range" as const,
+            topic: "child topic",
+            batchTopic: "child batch",
+            compressToolCallId: "call-child",
+            startKey: "user:1:0",
+            endKey: "assistant:2:0",
+            anchorKey: "user:1:0",
+            consumedBlockIds: [] as number[],
+            createdAt: 1_000,
+            summary: "child summary",
+          },
+          {
+            blockId: 8,
+            runId: 3,
+            deactivatedByUser: false,
+            compressedTokens: 200,
+            summaryTokens: 40,
+            durationMs: 2_500,
+            mode: "message" as const,
+            topic: "parent topic",
+            compressToolCallId: "call-parent",
+            startKey: "user:1:0",
+            endKey: "user:3:0",
+            anchorKey: "user:1:0",
+            consumedBlockIds: [7],
+            createdAt: 2_000,
+            summary: "parent summary",
+          },
+        ];
+        const input = {
+          version,
+          ownerSessionId: "owner",
+          manualMode: "active" as const,
+          compressPermission: permission,
+          stats: {
+            pruneTokenCounter: 3,
+            totalPruneTokens: 500,
+            toolsPruned: 2,
+            messagesCompressed: 4,
+          },
+          lastCompaction: 111,
+          pruneTools: [["call-x", 9]] as Array<[string, number]>,
+          blocks,
+          nextBlockId: 9,
+          nextRunId: 4,
+          messageIds: {
+            byRawId: [["user:1:0", "m0001"]] as Array<[string, string]>,
+            nextRefIndex: 2,
+          },
+          nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+        };
+        const original = structuredClone(input);
+
+        expect(persistence.parseDcpSnapshot(input)).toBeDefined();
+
+        const state = createSessionState();
+        expect(persistence.restoreDcpSnapshot(input, state, "owner")).toBe(true);
+        expect(input).toEqual(original);
+
+        const child = requireDefined(state.prune.messages.blocksById.get(7), "child block");
+        const parent = requireDefined(state.prune.messages.blocksById.get(8), "parent block");
+        expect(child).toEqual({
+          ...blocks[0],
+          active: false,
+          startIndex: -1,
+          endIndex: -1,
+          anchorIndex: -1,
+          parentBlockIds: [],
+          directMessageIndices: [],
+          directToolIds: [],
+          effectiveMessageIndices: [],
+          effectiveToolIds: [],
+          deactivatedAt: undefined,
+          deactivatedByBlockId: undefined,
+        });
+        expect(parent).toEqual({
+          ...blocks[1],
+          active: false,
+          startIndex: -1,
+          endIndex: -1,
+          anchorIndex: -1,
+          parentBlockIds: [],
+          directMessageIndices: [],
+          directToolIds: [],
+          effectiveMessageIndices: [],
+          effectiveToolIds: [],
+          deactivatedAt: undefined,
+          deactivatedByBlockId: undefined,
+        });
+        expect(child.deactivatedByUser).toBe(true);
+        expect(parent.deactivatedByUser).toBe(false);
+        expect(child.batchTopic).toBe("child batch");
+        expect(parent.batchTopic).toBeUndefined();
+        expect(parent.consumedBlockIds).toEqual([7]);
+        expect(state.prune.messages.byMessageIndex.size).toBe(0);
+        expect(state.prune.messages.activeBlockIds.size).toBe(0);
+        expect(state.prune.messages.activeByAnchorIndex.size).toBe(0);
+        expect(state.prune.messages.nextBlockId).toBe(9);
+        expect(state.prune.messages.nextRunId).toBe(4);
+
+        const serialized = persistence.serializeDcpSnapshot(state);
+        expect(serialized).toEqual({
+          version: 2,
+          ownerSessionId: "owner",
+          manualMode: "active",
+          compressPermission: permission,
+          stats: input.stats,
+          lastCompaction: 111,
+          pruneTools: [["call-x", 9]],
+          blocks,
+          nextBlockId: 9,
+          nextRunId: 4,
+          messageIds: { byRawId: [["user:1:0", "m0001"]], nextRefIndex: 2 },
+          nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+        });
+
+        const second = createSessionState();
+        expect(persistence.restoreDcpSnapshot(serialized, second, "owner")).toBe(true);
+        expect(persistence.serializeDcpSnapshot(second)).toEqual(serialized);
+      },
+    );
+
     it.each([false, "active"] as const)(
       "keeps v1 snapshot manualMode %s unchanged through parse, restore, and serialize",
       (manualMode) => {
