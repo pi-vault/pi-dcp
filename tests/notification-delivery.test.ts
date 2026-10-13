@@ -84,11 +84,11 @@ function duplicateToolHistory(count: number, resultText = "x".repeat(400)): Agen
   return messages;
 }
 
-async function compressionHarness(config: unknown) {
+async function compressionHarness(config: unknown, hasUI = true) {
   writeConfig(config);
   const harness = createExtensionHarness({
     activeTools: ["read", "compress"],
-    hasUI: true,
+    hasUI,
     contextUsage,
   });
   createExtension(harness.api);
@@ -111,15 +111,19 @@ afterEach(() => {
 describe("compression notification delivery matrix", () => {
   const cases = [
     { mode: "range", verbosity: "minimal", type: "toast", showCompression: false },
+    { mode: "range", verbosity: "minimal", type: "toast", showCompression: true },
     { mode: "range", verbosity: "detailed", type: "toast", showCompression: false },
     { mode: "range", verbosity: "detailed", type: "toast", showCompression: true },
     { mode: "range", verbosity: "minimal", type: "status", showCompression: false },
+    { mode: "range", verbosity: "minimal", type: "status", showCompression: true },
     { mode: "range", verbosity: "detailed", type: "status", showCompression: false },
     { mode: "range", verbosity: "detailed", type: "status", showCompression: true },
     { mode: "message", verbosity: "minimal", type: "toast", showCompression: false },
+    { mode: "message", verbosity: "minimal", type: "toast", showCompression: true },
     { mode: "message", verbosity: "detailed", type: "toast", showCompression: false },
     { mode: "message", verbosity: "detailed", type: "toast", showCompression: true },
     { mode: "message", verbosity: "minimal", type: "status", showCompression: false },
+    { mode: "message", verbosity: "minimal", type: "status", showCompression: true },
     { mode: "message", verbosity: "detailed", type: "status", showCompression: false },
     { mode: "message", verbosity: "detailed", type: "status", showCompression: true },
   ] as const;
@@ -150,6 +154,11 @@ describe("compression notification delivery matrix", () => {
       const other = type === "toast" ? harness.ui.setStatus : harness.ui.notify;
       expect(chosen).toHaveBeenCalledTimes(1);
       expect(other).not.toHaveBeenCalled();
+      if (type === "toast") {
+        expect(harness.ui.notify).toHaveBeenCalledWith(expect.any(String), "info");
+      } else {
+        expect(harness.ui.setStatus).toHaveBeenCalledWith("dcp", expect.any(String));
+      }
 
       const message = type === "toast" ? chosen.mock.calls[0]?.[0] : chosen.mock.calls[0]?.[1];
       expect(typeof message).toBe("string");
@@ -313,6 +322,63 @@ describe("automatic delivery suppression", () => {
     expect(harness.ui.notify).not.toHaveBeenCalled();
     expect(harness.ui.setStatus).not.toHaveBeenCalled();
   });
+});
+
+describe("pruning notification delivery", () => {
+  it.each([
+    {
+      verbosity: "minimal",
+      type: "status",
+      expected: "DCP · saved ~100 tokens · pruned 1 output",
+    },
+    {
+      verbosity: "detailed",
+      type: "toast",
+      expected: "DCP · saved ~100 tokens · pruned 1 output\nPruned: glob",
+    },
+  ] as const)("delivers $verbosity pruning via $type", async ({ verbosity, type, expected }) => {
+    const harness = await compressionHarness({
+      nudgeNotification: verbosity,
+      nudgeNotificationType: type,
+    });
+    harness.ui.notify.mockClear();
+    harness.ui.setStatus.mockClear();
+
+    await harness.emit("context", { type: "context", messages: duplicateToolHistory(2) });
+
+    if (type === "toast") {
+      expect(harness.ui.notify).toHaveBeenCalledExactlyOnceWith(expected, "info");
+      expect(harness.ui.setStatus).not.toHaveBeenCalled();
+    } else {
+      expect(harness.ui.setStatus).toHaveBeenCalledExactlyOnceWith("dcp", expected);
+      expect(harness.ui.notify).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    { verbosity: "off", hasUI: true, type: "toast" },
+    { verbosity: "off", hasUI: true, type: "status" },
+    { verbosity: "detailed", hasUI: false, type: "toast" },
+    { verbosity: "detailed", hasUI: false, type: "status" },
+  ] as const)(
+    "prunes without $type feedback when verbosity=$verbosity and hasUI=$hasUI",
+    async ({ verbosity, hasUI, type }) => {
+      const harness = await compressionHarness(
+        { nudgeNotification: verbosity, nudgeNotificationType: type },
+        hasUI,
+      );
+      harness.ui.notify.mockClear();
+      harness.ui.setStatus.mockClear();
+
+      await harness.emit("context", { type: "context", messages: duplicateToolHistory(2) });
+
+      expect(harness.entries.at(-1)?.data).toMatchObject({
+        stats: { totalPruneTokens: 100, toolsPruned: 1 },
+      });
+      expect(harness.ui.notify).not.toHaveBeenCalled();
+      expect(harness.ui.setStatus).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("pruning notification provenance", () => {
