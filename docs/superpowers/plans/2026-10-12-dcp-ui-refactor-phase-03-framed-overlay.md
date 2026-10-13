@@ -98,6 +98,7 @@ Reuse `src/tui/formatters.ts` (`formatDcpTokens`, `flattenDcpLabel`) and `src/tu
 - Compact tokens in `panel-model.ts` using `formatDcpTokens`: context tokens, session pruning savings, lifetime savings, and block compressed tokens get `estimated: true`; context window and resolved limits stay bare; counts remain integer strings. Preserve percent/unknown/Unavailable behavior and label names. Examples: `~20k / 200k (10%)`, limits `100k`/`50k`, lifetime savings `~1k`, block detail `range · ~100 tokens · Deactivate`.
 - Flatten every dynamic field/row/feedback value with `flattenDcpLabel` before composing one logical line. Use SDK `visibleWidth`/`truncateToWidth` for CJK, emoji, combining characters, and ANSI; no string-length clipping.
 - Use `borderAccent` for heavy borders, `accent` for `▸` and selected labels/feedback, `text` for information/eligible labels, and `dim` for detail/reasons/unavailable labels/key hints. Do not inverse entire selected rows. Adapt current suffix allocation so block `bN` plus Deactivate/Reactivate/Inactive remains visible at 60/80/120 columns despite long topics or policy reasons.
+- Review clarification: keep the block ID and complete Deactivate/Reactivate/Inactive label at every normal width. Use compact `bN` labels and omit optional details/reasons when necessary; never show a partial lifecycle label or policy reason. If even the compact ID and lifecycle label cannot fit together, return close-only fallback.
 - Choose the longest complete key hint fitting inner width from `↑/↓ j/k navigate · Enter run · Esc/q close`, `Enter run · Esc/q close`, `Esc/q close`, then `q`. Feedback is a separate bounded `Last action: ...` row.
 - Renderer `actionsVisible` is true only for a normal view containing the resolved selected row's marker/label. It describes a visible list, not permission; inactive rows still permit navigation but have no activation action.
 - Component starts without an activatable rendered selection; navigation may update selection before the first render. Successful rendering stores returned offset/visibility, selected stable ID, and terminal rows/columns. Movement clears activation readiness and requests rendering while allowing further movement; `invalidate()` clears readiness. After close-only/error rendering, disable navigation until a normal render succeeds. Enter/Return completes only when selection matches the last successfully rendered selection and terminal dimensions still match. Esc/`q` always works; completion is exactly once.
@@ -177,6 +178,21 @@ Baseline on branch `20261013-dcp-ui-refactor-phase-03-framed-overlay` at `b0f5a3
 - **Repository gate:** `pnpm check` → format, lint, typecheck, and `66` files / `1,112` tests passed. `git diff --check` exited `0`.
 - **Real Pi inspection:** not performed; no interactive Pi session with pi-status was available in this environment. Component tests and installed-SDK inspection cover the layout arithmetic but are not a visual check.
 - **Commit:** `feat: present DCP controls in a framed overlay` (this commit).
+
+## Code Review — 2026-10-13
+
+Reviewed implementation `c39da3f08321cf371dac64e9300d5c94675d8986` against planning base `b0f5a33`, with an independent reviewer and fresh checks. The original implementation passed `66` files / `1,112` tests but had uncovered display regressions:
+
+- Lifetime tools/messages/session counts over `999` were abbreviated by the token formatter. They now remain exact integer strings; only token estimates use compact formatting.
+- Header information values retained embedded CR/LF/tabs and bypassed the active theme's `text` role. They now flatten before width fitting and use that role.
+- Narrow block rows could hide their stable ID or truncate Deactivate/Reactivate/Inactive while remaining actionable. The renderer now reserves complete identity and lifecycle text, uses compact labels, and drops optional details when needed. An ID too large to fit with its lifecycle label yields close-only output.
+- Optional policy reasons could leave dangling brackets or incomplete text. They now appear in full or are omitted.
+
+All fixes have regression coverage demonstrated failing before the relevant code changes. Independent follow-up review confirmed the block identity/lifecycle fix and found no remaining important defects; its final minor policy-reason finding was then reproduced and fixed using the recommended allocation rule.
+
+**Verification:** The six-file focused gate passes **160 tests**. Final `pnpm check` exits `0`: formatting, lint, type checking, and **66 files / 1,122 tests passed**. `git diff --check` is clean. README documents compact block labels and the additional close-only boundary. The implementation counts above remain historical evidence.
+
+**Limits and status:** Real-Pi visual inspection remains unperformed; no interactive Pi session with pi-status was available. Phase 4 tabs/routing remain outside this review. Review fixes are uncommitted.
 
 ## Phase Completion and Rollback
 
