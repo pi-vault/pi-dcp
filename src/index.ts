@@ -80,7 +80,7 @@ function sendCompressNotification(
     showCompression: config.compress.showCompression,
   };
   const message =
-    config.nudgeNotification === "detailed"
+    config.nudgeNotification === "detailed" && config.nudgeNotificationType === "toast"
       ? buildCompressNotificationDetailed(notifParams)
       : buildCompressNotificationMinimal(notifParams);
   if (config.nudgeNotificationType === "toast") {

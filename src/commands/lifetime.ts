@@ -1,13 +1,22 @@
 import { loadAllSessionStats } from "../state/persistence.ts";
+import { formatDcpTokens } from "../tui/formatters.ts";
+
+function renderRows(title: string, rows: Array<[string, string]>): string {
+  const width = Math.max(...rows.map(([label]) => label.length + 1));
+  const lines = rows.map(([label, value]) => `  ${`${label}:`.padEnd(width)} ${value}`);
+  return [title, ...lines].join("\n");
+}
 
 export async function lifetimeCommand(sessionsParentDir: string): Promise<string> {
   const stats = await loadAllSessionStats(sessionsParentDir);
 
-  return [
-    "DCP Lifetime Statistics:",
-    `  Sessions tracked: ${stats.sessionCount} sessions`,
-    `  Total tokens saved: ${stats.totalTokensSaved}`,
-    `  Total tools pruned: ${stats.totalToolsPruned}`,
-    `  Total messages compressed: ${stats.totalMessagesCompressed}`,
-  ].join("\n");
+  return renderRows("DCP Lifetime Statistics:", [
+    [
+      "Sessions tracked",
+      `${stats.sessionCount} ${stats.sessionCount === 1 ? "session" : "sessions"}`,
+    ],
+    ["Total tokens saved", formatDcpTokens(stats.totalTokensSaved, true)],
+    ["Total tools pruned", String(stats.totalToolsPruned)],
+    ["Total messages compressed", String(stats.totalMessagesCompressed)],
+  ]);
 }

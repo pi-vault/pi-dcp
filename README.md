@@ -128,6 +128,15 @@ Run `dcp` to open the single status panel in TUI mode. It shows the current mode
 
 Use the arrow keys or `j`/`k` to move, Enter to run the selected action, and Escape or `q` to close. The list scrolls to keep the selection visible and stays bounded at 60, 80, and 120 columns. Policy-disabled actions cannot mutate state; globally disabled, model-disabled, and disallowed sub-agent sessions keep informational access only. Permission denial alone does not disable sweep, manual mode, or block controls. Existing `dcp:*` commands remain stable shortcuts and the fallback when no TUI is available.
 
+## Notifications and text formatting
+
+Automatic pruning and compression feedback is plain text with no ANSI styling. Token quantities render compactly with lowercase `k`, uppercase `M`, at most one fractional digit, a trailing `.0` removed, and a `~` marker when the value is an estimate:
+
+- Pruning toast: `DCP · saved ~12.4k tokens · pruned 8 outputs`
+- Compression: `DCP · compressed ~12.4k tokens · summary ~2.1k · 5 messages`
+
+Status notifications (`nudgeNotificationType: "status"`) are always a single line and always use the minimal compact metrics, even when `nudgeNotification` is `"detailed"`. Detailed topics, tool names, and configured summaries appear only in toasts. With `nudgeNotification: "detailed"` and `nudgeNotificationType: "toast"`, a detailed pruning toast adds `Pruned: grep, ls`, and a detailed compression toast adds a flattened `Topic:` line. `showCompression` exposes the summary body only in a detailed toast; status and all minimal output keep the numeric `summary` token metric instead.
+
 ## Typical workflows
 
 **Default:** install it and let DCP prune duplicates and stale failed inputs automatically.
@@ -248,7 +257,7 @@ For a session using `openai-codex/gpt-5.6-sol`, DCP leaves messages unchanged, r
 
 - `mode` — compression mode: `"range"` or `"message"`.
 - `permission` — compression permission: `"allow"`, `"ask"`, or `"deny"`. `allow` runs normally, `ask` keeps the tool exposed and confirms each call, and `deny` hides the tool and blocks direct calls. `dcp:permission` cycles the in-session value.
-- `showCompression` — when `true`, detailed notifications include the compression summary text.
+- `showCompression` — when `true`, detailed toast notifications include the compression summary text. Status notifications retain only the numeric summary token metric.
 - `maxContextPercent` / `minContextPercent` — legacy percentage thresholds.
 - `maxContextLimit` / `minContextLimit` — accept a positive integer token count or a percentage string greater than 0 and at most 100 (for example `"80%"`). Anything else is dropped with a warning.
 - `modelMaxLimits` / `modelMinLimits` — per-model overrides keyed by `provider/modelId`; each value follows the same context-limit rules as the global limits.

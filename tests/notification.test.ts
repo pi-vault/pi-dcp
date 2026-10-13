@@ -2,58 +2,37 @@ import { describe, it, expect } from "vitest";
 import { buildMinimalMessage, buildDetailedMessage } from "../src/tui/notification.ts";
 
 describe("buildMinimalMessage", () => {
-  it("formats token count and prune count", () => {
-    const result = buildMinimalMessage({ tokensSaved: 12400, pruned: 3 });
-    expect(result).toBe("DCP: ~12.4K tokens saved (3 items pruned)");
-  });
-
-  it("formats large token counts with K suffix", () => {
-    const result = buildMinimalMessage({ tokensSaved: 156000, pruned: 10 });
-    expect(result).toBe("DCP: ~156.0K tokens saved (10 items pruned)");
-  });
-
-  it("formats small token counts without K suffix", () => {
-    const result = buildMinimalMessage({ tokensSaved: 500, pruned: 1 });
-    expect(result).toBe("DCP: ~500 tokens saved (1 items pruned)");
+  it.each([
+    [12_400, 8, "DCP · saved ~12.4k tokens · pruned 8 outputs"],
+    [1, 1, "DCP · saved ~1 token · pruned 1 output"],
+    [0, 1, "DCP · saved ~0 tokens · pruned 1 output"],
+    [100, 0, "DCP · saved ~100 tokens · pruned 0 outputs"],
+  ])("formats saved %d and pruned %d", (tokensSaved, pruned, expected) => {
+    expect(buildMinimalMessage({ tokensSaved, pruned })).toBe(expected);
   });
 
   it("returns undefined when nothing pruned", () => {
-    const result = buildMinimalMessage({ tokensSaved: 0, pruned: 0 });
-    expect(result).toBeUndefined();
-  });
-
-  it("reports when pruned > 0 but tokensSaved is 0", () => {
-    const result = buildMinimalMessage({ tokensSaved: 0, pruned: 1 });
-    expect(result).toBe("DCP: ~0 tokens saved (1 items pruned)");
-  });
-
-  it("reports when tokensSaved > 0 but pruned is 0", () => {
-    const result = buildMinimalMessage({ tokensSaved: 100, pruned: 0 });
-    expect(result).toBe("DCP: ~100 tokens saved (0 items pruned)");
+    expect(buildMinimalMessage({ tokensSaved: 0, pruned: 0 })).toBeUndefined();
   });
 });
 
 describe("buildDetailedMessage", () => {
-  it("includes pruned tool list", () => {
-    const result = buildDetailedMessage({ tokensSaved: 5000, pruned: 2 }, ["grep", "ls"]);
-    expect(result).toContain("~5.0K tokens saved");
-    expect(result).toContain("grep");
-    expect(result).toContain("ls");
+  it("appends normalized, deduplicated tool names in first-occurrence order", () => {
+    const result = buildDetailedMessage({ tokensSaved: 3000, pruned: 3 }, [
+      "  grep ",
+      "grep",
+      "\n",
+      "ls",
+    ]);
+    expect(result).toBe("DCP · saved ~3k tokens · pruned 3 outputs\nPruned: grep, ls");
   });
 
-  it("falls back to minimal format when tool list is empty", () => {
-    const result = buildDetailedMessage({ tokensSaved: 5000, pruned: 2 }, []);
-    expect(result).toContain("~5.0K tokens saved");
-    expect(result).not.toContain("Pruned:");
-  });
-
-  it("deduplicates tool names", () => {
-    const result = buildDetailedMessage({ tokensSaved: 3000, pruned: 3 }, ["grep", "grep", "ls"]);
-    expect(result).toContain("Pruned: grep, ls");
+  it("falls back to minimal format when every label normalizes to empty", () => {
+    const result = buildDetailedMessage({ tokensSaved: 5000, pruned: 2 }, [" ", "\t\n"]);
+    expect(result).toBe("DCP · saved ~5k tokens · pruned 2 outputs");
   });
 
   it("returns undefined when nothing pruned", () => {
-    const result = buildDetailedMessage({ tokensSaved: 0, pruned: 0 }, ["grep"]);
-    expect(result).toBeUndefined();
+    expect(buildDetailedMessage({ tokensSaved: 0, pruned: 0 }, ["grep"])).toBeUndefined();
   });
 });

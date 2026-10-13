@@ -1,3 +1,5 @@
+import { flattenDcpLabel, formatDcpTokens } from "./formatters.ts";
+
 export interface NotificationStats {
   tokensSaved: number;
   pruned: number;
@@ -13,27 +15,20 @@ export interface CompressNotificationParams {
 }
 
 /**
- * Format token count for display (e.g. 12400 -> "~12.4K").
- */
-function formatTokens(tokens: number): string {
-  if (tokens >= 1000) {
-    return `~${(tokens / 1000).toFixed(1)}K`;
-  }
-  return `~${tokens}`;
-}
-
-/**
  * Build minimal notification message.
  * Returns undefined if nothing to report.
  */
 export function buildMinimalMessage(stats: NotificationStats): string | undefined {
   if (stats.tokensSaved === 0 && stats.pruned === 0) return undefined;
-  return `DCP: ${formatTokens(stats.tokensSaved)} tokens saved (${stats.pruned} items pruned)`;
+  const tokenNoun = stats.tokensSaved === 1 ? "token" : "tokens";
+  const outputNoun = stats.pruned === 1 ? "output" : "outputs";
+  return `DCP · saved ${formatDcpTokens(stats.tokensSaved, true)} ${tokenNoun} · pruned ${stats.pruned} ${outputNoun}`;
 }
 
 /**
  * Build detailed notification message with pruned tool names.
- * Deduplicates tool names. Falls back to minimal when list is empty.
+ * Normalizes and deduplicates labels, preserving first-occurrence order.
+ * Falls back to minimal when the normalized list is empty.
  */
 export function buildDetailedMessage(
   stats: NotificationStats,
@@ -41,18 +36,26 @@ export function buildDetailedMessage(
 ): string | undefined {
   const base = buildMinimalMessage(stats);
   if (!base) return undefined;
-  const unique = [...new Set(prunedTools)];
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of prunedTools) {
+    const label = flattenDcpLabel(raw);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    unique.push(label);
+  }
   if (unique.length === 0) return base;
   return `${base}\nPruned: ${unique.join(", ")}`;
 }
 
 /**
  * Build minimal compression notification.
- * Format: "DCP: ~12.4K tokens compressed (~2.1K summary, 5 messages)"
+ * Format: "DCP · compressed ~12.4k tokens · summary ~2.1k · 5 messages"
  */
 export function buildCompressNotificationMinimal(params: CompressNotificationParams): string {
-  const plural = params.messagesCompressed === 1 ? "message" : "messages";
-  return `DCP: ${formatTokens(params.compressedTokens)} tokens compressed (${formatTokens(params.summaryTokens)} summary, ${params.messagesCompressed} ${plural})`;
+  const tokenNoun = params.compressedTokens === 1 ? "token" : "tokens";
+  const messageNoun = params.messagesCompressed === 1 ? "message" : "messages";
+  return `DCP · compressed ${formatDcpTokens(params.compressedTokens, true)} ${tokenNoun} · summary ${formatDcpTokens(params.summaryTokens, true)} · ${params.messagesCompressed} ${messageNoun}`;
 }
 
 /**
@@ -61,9 +64,9 @@ export function buildCompressNotificationMinimal(params: CompressNotificationPar
  */
 export function buildCompressNotificationDetailed(params: CompressNotificationParams): string {
   let msg = buildCompressNotificationMinimal(params);
-  msg += `\nTopic: ${params.topic}`;
+  msg += `\nTopic: ${flattenDcpLabel(params.topic)}`;
   if (params.showCompression && params.summary) {
-    msg += `\nSummary (${formatTokens(params.summaryTokens)}): ${params.summary}`;
+    msg += `\nSummary (${formatDcpTokens(params.summaryTokens, true)}): ${params.summary}`;
   }
   return msg;
 }
