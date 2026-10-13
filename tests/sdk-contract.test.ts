@@ -10,7 +10,8 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import createExtension from "../src/index.ts";
 import * as sessionState from "../src/state/state.ts";
 
@@ -147,12 +148,14 @@ describe("DCP public SDK contract", () => {
           .filter((entry) => entry.type === "custom" && entry.customType === "pi-dcp-state");
       let entriesAtEnd = -1;
       let isErrorAtEnd: boolean | undefined;
+      let detailsAtEnd: unknown;
       session.agent.subscribe((event) => {
         if (event.type === "tool_execution_start") sequence.push(event.type);
         if (event.type === "tool_execution_end") {
           sequence.push(event.type);
           entriesAtEnd = dcpEntries().length;
           isErrorAtEnd = event.isError;
+          detailsAtEnd = event.result?.details;
         }
       });
       let responses = 0;
@@ -232,13 +235,50 @@ describe("DCP public SDK contract", () => {
         ]);
         expect(state.stats.messagesCompressed).toBe(1);
         expect(entriesAtEnd).toBeGreaterThan(entriesBefore);
+        expect(detailsAtEnd).toEqual({
+          dcpCompression: {
+            mode: "range",
+            topic: "Host lifecycle",
+            messagesCompressed: 1,
+            compressedTokens: expect.any(Number),
+            summaryTokens: expect.any(Number),
+            blockIds: [1],
+          },
+        });
       } else {
         expect(state.prune.messages.blocksById.size).toBe(0);
         expect(state.stats).toEqual(statsBefore);
         expect(entriesAtEnd).toBe(entriesBefore);
+        expect(detailsAtEnd).toEqual({});
       }
     },
   );
+
+  it("exposes compression renderers through the real SDK tool definition", async () => {
+    const { session } = await createHostSession();
+    const definition = session.getToolDefinition("compress");
+
+    expect(definition?.renderCall).toBeTypeOf("function");
+    expect(definition?.renderResult).toBeTypeOf("function");
+
+    const theme = {
+      fg: (_color: string, text: string) => text,
+      bg: (_color: string, text: string) => text,
+      bold: (text: string) => text,
+      inverse: (text: string) => text,
+    } as unknown as Theme;
+    const component = definition?.renderCall?.(
+      { topic: "Auth", content: [{ startId: "m1", endId: "m2", summary: "s" }] } as never,
+      theme,
+      {} as never,
+    );
+    expect(component).toBeDefined();
+    const visible = component
+      ?.render(200)
+      .map((line) => stripTerminalSequences(line).replace(/\s+$/, ""))
+      .join("\n");
+    expect(visible).toBe("compress range · Auth · 1 range");
+  });
 
   it("keeps the compress tool exposed and guided for ask permission", async () => {
     const { session, agentDir } = await createHostSession({

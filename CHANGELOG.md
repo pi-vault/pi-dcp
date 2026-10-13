@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Compact, theme-aware `compress` call and result rendering in the TUI. Calls show the mode, flattened topic, and selection count; successful results collapse to estimated input/summary metrics and expand to the unchanged result text plus created block IDs. Partial, error, historical, and malformed results keep their original text, and display details never include submitted or combined summary text.
+
 ### Changed
 
 - Informational reports and automatic notifications now share compact token formatting (`k`/`M`, one fractional digit, and a `~` estimate marker) with aligned label/value rows. Detailed status notifications stay on one line; topics and summary bodies appear only in detailed toasts, and `showCompression` now affects the summary body in detailed toasts only.

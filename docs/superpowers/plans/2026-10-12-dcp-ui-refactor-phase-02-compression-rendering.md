@@ -93,11 +93,11 @@ For metadata `{ mode: "range", topic: " Auth\n system ", messagesCompressed: 5, 
 
 ## Execution Rules
 
-- [ ] Confirm the worktree is clean or understood and phase 1 is present before editing.
-- [ ] Run `pnpm check` as a fresh baseline; do not rely on this plan's recorded result.
-- [ ] Execute Tasks 1–3 in order because each consumes the preceding task's interface.
-- [ ] For each task, add the named failing assertions, run the focused command and observe the expected failure, implement the minimum behavior, then rerun the focused command.
-- [ ] Do not mark implementation checkboxes or add an implementation record until the corresponding work and verification actually occur.
+- [x] Confirm the worktree is clean or understood and phase 1 is present before editing.
+- [x] Run `pnpm check` as a fresh baseline; do not rely on this plan's recorded result.
+- [x] Execute Tasks 1–3 in order because each consumes the preceding task's interface.
+- [x] For each task, add the named failing assertions, run the focused command and observe the expected failure, implement the minimum behavior, then rerun the focused command.
+- [x] Do not mark implementation checkboxes or add an implementation record until the corresponding work and verification actually occur.
 
 ---
 
@@ -112,17 +112,17 @@ For metadata `{ mode: "range", topic: " Auth\n system ", messagesCompressed: 5, 
 - Produces: `createDcpTheme(theme: Theme, env?: NodeJS.ProcessEnv): DcpTheme`.
 - Contract: `NO_COLOR` is enabled by property presence, including `NO_COLOR=""` and `NO_COLOR="0"`; every method delegates at call time and independently falls back to its input text on throw or non-string return.
 
-- [ ] **Step 1: Write failing adapter tests.** Cover normal delegation for all four methods, live delegation after the underlying implementation changes, `NO_COLOR` presence/truthiness cases, one throwing method with working siblings, and a non-string method return.
+- [x] **Step 1: Write failing adapter tests.** Cover normal delegation for all four methods, live delegation after the underlying implementation changes, `NO_COLOR` presence/truthiness cases, one throwing method with working siblings, and a non-string method return.
 
-- [ ] **Step 2: Run the adapter test and verify the intended failure.**
+- [x] **Step 2: Run the adapter test and verify the intended failure.**
 
   Run: `pnpm exec vitest run tests/theme.test.ts`
 
   Expected: FAIL because `src/tui/theme.ts` does not exist.
 
-- [ ] **Step 3: Implement the adapter.** Keep `safeThemeCall` private, call `Object.hasOwn(env, "NO_COLOR")`, return identity functions when color is disabled, and do not add palettes or hard-coded ANSI.
+- [x] **Step 3: Implement the adapter.** Keep `safeThemeCall` private, call `Object.hasOwn(env, "NO_COLOR")`, return identity functions when color is disabled, and do not add palettes or hard-coded ANSI.
 
-- [ ] **Step 4: Rerun the adapter test.**
+- [x] **Step 4: Rerun the adapter test.**
 
   Run: `pnpm exec vitest run tests/theme.test.ts`
 
@@ -144,7 +144,7 @@ For metadata `{ mode: "range", topic: " Auth\n system ", messagesCompressed: 5, 
 - Produces: `renderCompressCall(mode: CompressArgs["mode"], args: unknown, theme: Theme): Component`.
 - Produces: `renderCompressResult(result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme, context: Pick<ToolRenderContext, "isError">): Component`. Treat `details` as an untrusted runtime boundary and narrow it with the private guard.
 
-- [ ] **Step 1: Write failing metadata tests.** Assert all exact result fields, a copied `blockIds` array, and absence of submitted/combined summary text from serialized details.
+- [x] **Step 1: Write failing metadata tests.** Assert all exact result fields, a copied `blockIds` array, and absence of submitted/combined summary text from serialized details.
 
   ```ts
   expect(createCompressionDisplayDetails("range", result).dcpCompression).toEqual({
@@ -158,21 +158,21 @@ For metadata `{ mode: "range", topic: " Auth\n system ", messagesCompressed: 5, 
   expect(JSON.stringify(details)).not.toContain("private summary text");
   ```
 
-- [ ] **Step 2: Write failing call-renderer tests.** Pin the four call-table strings, both singular/plural forms, wrong-mode-array exclusion, Unicode topics, no submitted summaries, expected semantic role calls, and `visibleWidth(line) <= width` at widths `1`, `12`, and `60`.
+- [x] **Step 2: Write failing call-renderer tests.** Pin the four call-table strings, both singular/plural forms, wrong-mode-array exclusion, Unicode topics, no submitted summaries, expected semantic role calls, and `visibleWidth(line) <= width` at widths `1`, `12`, and `60`.
 
-- [ ] **Step 3: Write failing result-renderer tests.** Pin the collapsed/expanded strings and ordering, multiple text items, empty blocks/topic, zero/one/many messages, partial-before-metadata precedence, error-before-metadata precedence, empty error text, empty legacy text, absent details, malformed details, multiline Unicode content, `NO_COLOR`, and one throwing theme method.
+- [x] **Step 3: Write failing result-renderer tests.** Pin the collapsed/expanded strings and ordering, multiple text items, empty blocks/topic, zero/one/many messages, partial-before-metadata precedence, error-before-metadata precedence, empty error text, empty legacy text, absent details, malformed details, multiline Unicode content, `NO_COLOR`, and one throwing theme method.
 
-- [ ] **Step 4: Run the renderer tests and verify the intended failure.**
+- [x] **Step 4: Run the renderer tests and verify the intended failure.**
 
   Run: `pnpm exec vitest run tests/theme.test.ts tests/compress-render.test.ts`
 
   Expected: FAIL because the compression presentation module does not exist.
 
-- [ ] **Step 5: Implement metadata creation and runtime guarding.** Keep the guard and text extraction private; never parse human-readable result text or read live DCP state.
+- [x] **Step 5: Implement metadata creation and runtime guarding.** Keep the guard and text extraction private; never parse human-readable result text or read live DCP state.
 
-- [ ] **Step 6: Implement the two component factories.** Apply the visible rendering contract and use `TruncatedText` for every collapsed path and `Text` for expanded paths.
+- [x] **Step 6: Implement the two component factories.** Apply the visible rendering contract and use `TruncatedText` for every collapsed path and `Text` for expanded paths.
 
-- [ ] **Step 7: Rerun the renderer tests.**
+- [x] **Step 7: Rerun the renderer tests.**
 
   Run: `pnpm exec vitest run tests/theme.test.ts tests/compress-render.test.ts`
 
@@ -193,23 +193,23 @@ For metadata `{ mode: "range", topic: " Auth\n system ", messagesCompressed: 5, 
 - Produces: only normally completed `handleCompress` calls return `createCompressionDisplayDetails(mode, result)`; every existing rejection still returns `{}` and unexpected exceptions still throw.
 - Preserves: `content`, `isError`, parameters, description, activation, execution mode, approval order, notification timing, and policy checks.
 
-- [ ] **Step 1: Add failing mocked registration tests.** For initial range and trusted-project message registration, assert both callbacks exist; invoke the registered callbacks with partial arguments/results and prove the closure uses the registered mode without throwing.
+- [x] **Step 1: Add failing mocked registration tests.** For initial range and trusted-project message registration, assert both callbacks exist; invoke the registered callbacks with partial arguments/results and prove the closure uses the registered mode without throwing.
 
-- [ ] **Step 2: Add failing execution-boundary tests.** Assert successful range/message results carry exact metadata and no summaries. Assert capability denial, approval false/cancel/abort, and post-approval policy rejection retain `details: {}` and `isError: true`; retain existing assertions that unexpected `handleCompress` failures reject.
+- [x] **Step 2: Add failing execution-boundary tests.** Assert successful range/message results carry exact metadata and no summaries. Assert capability denial, approval false/cancel/abort, and post-approval policy rejection retain `details: {}` and `isError: true`; retain existing assertions that unexpected `handleCompress` failures reject.
 
-- [ ] **Step 3: Extend the real SDK lifecycle test.** Capture `tool_execution_end.result.details` in the existing approved/denied fake-provider test: approved execution has exact `dcpCompression` values/IDs, denied execution has `{}`. Also assert `session.getToolDefinition("compress")` exposes both renderer callbacks before invoking the renderer once with the installed SDK types.
+- [x] **Step 3: Extend the real SDK lifecycle test.** Capture `tool_execution_end.result.details` in the existing approved/denied fake-provider test: approved execution has exact `dcpCompression` values/IDs, denied execution has `{}`. Also assert `session.getToolDefinition("compress")` exposes both renderer callbacks before invoking the renderer once with the installed SDK types.
 
-- [ ] **Step 4: Run integration tests and verify the intended failure.**
+- [x] **Step 4: Run integration tests and verify the intended failure.**
 
   Run: `pnpm exec vitest run tests/compress-render.test.ts tests/index.test.ts tests/sdk-contract.test.ts`
 
   Expected: FAIL because registered tools have no custom renderers and successful results still return empty details.
 
-- [ ] **Step 5: Wire the registered callbacks.** Add `renderCall: (args, theme) => renderCompressCall(mode, args, theme)` and `renderResult: renderCompressResult` to both schema branches without changing the schemas or merging the branches.
+- [x] **Step 5: Wire the registered callbacks.** Add `renderCall: (args, theme) => renderCompressCall(mode, args, theme)` and `renderResult: renderCompressResult` to both schema branches without changing the schemas or merging the branches.
 
-- [ ] **Step 6: Attach metadata after normal compression.** Build details from the same `mode` and `CompressResult` used for content/notification; leave every earlier return and thrown path unchanged.
+- [x] **Step 6: Attach metadata after normal compression.** Build details from the same `mode` and `CompressResult` used for content/notification; leave every earlier return and thrown path unchanged.
 
-- [ ] **Step 7: Rerun integration and regression tests.**
+- [x] **Step 7: Rerun integration and regression tests.**
 
   Run: `pnpm exec vitest run tests/theme.test.ts tests/compress-render.test.ts tests/index.test.ts tests/sdk-contract.test.ts tests/compress-permission.test.ts tests/notification-delivery.test.ts tests/compression-timing.test.ts`
 
@@ -228,38 +228,52 @@ For metadata `{ mode: "range", topic: " Auth\n system ", messagesCompressed: 5, 
 - README describes the compact range/message call line, compact estimated metrics, host expansion, and historical/error text fallback.
 - CHANGELOG adds one Phase 2 item under the existing `## [Unreleased]` section without editing released entries or changing the package version.
 
-- [ ] **Step 1: Update user documentation.** Describe behavior that is actually implemented; do not advertise the Phase 3 frame or Phase 4 tabs.
+- [x] **Step 1: Update user documentation.** Describe behavior that is actually implemented; do not advertise the Phase 3 frame or Phase 4 tabs.
 
-- [ ] **Step 2: Run the complete focused suite.**
+- [x] **Step 2: Run the complete focused suite.**
 
   Run: `pnpm exec vitest run tests/theme.test.ts tests/compress-render.test.ts tests/index.test.ts tests/sdk-contract.test.ts tests/compress-permission.test.ts tests/notification-delivery.test.ts tests/compression-timing.test.ts`
 
   Expected: PASS.
 
-- [ ] **Step 3: Run the repository gate.**
+- [x] **Step 3: Run the repository gate.**
 
   Run: `pnpm check`
 
   Expected: formatting, lint, type checking, and all tests exit `0`.
 
-- [ ] **Step 4: Inspect the complete diff.**
+- [x] **Step 4: Inspect the complete diff.**
 
   Run: `git diff --check`
 
   Expected: exit `0`. Confirm no schema, prompt, model-facing content, approval/policy, notification, metric calculation, persistence, or dependency changes.
 
-- [ ] **Step 5: Perform real-Pi inspection when interactive Pi is available.** Exercise range and message modes; inspect collapsed and expanded success, native approval, denial, and a resumed historical result. Record terminal width/theme and observed visible strings. If interactive Pi is unavailable, record that limitation and rely on the real SDK lifecycle plus component width tests; do not claim visual inspection occurred.
+- [x] **Step 5: Perform real-Pi inspection when interactive Pi is available.** Exercise range and message modes; inspect collapsed and expanded success, native approval, denial, and a resumed historical result. Record terminal width/theme and observed visible strings. If interactive Pi is unavailable, record that limitation and rely on the real SDK lifecycle plus component width tests; do not claim visual inspection occurred.
 
-- [ ] **Step 6: Record implementation evidence in this plan.** Include baseline/final test counts, focused command results, real-Pi status, and the final commit hash only after those facts exist.
+- [x] **Step 6: Record implementation evidence in this plan.** Include baseline/final test counts, focused command results, real-Pi status, and the final commit hash only after those facts exist.
 
-- [ ] **Step 7: Commit the usable phase atomically.** Stage only Phase 2 files and commit with `feat: render DCP compression calls and results`.
+- [x] **Step 7: Commit the usable phase atomically.** Stage only Phase 2 files and commit with `feat: render DCP compression calls and results`.
 
 ## Phase Completion and Rollback
 
-- [ ] Both modes expose the exact compact call/result behavior without depending on later phases.
-- [ ] Historical, malformed, partial, and error results remain readable and never display fabricated success metrics.
-- [ ] Successful details are summary-free and preserve exact result values with copied block IDs; rejected/thrown paths do not claim them.
-- [ ] Focused tests, `pnpm check`, and `git diff --check` pass; any unavailable real-Pi inspection is explicit.
-- [ ] README/CHANGELOG match delivered behavior and the complete diff is one atomic commit.
+- [x] Both modes expose the exact compact call/result behavior without depending on later phases.
+- [x] Historical, malformed, partial, and error results remain readable and never display fabricated success metrics.
+- [x] Successful details are summary-free and preserve exact result values with copied block IDs; rejected/thrown paths do not claim them.
+- [x] Focused tests, `pnpm check`, and `git diff --check` pass; any unavailable real-Pi inspection is explicit.
+- [x] README/CHANGELOG match delivered behavior and the complete diff is one atomic commit.
 
 Revert dependent later phases before reverting this phase. No snapshot migration is introduced. Removing this phase restores Pi's default tool rendering; persisted results with `details.dcpCompression` remain harmless structured tool-result details.
+
+## Implementation Record — 2026-10-13
+
+**Environment:** Node `v24.21.0`, pnpm `12.9.1`, coding-agent/TUI SDK `1.1.0`, branch `20261013-dcp-ui-refactor-phase-02-compression-rendering`.
+
+**Baseline:** `pnpm check` exited `0` with 63 test files / 1,005 tests passed at `acb9de1` before implementation.
+
+**Verification:** Task 1 failed because `src/tui/theme.ts` did not exist, then passed 8 tests. Task 2 failed because `src/tui/compress-render.ts` did not exist, then passed 51 tests. Task 3 initially failed with registered tools lacking `renderCall`/`renderResult` and successful executions returning `details: {}`; after wiring, the focused suite passed 7 files / 191 tests. Final `pnpm check` exited `0` with **65 files / 1,067 tests passed**, and `git diff --check` is clean.
+
+**Ruling:** The plan's `Pick<ToolRenderContext, "isError">` interface is unusable because Pi `1.1.0` does not publicly export `ToolRenderContext`. The renderer takes an inline `{ isError: boolean }`, which is structurally identical.
+
+**Real-Pi inspection:** unavailable in this environment, so no interactive terminal width/theme run was performed. The renderers were verified through the real SDK lifecycle test (approved and denied execution details plus a `getToolDefinition("compress")` renderer invocation) and through component-level exact-copy, role, `NO_COLOR`, throwing-theme, and narrow-width (`1`, `12`, `60`) assertions.
+
+**Commit:** `feat: render DCP compression calls and results` (one atomic commit for this phase).

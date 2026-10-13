@@ -25,6 +25,11 @@ import {
   type CompressResult,
 } from "./compress/blocks.ts";
 import { requestCompressionApproval } from "./compress/permission.ts";
+import {
+  createCompressionDisplayDetails,
+  renderCompressCall,
+  renderCompressResult,
+} from "./tui/compress-render.ts";
 import { stripHallucinationsFromString } from "./messages/strip.ts";
 import { mapText } from "./utils/message-content.ts";
 import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
@@ -304,7 +309,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     sendCompressNotification(result, state, config, ctx);
     return {
       content: [{ type: "text" as const, text: result.text }],
-      details: {},
+      details: createCompressionDisplayDetails(mode, result),
     };
   }
 
@@ -333,6 +338,8 @@ export default function createExtension(pi: ExtensionAPI): void {
             { description: "Messages to compress" },
           ),
         }),
+        renderCall: (args, theme) => renderCompressCall("message", args, theme),
+        renderResult: renderCompressResult,
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
           return executeCompressTool(
             "message",
@@ -368,6 +375,8 @@ export default function createExtension(pi: ExtensionAPI): void {
             { description: "Ranges to compress, each with start/end boundaries and summary" },
           ),
         }),
+        renderCall: (args, theme) => renderCompressCall("range", args, theme),
+        renderResult: renderCompressResult,
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
           return executeCompressTool(
             "range",
