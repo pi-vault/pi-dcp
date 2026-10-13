@@ -245,7 +245,7 @@ describe("executeDcpAction", () => {
       contextUsage: undefined,
       lifetimeStats: undefined,
       compressToolActive: true,
-    }).actions.find((row) => row.id === "toggle-manual")?.action;
+    }).tabs.controls.rows.find((row) => row.id === "toggle-manual")?.action;
     if (!projected || projected.type === "close")
       throw new Error("expected projected toggle-manual action");
     const onStateChange = vi.fn();
@@ -332,7 +332,7 @@ describe("executeDcpAction", () => {
       contextUsage: undefined,
       lifetimeStats: undefined,
       compressToolActive: true,
-    }).blocks.find((row) => row.id === "block:1")?.action;
+    }).tabs.blocks.rows.find((row) => row.id === "block:1")?.action;
     if (!projected || projected.type === "close")
       throw new Error("expected projected toggle-block action");
 
@@ -365,7 +365,7 @@ describe("executeDcpAction", () => {
       contextUsage: undefined,
       lifetimeStats: undefined,
       compressToolActive: true,
-    }).actions.find((row) => row.id === "toggle-manual")?.action;
+    }).tabs.controls.rows.find((row) => row.id === "toggle-manual")?.action;
     if (!projectedManual || projectedManual.type === "close")
       throw new Error("expected projected toggle-manual action");
     manualState.manualMode = "active";
@@ -391,7 +391,7 @@ describe("executeDcpAction", () => {
       contextUsage: undefined,
       lifetimeStats: undefined,
       compressToolActive: true,
-    }).blocks.find((row) => row.id === "block:1")?.action;
+    }).tabs.blocks.rows.find((row) => row.id === "block:1")?.action;
     if (!projectedBlock || projectedBlock.type === "close")
       throw new Error("expected projected toggle-block action");
     const block = blockState.prune.messages.blocksById.get(1);

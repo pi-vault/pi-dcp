@@ -2,12 +2,26 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { registerDcpCommands } from "../src/commands/register.ts";
 import * as sweepModule from "../src/commands/sweep.ts";
+import type { DcpPanelComponent } from "../src/tui/panel.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { makeDefaultConfig } from "./helpers.ts";
 import { createExtensionHarness } from "./extension-harness.ts";
+
+function fakeTheme(): Theme {
+  const identity = (text: string) => text;
+  return {
+    fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
+    bold: identity,
+    italic: identity,
+    underline: identity,
+    inverse: identity,
+    strikethrough: identity,
+  } as unknown as Theme;
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -179,11 +193,18 @@ describe("guarded command callback characterization", () => {
 });
 
 describe("informational command routing", () => {
-  const cases = [
+  const textCases = [
     ["dcp:help", "DCP Commands:"],
     ["dcp:context", "DCP Context Usage:"],
     ["dcp:stats", "DCP Session Statistics:"],
     ["dcp:lifetime", "DCP Lifetime Statistics:"],
+  ] as const;
+
+  const panelCases = [
+    ["dcp:help", "Open the interactive DCP panel"],
+    ["dcp:context", "Model"],
+    ["dcp:stats", "Session"],
+    ["dcp:lifetime", "Session"],
   ] as const;
 
   function createRoutingHarness(mode: "tui" | "rpc" | "print" | "json", hasUI: boolean) {
@@ -200,12 +221,82 @@ describe("informational command routing", () => {
     return { harness, cleanup: () => fs.rmSync(tempRoot, { recursive: true, force: true }) };
   }
 
-  it.each(["tui", "rpc", "print", "json"] as const)(
+  function capturePanels(harness: ReturnType<typeof createRoutingHarness>["harness"]) {
+    const components: DcpPanelComponent[] = [];
+    harness.ui.custom.mockImplementation(
+      (factory: unknown) =>
+        new Promise((resolve) => {
+          const tui = { terminal: { rows: 24, columns: 100 }, requestRender: () => {} };
+          const component = (
+            factory as (
+              tui: unknown,
+              theme: Theme,
+              keybindings: unknown,
+              done: (result: undefined) => void,
+            ) => DcpPanelComponent
+          )(tui, fakeTheme(), {}, resolve);
+          components.push(component);
+          resolve(undefined);
+        }),
+    );
+    return components;
+  }
+
+  function selectedLine(rendered: string[]): string | undefined {
+    return rendered.find((line) => line.includes("▸"));
+  }
+
+  it.each(panelCases)(
+    "opens %s on its matching tab in interactive TUI mode",
+    async (name, marker) => {
+      const { harness, cleanup } = createRoutingHarness("tui", true);
+      try {
+        const components = capturePanels(harness);
+        await harness.runCommand(name, "");
+
+        expect(harness.ui.custom).toHaveBeenCalledTimes(1);
+        expect(harness.ui.notify).not.toHaveBeenCalled();
+        expect(selectedLine(components[0]?.render(100) ?? [])).toContain(marker);
+      } finally {
+        cleanup();
+      }
+    },
+  );
+
+  it("keeps informational panels accessible when the pipeline is disabled", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dcp-register-info-disabled-"));
+    const sessionDir = path.join(tempRoot, "sessions", "session-1");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    try {
+      const harness = createExtensionHarness({
+        mode: "tui",
+        hasUI: true,
+        sessionDir,
+        contextUsage: { tokens: 5000, contextWindow: 200_000, percent: 2.5 },
+      });
+      registerDcpCommands(
+        harness.api,
+        createSessionState(),
+        { ...makeDefaultConfig(), enabled: false },
+        () => {},
+      );
+      const components = capturePanels(harness);
+      await harness.runCommand("dcp:stats", "");
+
+      expect(harness.ui.custom).toHaveBeenCalledTimes(1);
+      expect(selectedLine(components[0]?.render(100) ?? [])).toContain("Session");
+      expect(harness.ui.notify).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["rpc", "print", "json"] as const)(
     "notifies plain text and never opens custom UI in %s mode",
     async (mode) => {
       const { harness, cleanup } = createRoutingHarness(mode, true);
       try {
-        for (const [name, title] of cases) {
+        for (const [name, title] of textCases) {
           harness.ui.notify.mockClear();
           await harness.runCommand(name, "");
           expect(harness.ui.notify).toHaveBeenCalledWith(expect.stringContaining(title), "info");
@@ -220,7 +311,7 @@ describe("informational command routing", () => {
   it("notifies plain text when no UI is available", async () => {
     const { harness, cleanup } = createRoutingHarness("tui", false);
     try {
-      for (const [name, title] of cases) {
+      for (const [name, title] of textCases) {
         harness.ui.notify.mockClear();
         await harness.runCommand(name, "");
         expect(harness.ui.notify).toHaveBeenCalledWith(expect.stringContaining(title), "info");

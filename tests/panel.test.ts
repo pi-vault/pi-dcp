@@ -11,8 +11,10 @@ import * as panelRender from "../src/tui/panel-render.ts";
 import * as sweepModule from "../src/commands/sweep.ts";
 import {
   buildDcpPanelModel,
+  createDcpPanelNavigation,
   type DcpPanelAction,
   type DcpPanelModel,
+  type DcpPanelNavigation,
 } from "../src/tui/panel-model.ts";
 import { createSessionState } from "../src/state/state.ts";
 import * as persistence from "../src/state/persistence.ts";
@@ -105,25 +107,30 @@ function modelWithBlocks(count: number, topic = "topic"): DcpPanelModel {
   });
 }
 
+interface CapturedAction {
+  action: DcpPanelAction;
+  navigation: DcpPanelNavigation;
+}
+
 function makeComponent(
   model: DcpPanelModel,
   overrides: Partial<{
     theme: Theme;
     getHeight: () => number;
     getWidth: () => number;
-    initialRowId: string;
+    initialNavigation: DcpPanelNavigation;
     lastActionMessage: string;
   }> = {},
 ) {
-  const actions: DcpPanelAction[] = [];
+  const actions: CapturedAction[] = [];
   const requestRender = vi.fn();
   const component = new DcpPanelComponent(model, {
     theme: overrides.theme ?? fakeTheme(),
     getHeight: overrides.getHeight ?? (() => 24),
     getWidth: overrides.getWidth ?? (() => 80),
     requestRender,
-    onAction: (action) => actions.push(action),
-    initialRowId: overrides.initialRowId,
+    onAction: (action, navigation) => actions.push({ action, navigation }),
+    initialNavigation: overrides.initialNavigation,
     lastActionMessage: overrides.lastActionMessage,
   });
   return { component, actions, requestRender };
@@ -137,37 +144,54 @@ describe("DcpPanelComponent rendering", () => {
   it.each([60, 80, 120])("bounds every rendered line to %i columns", (width) => {
     const { component } = makeComponent(
       modelWithBlocks(40, "日本語 very long topic with wide characters"),
+      { getHeight: () => 40 },
     );
 
     const lines = component.render(width);
 
-    expect(lines.length).toBeLessThanOrEqual(20);
+    expect(lines.length).toBeLessThanOrEqual(34);
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
   });
 
-  it.each([60, 80, 120])(
-    "shows policy, tool availability, and all lifetime totals at %i columns",
-    (width) => {
-      const { component } = makeComponent(modelWithBlocks(1));
+  it.each([60, 80, 120])("shows overview fields at %i columns", (width) => {
+    const { component } = makeComponent(modelWithBlocks(1));
 
-      const rendered = component.render(width).join("\n");
+    const rendered = component.render(width).join("\n");
 
-      expect(rendered).toContain("Pipeline enabled");
-      expect(rendered).toContain("Tool active");
-      expect(rendered).toContain("Lifetime saved ~1k");
-      expect(rendered).toContain("sessions 3");
-      expect(rendered).toContain("Lifetime tools 4");
-      expect(rendered).toContain("messages 2");
-    },
-  );
+    expect(rendered).toContain("Pipeline");
+    expect(rendered).toContain("enabled");
+    expect(rendered).toContain("Compress tool");
+    expect(rendered).toContain("active");
+  });
+
+  it("shows lifetime totals on the Statistics tab", () => {
+    const navigation = createDcpPanelNavigation("statistics");
+    const { component } = makeComponent(modelWithBlocks(1), {
+      initialNavigation: navigation,
+      getHeight: () => 40,
+    });
+
+    const rendered = component.render(120).join("\n");
+
+    expect(rendered).toContain("Total tokens saved");
+    expect(rendered).toContain("~1k");
+    expect(rendered).toContain("Sessions tracked");
+    expect(rendered).toContain("3");
+  });
 
   it("can browse a long list of inactive blocks without activating them", () => {
     const model = modelWithBlocks(40);
-    for (const row of model.blocks) {
+    for (const row of model.tabs.blocks.rows) {
       row.action = undefined;
-      row.unavailableReason = "Inactive";
+      row.block = row.block ? { ...row.block, toggleLabel: undefined } : undefined;
+      row.unavailableReason = undefined;
     }
-    const { component, actions } = makeComponent(model, { getHeight: () => 40 });
+    const navigation = createDcpPanelNavigation("blocks");
+    navigation.tabs.blocks = { selectedRowId: "block:1", offset: 0 };
+    const { component, actions } = makeComponent(model, {
+      initialNavigation: navigation,
+      getHeight: () => 40,
+    });
 
     for (let step = 0; step < 50; step++) component.handleInput("j");
 
@@ -175,13 +199,15 @@ describe("DcpPanelComponent rendering", () => {
     component.handleInput("\r");
     expect(actions).toEqual([]);
     component.handleInput("q");
-    expect(actions).toEqual([{ type: "close" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "close" }]);
   });
 
   it.each(["\n", "\r", "\r\n", "\t"])(
     "keeps block labels on one terminal line for %j",
     (separator) => {
+      const navigation = createDcpPanelNavigation("blocks");
       const { component } = makeComponent(modelWithBlocks(1, `first${separator}second`), {
+        initialNavigation: navigation,
         getHeight: () => 40,
       });
 
@@ -193,7 +219,7 @@ describe("DcpPanelComponent rendering", () => {
   );
 
   it.each([60, 80, 120])(
-    "keeps long block topics from hiding actions or state at %i columns",
+    "keeps long block topics from hiding identity or lifecycle at %i columns",
     (width) => {
       const state = createSessionState();
       for (let id = 1; id <= 3; id++) {
@@ -202,22 +228,27 @@ describe("DcpPanelComponent rendering", () => {
         block.deactivatedByUser = id === 2;
         state.prune.messages.blocksById.set(id, block);
       }
-      const { component } = makeComponent(
-        buildDcpPanelModel({
-          state,
-          config: makeDefaultConfig(),
-          model: undefined,
-          contextUsage: undefined,
-          lifetimeStats: undefined,
-          compressToolActive: false,
-        }),
-        { getHeight: () => 40 },
-      );
+      const model = buildDcpPanelModel({
+        state,
+        config: makeDefaultConfig(),
+        model: undefined,
+        contextUsage: undefined,
+        lifetimeStats: undefined,
+        compressToolActive: false,
+      });
+      const navigation = createDcpPanelNavigation("blocks");
+      navigation.tabs.blocks = { selectedRowId: "block:1", offset: 0 };
+      const { component } = makeComponent(model, {
+        initialNavigation: navigation,
+        getHeight: () => 40,
+      });
 
       const rendered = component.render(width).join("\n");
 
       expect(rendered).toContain("Block b1:");
+      expect(rendered).toContain("Active");
       expect(rendered).toContain("Deactivate");
+      expect(rendered).toContain("User-deactivated");
       expect(rendered).toContain("Reactivate");
       expect(rendered).toContain("Inactive");
       for (const line of component.render(width)) {
@@ -226,29 +257,31 @@ describe("DcpPanelComponent rendering", () => {
     },
   );
 
-  it("keeps policy-disabled block identifiers and actions visible at 60 columns", () => {
+  it("keeps policy-disabled block identifiers and lifecycle visible at 60 columns", () => {
     const state = createSessionState();
     state.prune.messages.blocksById.set(1, makeBlock(1, "long topic ".repeat(30)));
     state.prune.messages.blocksById.set(2, makeBlock(2, "another long topic ".repeat(30)));
     const config = makeDefaultConfig();
     config.enabled = false;
-    const { component } = makeComponent(
-      buildDcpPanelModel({
-        state,
-        config,
-        model: undefined,
-        contextUsage: undefined,
-        lifetimeStats: undefined,
-        compressToolActive: false,
-      }),
-      { getHeight: () => 40 },
-    );
+    const model = buildDcpPanelModel({
+      state,
+      config,
+      model: undefined,
+      contextUsage: undefined,
+      lifetimeStats: undefined,
+      compressToolActive: false,
+    });
+    const navigation = createDcpPanelNavigation("blocks");
+    const { component } = makeComponent(model, {
+      initialNavigation: navigation,
+      getHeight: () => 40,
+    });
 
     const lines = component.render(60);
 
     for (const id of [1, 2]) {
       const row = lines.find((line) => line.includes(`Block b${id}:`));
-      expect(row).toContain("Deactivate");
+      expect(row).toContain("Active");
       expect(visibleWidth(row ?? "")).toBeLessThanOrEqual(60);
     }
   });
@@ -266,28 +299,41 @@ describe("DcpPanelComponent rendering", () => {
   });
 
   it("keeps the selection visible while scrolling and after resize", () => {
-    let height = 24;
-    const { component } = makeComponent(modelWithBlocks(30), { getHeight: () => height });
+    let height = 40;
+    const navigation = createDcpPanelNavigation("blocks");
+    const { component } = makeComponent(modelWithBlocks(30), {
+      initialNavigation: navigation,
+      getHeight: () => height,
+    });
 
     for (let step = 0; step < 25; step++) component.handleInput("j");
     expect(selectedLine(component.render(80))).toBeDefined();
 
-    height = 11;
+    height = 12;
     const resized = component.render(80);
-    expect(resized.length).toBeLessThanOrEqual(9);
+    expect(resized.length).toBeLessThanOrEqual(10);
     expect(selectedLine(resized)).toBeDefined();
   });
 
-  it("selects the initial row by stable identity", () => {
-    const { component } = makeComponent(modelWithBlocks(2), { initialRowId: "sweep" });
+  it("selects the initial tab and row by stable identity", () => {
+    const navigation = createDcpPanelNavigation("blocks");
+    navigation.tabs.blocks = { selectedRowId: "block:2", offset: 0 };
+    const { component } = makeComponent(modelWithBlocks(2), { initialNavigation: navigation });
 
-    expect(selectedLine(component.render(80))).toContain("Sweep");
+    expect(selectedLine(component.render(80))).toContain("Block b2:");
   });
 
   it("falls back to the first row when the initial id is missing", () => {
-    const { component } = makeComponent(modelWithBlocks(2), { initialRowId: "missing" });
+    const navigation = createDcpPanelNavigation("controls");
+    navigation.tabs.controls = { selectedRowId: "missing", offset: 0 };
+    const { component } = makeComponent(modelWithBlocks(2), { initialNavigation: navigation });
 
     expect(selectedLine(component.render(80))).toContain("Manual mode");
+  });
+
+  it("defaults to Overview with the first row selected", () => {
+    const { component } = makeComponent(modelWithBlocks(2));
+    expect(selectedLine(component.render(80))).toContain("Model");
   });
 
   it("renders the last action message on a bounded feedback row", () => {
@@ -301,11 +347,29 @@ describe("DcpPanelComponent rendering", () => {
     const narrow = component.render(26);
     for (const line of narrow) expect(visibleWidth(line)).toBeLessThanOrEqual(26);
   });
+
+  it("does not mutate a supplied navigation snapshot", () => {
+    const navigation = createDcpPanelNavigation("controls");
+    navigation.tabs.controls = { selectedRowId: "sweep", offset: 2 };
+    const snapshot = structuredClone(navigation);
+
+    const { component } = makeComponent(modelWithBlocks(3), { initialNavigation: navigation });
+    component.render(80);
+    component.handleInput("k");
+    component.render(80);
+    component.handleInput("\t");
+    component.render(80);
+
+    expect(navigation).toEqual(snapshot);
+  });
 });
 
 describe("DcpPanelComponent input and activation", () => {
   it("navigates with j/k and completes the selected action after rendering", () => {
-    const { component, actions } = makeComponent(modelWithBlocks(2));
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(2), {
+      initialNavigation: navigation,
+    });
 
     component.render(60);
     component.handleInput("j");
@@ -314,20 +378,36 @@ describe("DcpPanelComponent input and activation", () => {
     component.render(60);
     component.handleInput("\r");
 
-    expect(actions).toEqual([{ type: "toggle-manual" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "toggle-manual" }]);
   });
 
   it("moves down with an arrow key", () => {
-    const { component, actions } = makeComponent(modelWithBlocks(2));
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(2), {
+      initialNavigation: navigation,
+    });
     component.render(60);
     component.handleInput("\u001b[B");
     component.render(60);
     component.handleInput("\r");
-    expect(actions).toEqual([{ type: "cycle-permission" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "cycle-permission" }]);
+  });
+
+  it("activates the selected row with Space", () => {
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(1), {
+      initialNavigation: navigation,
+    });
+    component.render(60);
+    component.handleInput(" ");
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "toggle-manual" }]);
   });
 
   it("requests a render when the selection changes", () => {
-    const { component, requestRender } = makeComponent(modelWithBlocks(3));
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, requestRender } = makeComponent(modelWithBlocks(3), {
+      initialNavigation: navigation,
+    });
 
     component.handleInput("j");
 
@@ -341,31 +421,40 @@ describe("DcpPanelComponent input and activation", () => {
     component.handleInput("q");
     component.handleInput("\r");
 
-    expect(actions).toEqual([{ type: "close" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "close" }]);
   });
 
   it("does not activate before the first successful render", () => {
-    const { component, actions } = makeComponent(modelWithBlocks(1));
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(1), {
+      initialNavigation: navigation,
+    });
 
     component.handleInput("\r");
     expect(actions).toEqual([]);
 
     component.handleInput("q");
-    expect(actions).toEqual([{ type: "close" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "close" }]);
   });
 
   it("activates once after rendering the selected row", () => {
-    const { component, actions } = makeComponent(modelWithBlocks(1));
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(1), {
+      initialNavigation: navigation,
+    });
 
     component.render(80);
     component.handleInput("\r");
     component.handleInput("\r");
 
-    expect(actions).toEqual([{ type: "toggle-manual" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "toggle-manual" }]);
   });
 
   it("does not activate a moved selection until it is rendered", () => {
-    const { component, actions } = makeComponent(modelWithBlocks(1));
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(1), {
+      initialNavigation: navigation,
+    });
 
     component.render(80);
     component.handleInput("j");
@@ -374,11 +463,12 @@ describe("DcpPanelComponent input and activation", () => {
 
     component.render(80);
     component.handleInput("\r");
-    expect(actions).toEqual([{ type: "cycle-permission" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "cycle-permission" }]);
   });
 
   it("keeps the latest selection across repeated moves before rendering", () => {
-    const { component } = makeComponent(modelWithBlocks(3));
+    const navigation = createDcpPanelNavigation("controls");
+    const { component } = makeComponent(modelWithBlocks(3), { initialNavigation: navigation });
 
     component.handleInput("j");
     component.handleInput("j");
@@ -387,7 +477,10 @@ describe("DcpPanelComponent input and activation", () => {
   });
 
   it("requires a render after invalidation", () => {
-    const { component, actions } = makeComponent(modelWithBlocks(1));
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(1), {
+      initialNavigation: navigation,
+    });
 
     component.render(80);
     component.invalidate();
@@ -396,12 +489,14 @@ describe("DcpPanelComponent input and activation", () => {
 
     component.render(80);
     component.handleInput("\r");
-    expect(actions).toEqual([{ type: "toggle-manual" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "toggle-manual" }]);
   });
 
   it("requires matching terminal dimensions", () => {
     let width = 80;
+    const navigation = createDcpPanelNavigation("controls");
     const { component, actions } = makeComponent(modelWithBlocks(1), {
+      initialNavigation: navigation,
       getWidth: () => width,
     });
 
@@ -412,12 +507,14 @@ describe("DcpPanelComponent input and activation", () => {
 
     component.render(80);
     component.handleInput("\r");
-    expect(actions).toEqual([{ type: "toggle-manual" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "toggle-manual" }]);
   });
 
   it("disables navigation and activation after a tiny render until it recovers", () => {
     let height = 8;
-    const { component, actions } = makeComponent(modelWithBlocks(40), {
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(3), {
+      initialNavigation: navigation,
       getHeight: () => height,
     });
 
@@ -431,7 +528,7 @@ describe("DcpPanelComponent input and activation", () => {
     component.handleInput("j");
     component.render(60);
     component.handleInput("\r");
-    expect(actions).toEqual([{ type: "cycle-permission" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "cycle-permission" }]);
   });
 
   it("keeps plain controls usable when a theme method throws", () => {
@@ -449,14 +546,18 @@ describe("DcpPanelComponent input and activation", () => {
         throw new Error("theme failure");
       },
     } as unknown as Theme;
-    const { component, actions } = makeComponent(modelWithBlocks(1), { theme: badTheme });
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(1), {
+      initialNavigation: navigation,
+      theme: badTheme,
+    });
 
     const rendered = component.render(80).join("\n");
     expect(rendered).toContain("DCP Panel");
     expect(rendered).toContain("Manual mode: off");
 
     component.handleInput("\r");
-    expect(actions).toEqual([{ type: "toggle-manual" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "toggle-manual" }]);
   });
 
   it("tolerates a non-string theme return without disabling controls", () => {
@@ -466,11 +567,15 @@ describe("DcpPanelComponent input and activation", () => {
       bold: () => 42,
       inverse: () => 42,
     } as unknown as Theme;
-    const { component, actions } = makeComponent(modelWithBlocks(1), { theme: weirdTheme });
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(1), {
+      initialNavigation: navigation,
+      theme: weirdTheme,
+    });
 
     expect(component.render(80).join("\n")).toContain("DCP Panel");
     component.handleInput("\r");
-    expect(actions).toEqual([{ type: "toggle-manual" }]);
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "toggle-manual" }]);
   });
 
   it("honors NO_COLOR while keeping controls usable", () => {
@@ -480,7 +585,7 @@ describe("DcpPanelComponent input and activation", () => {
       const { component, actions } = makeComponent(modelWithBlocks(1));
       expect(component.render(80).join("\n")).toContain("DCP Panel");
       component.handleInput("q");
-      expect(actions).toEqual([{ type: "close" }]);
+      expect(actions.map((entry) => entry.action)).toEqual([{ type: "close" }]);
     } finally {
       if (previous === undefined) delete process.env.NO_COLOR;
       else process.env.NO_COLOR = previous;
@@ -495,7 +600,7 @@ describe("DcpPanelComponent input and activation", () => {
       const { component, actions } = makeComponent(modelWithBlocks(3));
 
       const lines = component.render(80);
-      expect(lines.length).toBeLessThanOrEqual(20);
+      expect(lines.length).toBeLessThanOrEqual(34);
       for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
       expect(lines.join("\n")).toContain("close");
 
@@ -504,7 +609,7 @@ describe("DcpPanelComponent input and activation", () => {
       expect(actions).toEqual([]);
 
       component.handleInput("q");
-      expect(actions).toEqual([{ type: "close" }]);
+      expect(actions.map((entry) => entry.action)).toEqual([{ type: "close" }]);
     } finally {
       spy.mockRestore();
     }
@@ -515,20 +620,114 @@ describe("DcpPanelComponent input and activation", () => {
       throw new Error("render failed");
     });
     try {
-      const failing = makeComponent(modelWithBlocks(1));
+      const navigation = createDcpPanelNavigation("controls");
+      const failing = makeComponent(modelWithBlocks(1), { initialNavigation: navigation });
       failing.component.render(80);
       failing.component.handleInput("\r");
       expect(failing.actions).toEqual([]);
 
-      const recovered = makeComponent(modelWithBlocks(1));
+      const recovered = makeComponent(modelWithBlocks(1), { initialNavigation: navigation });
       recovered.component.render(80);
       recovered.component.handleInput("\r");
-      expect(recovered.actions).toEqual([{ type: "toggle-manual" }]);
+      expect(recovered.actions.map((entry) => entry.action)).toEqual([{ type: "toggle-manual" }]);
     } finally {
       spy.mockRestore();
     }
   });
 });
+
+describe("DcpPanelComponent tab navigation", () => {
+  it("wraps tabs in both directions and requests a render", () => {
+    const { component, requestRender } = makeComponent(modelWithBlocks(1));
+
+    component.render(80);
+    component.handleInput("\t");
+    component.render(80);
+    expect(selectedLine(component.render(80))).toContain("Manual mode");
+
+    component.handleInput("\u001b[Z");
+    component.render(80);
+    expect(selectedLine(component.render(80))).toContain("Model");
+
+    component.handleInput("\u001b[Z");
+    component.render(80);
+    expect(component.render(80).join("\n")).toContain("Help");
+
+    expect(requestRender).toHaveBeenCalled();
+  });
+
+  it("restores independent tab viewports", () => {
+    const navigation = createDcpPanelNavigation("blocks");
+    navigation.tabs.blocks = { selectedRowId: "block:10", offset: 5 };
+    navigation.tabs.controls = { selectedRowId: "sweep", offset: 0 };
+    const { component } = makeComponent(modelWithBlocks(30), {
+      initialNavigation: navigation,
+      getHeight: () => 40,
+    });
+
+    component.render(80);
+    component.handleInput("\u001b[Z");
+    expect(selectedLine(component.render(80))).toContain("Sweep");
+
+    component.handleInput("\t");
+    const restored = component.render(80);
+    expect(selectedLine(restored)).toContain("Block b10:");
+    expect(restored.join("\n")).not.toContain("Block b1:");
+  });
+
+  it("scrolls read-only rows without completing", () => {
+    const { component, actions } = makeComponent(modelWithBlocks(1));
+
+    component.render(80);
+    component.handleInput("j");
+    component.handleInput("j");
+    component.render(80);
+    component.handleInput("\r");
+
+    expect(actions).toEqual([]);
+  });
+
+  it("invalidates activation when changing tabs", () => {
+    const navigation = createDcpPanelNavigation("controls");
+    const { component, actions } = makeComponent(modelWithBlocks(2), {
+      initialNavigation: navigation,
+    });
+
+    component.render(80);
+    component.handleInput("\t");
+    component.handleInput("\r");
+    expect(actions).toEqual([]);
+
+    component.render(80);
+    component.handleInput("\r");
+    expect(actions.map((entry) => entry.action)).toEqual([{ type: "toggle-block", blockId: 1 }]);
+  });
+
+  it("passes a copied complete navigation snapshot with every action", () => {
+    const navigation = createDcpPanelNavigation("controls");
+    navigation.tabs.overview = { selectedRowId: "overview:user-turn", offset: 4 };
+    const { component, actions } = makeComponent(modelWithBlocks(2), {
+      initialNavigation: navigation,
+    });
+
+    component.render(80);
+    component.handleInput("\r");
+
+    const snapshot = actions[0]?.navigation;
+    if (snapshot === undefined) throw new Error("expected a navigation snapshot");
+    expect(snapshot.activeTab).toBe("controls");
+    expect(snapshot.tabs.controls.selectedRowId).toBe("toggle-manual");
+    expect(snapshot.tabs.overview).toEqual({ selectedRowId: "overview:user-turn", offset: 4 });
+    snapshot.tabs.controls.selectedRowId = "sweep";
+    expect(navigation.tabs.controls.selectedRowId).toBeUndefined();
+  });
+});
+
+type Completion = { action: DcpPanelAction; navigation: DcpPanelNavigation };
+
+function completion(action: DcpPanelAction, navigation?: DcpPanelNavigation): Completion {
+  return { action, navigation: navigation ?? createDcpPanelNavigation() };
+}
 
 function createPanelHarness(options: Parameters<typeof createExtensionHarness>[0] = {}) {
   return createExtensionHarness({
@@ -547,7 +746,7 @@ interface TerminalSize {
 
 function drivePanel(
   harness: ExtensionHarness,
-  queue: Array<DcpPanelAction | undefined>,
+  queue: Array<Completion | undefined>,
   terminal: TerminalSize = { rows: 24, columns: 80 },
 ): DcpPanelComponent[] {
   const components: DcpPanelComponent[] = [];
@@ -560,7 +759,7 @@ function drivePanel(
             tui: unknown,
             theme: Theme,
             keybindings: unknown,
-            done: (action: DcpPanelAction | undefined) => void,
+            done: (result: Completion | undefined) => void,
           ) => DcpPanelComponent
         )(tui, fakeTheme(), {}, resolve);
         components.push(component);
@@ -607,7 +806,10 @@ describe("dcp panel controller", () => {
     createExtension(harness.api);
     await harness.emit("session_start", { type: "session_start", reason: "new" });
 
-    const components = drivePanel(harness, [{ type: "toggle-manual" }, undefined]);
+    const components = drivePanel(harness, [
+      completion({ type: "toggle-manual" }, createDcpPanelNavigation("controls")),
+      undefined,
+    ]);
     await harness.runCommand("dcp", "");
 
     expect(harness.ui.custom).toHaveBeenCalledTimes(2);
@@ -615,14 +817,19 @@ describe("dcp panel controller", () => {
     expect(components[0].render(60).at(-1)).toBe(`┗${"━".repeat(58)}┛`);
   });
 
-  it("applies a permitted action, persists once, and rebuilds with retained selection and message", async () => {
+  it("applies a permitted action, persists once, and rebuilds with retained navigation and message", async () => {
     writeDcpConfig({});
     const harness = createPanelHarness();
     createExtension(harness.api);
     await harness.emit("session_start", { type: "session_start", reason: "new" });
     harness.entries.length = 0;
 
-    const components = drivePanel(harness, [{ type: "toggle-manual" }, undefined]);
+    const navigation = createDcpPanelNavigation("controls");
+    navigation.tabs.controls = { selectedRowId: "toggle-manual", offset: 0 };
+    const components = drivePanel(harness, [
+      completion({ type: "toggle-manual" }, navigation),
+      undefined,
+    ]);
     await harness.runCommand("dcp", "");
 
     expect(harness.ui.custom).toHaveBeenCalledTimes(2);
@@ -638,6 +845,26 @@ describe("dcp panel controller", () => {
     for (const line of components[1].render(60)) expect(visibleWidth(line)).toBeLessThanOrEqual(60);
   });
 
+  it("retains every tab viewport across an action rebuild", async () => {
+    writeDcpConfig({});
+    const harness = createPanelHarness();
+    createExtension(harness.api);
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+
+    const navigation = createDcpPanelNavigation("controls");
+    navigation.tabs.overview = { selectedRowId: "overview:user-turn", offset: 0 };
+    navigation.tabs.controls = { selectedRowId: "cycle-permission", offset: 1 };
+    navigation.tabs.blocks = { selectedRowId: "block:2", offset: 0 };
+    const components = drivePanel(harness, [
+      completion({ type: "toggle-manual" }, navigation),
+      undefined,
+    ]);
+    await harness.runCommand("dcp", "");
+
+    expect(components).toHaveLength(2);
+    expect(selectedLine(components[1].render(80))).toContain("Compress permission");
+  });
+
   it("does not invoke the state callback on close", async () => {
     writeDcpConfig({});
     const harness = createPanelHarness();
@@ -645,7 +872,7 @@ describe("dcp panel controller", () => {
     await harness.emit("session_start", { type: "session_start", reason: "new" });
     harness.entries.length = 0;
 
-    drivePanel(harness, [undefined]);
+    drivePanel(harness, [completion({ type: "close" }, createDcpPanelNavigation("help"))]);
     await harness.runCommand("dcp", "");
 
     expect(harness.entries).toHaveLength(0);
@@ -658,7 +885,10 @@ describe("dcp panel controller", () => {
     await harness.emit("session_start", { type: "session_start", reason: "new" });
     harness.entries.length = 0;
 
-    const components = drivePanel(harness, [{ type: "toggle-manual" }, undefined]);
+    const components = drivePanel(harness, [
+      completion({ type: "toggle-manual" }, createDcpPanelNavigation("controls")),
+      undefined,
+    ]);
     await harness.runCommand("dcp", "");
 
     expect(components[1].render(120).join("\n")).toContain("DCP is disabled by configuration.");
@@ -673,7 +903,10 @@ describe("dcp panel controller", () => {
     harness.entries.length = 0;
 
     const components: DcpPanelComponent[] = [];
-    const queue: Array<DcpPanelAction | undefined> = [{ type: "toggle-manual" }, undefined];
+    const queue: Array<Completion | undefined> = [
+      completion({ type: "toggle-manual" }, createDcpPanelNavigation("controls")),
+      undefined,
+    ];
     harness.ui.custom.mockImplementation(
       (factory: unknown) =>
         new Promise((resolve) => {
@@ -683,7 +916,7 @@ describe("dcp panel controller", () => {
               tui: unknown,
               theme: Theme,
               keybindings: unknown,
-              done: (action: DcpPanelAction | undefined) => void,
+              done: (result: Completion | undefined) => void,
             ) => DcpPanelComponent
           )(tui, fakeTheme(), {}, resolve);
           components.push(component);
@@ -709,7 +942,10 @@ describe("dcp panel controller", () => {
     harness.entries.length = 0;
 
     await harness.runCommand("dcp:manual", "on");
-    const components = drivePanel(harness, [{ type: "toggle-manual" }, undefined]);
+    const components = drivePanel(harness, [
+      completion({ type: "toggle-manual" }, createDcpPanelNavigation("controls")),
+      undefined,
+    ]);
     await harness.runCommand("dcp", "");
 
     expect(harness.ui.notify).toHaveBeenCalledWith(
@@ -718,7 +954,7 @@ describe("dcp panel controller", () => {
     );
     expect(harness.entries).toHaveLength(0);
     expect(components[0].render(120).join("\n")).toContain(
-      "Pipeline DCP is disabled for the current model.",
+      "DCP is disabled for the current model.",
     );
     expect(components[1].render(120).join("\n")).toContain(
       "DCP is disabled for the current model.",
@@ -735,10 +971,11 @@ describe("dcp panel controller", () => {
       .mockRejectedValue(new Error("no sessions"));
     try {
       const components = drivePanel(harness, [undefined]);
-      await harness.runCommand("dcp", "");
+      await harness.runCommand("dcp:stats", "");
 
       expect(loadSpy).toHaveBeenCalledTimes(1);
-      expect(components[0].render(120).join("\n")).toContain("Lifetime saved Unavailable");
+      expect(components[0].render(120).join("\n")).toContain("Total tokens saved");
+      expect(components[0].render(120).join("\n")).toContain("Unavailable");
     } finally {
       loadSpy.mockRestore();
     }
@@ -751,7 +988,11 @@ describe("dcp panel controller", () => {
     await harness.emit("session_start", { type: "session_start", reason: "new" });
     const loadSpy = vi.spyOn(persistence, "loadAllSessionStats");
     try {
-      drivePanel(harness, [{ type: "toggle-manual" }, { type: "sweep" }, undefined]);
+      drivePanel(harness, [
+        completion({ type: "toggle-manual" }, createDcpPanelNavigation("controls")),
+        completion({ type: "sweep" }, createDcpPanelNavigation("controls")),
+        undefined,
+      ]);
       await harness.runCommand("dcp", "");
 
       expect(loadSpy).toHaveBeenCalledTimes(1);
@@ -793,7 +1034,7 @@ describe("dcp panel controller", () => {
 describe("openDcpPanel guarded action characterization", () => {
   function driveDirect(
     harness: ExtensionHarness,
-    queue: Array<DcpPanelAction | undefined>,
+    queue: Array<Completion | undefined>,
   ): DcpPanelComponent[] {
     const components: DcpPanelComponent[] = [];
     harness.ui.custom.mockImplementation(
@@ -805,7 +1046,7 @@ describe("openDcpPanel guarded action characterization", () => {
               tui: unknown,
               theme: Theme,
               keybindings: unknown,
-              done: (action: DcpPanelAction | undefined) => void,
+              done: (result: Completion | undefined) => void,
             ) => DcpPanelComponent
           )(tui, fakeTheme(), {}, resolve);
           components.push(component);
@@ -819,26 +1060,30 @@ describe("openDcpPanel guarded action characterization", () => {
     {
       name: "toggle-manual",
       action: { type: "toggle-manual" } as DcpPanelAction,
+      tab: "controls" as const,
       message: "Manual mode: on. Automatic compression is paused.",
     },
     {
       name: "cycle-permission",
       action: { type: "cycle-permission" } as DcpPanelAction,
+      tab: "controls" as const,
       message: "Compress permission: ask",
     },
     {
       name: "sweep",
       action: { type: "sweep" } as DcpPanelAction,
+      tab: "controls" as const,
       message: "Sweep complete: 0 tool outputs pruned, ~0 tokens saved.",
     },
     {
       name: "toggle-block",
       action: { type: "toggle-block", blockId: 1 } as DcpPanelAction,
+      tab: "blocks" as const,
       message: "Block 1 deactivated. Original messages will be restored on next context pass.",
     },
   ])(
     "calls back once with the original context after a permitted $name action",
-    async ({ action, message }) => {
+    async ({ action, tab, message }) => {
       const harness = createPanelHarness();
       const state = createSessionState();
       state.prune.messages.blocksById.set(1, makeBlock(1, "topic"));
@@ -848,7 +1093,10 @@ describe("openDcpPanel guarded action characterization", () => {
         expect(harness.ui.custom).toHaveBeenCalledTimes(1);
       });
 
-      const components = driveDirect(harness, [action, undefined]);
+      const components = driveDirect(harness, [
+        completion(action, createDcpPanelNavigation(tab)),
+        undefined,
+      ]);
       await openDcpPanel(state, config, harness.commandContext, onStateChange, () =>
         harness.activeTools(),
       );
@@ -869,9 +1117,16 @@ describe("openDcpPanel guarded action characterization", () => {
     {
       name: "a policy rejection",
       config: { enabled: false },
-      queue: [{ type: "toggle-manual" } as DcpPanelAction, undefined],
+      queue: [
+        completion({ type: "toggle-manual" }, createDcpPanelNavigation("controls")),
+        undefined,
+      ],
     },
-    { name: "an explicit close", config: {}, queue: [{ type: "close" } as DcpPanelAction] },
+    {
+      name: "an explicit close",
+      config: {},
+      queue: [completion({ type: "close" }, createDcpPanelNavigation("controls"))],
+    },
     { name: "an undefined completion", config: {}, queue: [undefined] },
   ])("calls back zero times for $name", async ({ config: overrides, queue }) => {
     const harness = createPanelHarness();
@@ -895,7 +1150,10 @@ describe("openDcpPanel guarded action characterization", () => {
       expect(ctx).toBe(harness.commandContext);
     });
 
-    const components = driveDirect(harness, [{ type: "toggle-block", blockId: 99 }, undefined]);
+    const components = driveDirect(harness, [
+      completion({ type: "toggle-block", blockId: 99 }, createDcpPanelNavigation("blocks")),
+      undefined,
+    ]);
     await openDcpPanel(state, config, harness.commandContext, onStateChange, () =>
       harness.activeTools(),
     );
@@ -913,7 +1171,10 @@ describe("openDcpPanel guarded action characterization", () => {
     vi.spyOn(sweepModule, "sweepCommand").mockImplementation(() => {
       throw sentinel;
     });
-    const components = driveDirect(harness, [{ type: "sweep" }, undefined]);
+    const components = driveDirect(harness, [
+      completion({ type: "sweep" }, createDcpPanelNavigation("controls")),
+      undefined,
+    ]);
 
     let caught: unknown;
     try {
@@ -939,7 +1200,10 @@ describe("openDcpPanel guarded action characterization", () => {
     const onStateChange = vi.fn(() => {
       throw sentinel;
     });
-    const components = driveDirect(harness, [{ type: "toggle-manual" }, undefined]);
+    const components = driveDirect(harness, [
+      completion({ type: "toggle-manual" }, createDcpPanelNavigation("controls")),
+      undefined,
+    ]);
 
     let caught: unknown;
     try {

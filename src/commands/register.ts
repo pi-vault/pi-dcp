@@ -52,6 +52,10 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:help", {
     description: "Show DCP command help",
     handler: async (_args, ctx) => {
+      if (ctx.mode === "tui" && ctx.hasUI) {
+        await openDcpPanel(state, config, ctx, onStateChange, () => pi.getActiveTools(), "help");
+        return;
+      }
       ctx.ui.notify(helpCommand(), "info");
     },
   });
@@ -59,6 +63,17 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:context", {
     description: "Show context usage breakdown",
     handler: async (_args, ctx) => {
+      if (ctx.mode === "tui" && ctx.hasUI) {
+        await openDcpPanel(
+          state,
+          config,
+          ctx,
+          onStateChange,
+          () => pi.getActiveTools(),
+          "overview",
+        );
+        return;
+      }
       const usage = ctx.getContextUsage();
       const modelDisabled =
         config.enabled && !isDcpEnabledForModel(config, ctx.model?.provider, ctx.model?.id);
@@ -69,6 +84,17 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:stats", {
     description: "Show compression statistics",
     handler: async (_args, ctx) => {
+      if (ctx.mode === "tui" && ctx.hasUI) {
+        await openDcpPanel(
+          state,
+          config,
+          ctx,
+          onStateChange,
+          () => pi.getActiveTools(),
+          "statistics",
+        );
+        return;
+      }
       ctx.ui.notify(statsCommand(state), "info");
     },
   });
@@ -124,6 +150,17 @@ export function registerDcpCommands(
   pi.registerCommand("dcp:lifetime", {
     description: "Show aggregate statistics across all sessions",
     handler: async (_args, ctx) => {
+      if (ctx.mode === "tui" && ctx.hasUI) {
+        await openDcpPanel(
+          state,
+          config,
+          ctx,
+          onStateChange,
+          () => pi.getActiveTools(),
+          "statistics",
+        );
+        return;
+      }
       const parentDir = path.resolve(ctx.sessionManager.getSessionDir(), "..");
       ctx.ui.notify(await lifetimeCommand(parentDir), "info");
     },

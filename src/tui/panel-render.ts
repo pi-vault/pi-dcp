@@ -1,29 +1,38 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { flattenDcpLabel } from "./formatters.ts";
-import type { DcpPanelField, DcpPanelModel, DcpPanelRow } from "./panel-model.ts";
+import {
+  DCP_PANEL_TABS,
+  type DcpPanelModel,
+  type DcpPanelRow,
+  type DcpPanelTab,
+} from "./panel-model.ts";
 import type { DcpTheme } from "./theme.ts";
 
 export interface DcpPanelView {
-  selectedRowId?: string;
-  offset: number;
+  navigation: {
+    activeTab: DcpPanelTab;
+    tabs: Record<DcpPanelTab, { selectedRowId?: string; offset: number }>;
+  };
   lastActionMessage?: string;
 }
 
 export interface DcpPanelRenderResult {
   lines: string[];
+  /** Fitted offset of the active tab. */
   offset: number;
+  /** True whenever a normal body viewport rendered, including read-only/empty tabs. */
   actionsVisible: boolean;
 }
 
 const FRAME = { tl: "┏", tr: "┓", bl: "┗", br: "┛", h: "━", v: "┃" } as const;
 const PADDING_X = 2;
-const INFO_LINE_BUDGET = 9;
-const CHROME_ROWS = 8;
+const CHROME_ROWS = 9;
 const MIN_WIDTH = 26;
-const MIN_CAP = 9;
-const KEY_HINTS = [
-  "↑/↓ j/k navigate · Enter run · Esc/q close",
-  "Enter run · Esc/q close",
+const MIN_CAP = 10;
+const HINTS = [
+  "Tab/Shift-Tab tabs · ↑/↓ j/k rows · Enter/Space run · Esc/q close",
+  "↑/↓ j/k rows · Enter/Space run · Esc/q close",
+  "↑/↓ j/k rows · Esc/q close",
   "Esc/q close",
   "q",
 ];
@@ -42,24 +51,116 @@ function pad(text: string, width: number): string {
   return `${clipped}${" ".repeat(Math.max(0, width - visibleWidth(clipped)))}`;
 }
 
-function fieldValue(fields: DcpPanelField[], label: string): string {
-  return fields.find((entry) => entry.label === label)?.value ?? "Unavailable";
+function renderTabBar(
+  model: DcpPanelModel,
+  activeTab: DcpPanelTab,
+  width: number,
+  theme: DcpTheme,
+): string {
+  const safeWidth = Math.max(1, Math.floor(width));
+  const tabs = DCP_PANEL_TABS.map((id) => ({ id, label: model.tabs[id].title }));
+  const activeIndex = Math.max(
+    0,
+    tabs.findIndex((tab) => tab.id === activeTab),
+  );
+  const widths = tabs.map((tab) => visibleWidth(tab.label) + 2);
+  const sliceWidth = (start: number, end: number): number => {
+    let total = widths.slice(start, end).reduce((sum, cell) => sum + cell, 0);
+    total += Math.max(0, end - start - 1);
+    total += start > 0 ? 2 : 0;
+    total += end < tabs.length ? 2 : 0;
+    return total;
+  };
+
+  let start = activeIndex;
+  let end = activeIndex + 1;
+  let preferRight = true;
+  while (start > 0 || end < tabs.length) {
+    let progressed = false;
+    const tryRight = (): boolean => {
+      if (end < tabs.length && sliceWidth(start, end + 1) <= safeWidth) {
+        end += 1;
+        return true;
+      }
+      return false;
+    };
+    const tryLeft = (): boolean => {
+      if (start > 0 && sliceWidth(start - 1, end) <= safeWidth) {
+        start -= 1;
+        return true;
+      }
+      return false;
+    };
+
+    if (preferRight) {
+      if (tryRight()) progressed = true;
+      if (tryLeft()) progressed = true;
+    } else {
+      if (tryLeft()) progressed = true;
+      if (tryRight()) progressed = true;
+    }
+    if (!progressed) break;
+    preferRight = !preferRight;
+  }
+
+  const cells = tabs.slice(start, end).map((tab) => {
+    const label = ` ${tab.label} `;
+    return tab.id === activeTab ? theme.inverse(theme.bold(label)) : theme.fg("accent", label);
+  });
+  let remaining = safeWidth - visibleWidth(cells.join(" "));
+  if (start > 0 && remaining >= 2) {
+    cells.unshift(theme.fg("dim", "‹"));
+    remaining -= 2;
+  }
+  if (end < tabs.length && remaining >= 2) cells.push(theme.fg("dim", "›"));
+  return pad(cells.join(" "), safeWidth);
 }
 
-function informationLines(model: DcpPanelModel): string[] {
-  const status = (label: string) => fieldValue(model.status, label);
-  const statistic = (label: string) => fieldValue(model.statistics, label);
-  return [
-    `Model ${status("Model")}`,
-    `Context ${status("Context")}`,
-    `Limits max ${status("Max limit")} / min ${status("Min limit")} · Mode ${status("Compression mode")}`,
-    `Permission ${status("Permission")} · Manual ${status("Manual mode")}`,
-    `Pipeline ${status("Pipeline")}`,
-    `Tool ${status("Compress tool")}`,
-    `Session saved ${statistic("Session tokens saved")} · pruned ${statistic("Session tools pruned")} · compressed ${statistic("Session messages compressed")}`,
-    `Lifetime saved ${statistic("Lifetime tokens saved")} · sessions ${statistic("Lifetime sessions")}`,
-    `Lifetime tools ${statistic("Lifetime tools pruned")} · messages ${statistic("Lifetime messages compressed")}`,
-  ];
+function renderBlockRow(
+  row: DcpPanelRow,
+  selected: boolean,
+  width: number,
+  theme: DcpTheme,
+): string | undefined {
+  const block = row.block;
+  if (block === undefined) return undefined;
+  const marker = selected ? `${theme.fg("accent", "▸")} ` : "  ";
+  const availableWidth = Math.max(0, width - visibleWidth(marker));
+  const lifecycle = block.lifecycle;
+
+  const identity = [`Block b${block.blockId}:`, `b${block.blockId}`].find(
+    (candidate) => visibleWidth(candidate) + 1 + visibleWidth(lifecycle) <= availableWidth,
+  );
+  if (identity === undefined) return undefined;
+
+  let remaining = availableWidth - visibleWidth(identity) - 1 - visibleWidth(lifecycle);
+  const parts: string[] = [];
+  const pushPart = (text: string): void => {
+    const part = ` · ${text}`;
+    if (visibleWidth(part) <= remaining) {
+      parts.push(part);
+      remaining -= visibleWidth(part);
+    }
+  };
+
+  if (block.toggleLabel !== undefined) pushPart(block.toggleLabel);
+  else if (row.unavailableReason !== undefined)
+    pushPart(`[${flattenDcpLabel(row.unavailableReason)}]`);
+
+  const topic = flattenDcpLabel(row.label);
+  if (topic !== "") {
+    const topicPart = ` · ${topic}`;
+    const fitted = truncate(topicPart, remaining);
+    if (fitted !== "") {
+      parts.push(fitted);
+      remaining -= visibleWidth(fitted);
+    }
+  }
+  const detail = row.detail === undefined ? "" : flattenDcpLabel(row.detail);
+  if (detail !== "") pushPart(detail);
+
+  const labelColor = selected ? "accent" : row.action === undefined ? "dim" : "text";
+  return `${marker}${theme.fg(labelColor, identity)} ${theme.fg("dim", lifecycle)}${theme.fg("dim", parts.join(""))}`;
 }
 
 function renderRow(
@@ -68,60 +169,31 @@ function renderRow(
   width: number,
   theme: DcpTheme,
 ): string | undefined {
+  if (row.block !== undefined) return renderBlockRow(row, selected, width, theme);
+
   const marker = selected ? `${theme.fg("accent", "▸")} ` : "  ";
-  let label = flattenDcpLabel(row.label);
-  const detail = row.detail === undefined ? "" : ` · ${flattenDcpLabel(row.detail)}`;
+  const availableWidth = Math.max(0, width - visibleWidth(marker));
+  const label = flattenDcpLabel(row.label);
+  const isHeading =
+    row.detail === undefined && row.action === undefined && row.unavailableReason === undefined;
+  if (isHeading) {
+    return `${marker}${truncate(theme.bold(theme.fg(selected ? "accent" : "text", label)), availableWidth)}`;
+  }
+
+  const detail = row.detail === undefined ? "" : ` ${flattenDcpLabel(row.detail)}`;
   const reason =
     row.unavailableReason === undefined ? "" : ` [${flattenDcpLabel(row.unavailableReason)}]`;
-  const availableWidth = Math.max(0, width - visibleWidth(marker));
-  const blockId = row.id.startsWith("block:") ? row.id.slice("block:".length) : undefined;
-  const identityWidth = blockId === undefined ? 0 : visibleWidth(`Block b${blockId}:`);
-  const minimumLabelWidth = Math.min(
-    visibleWidth(label),
-    Math.max(identityWidth, Math.floor(availableWidth / 3)),
+  const labelText = truncate(label, availableWidth);
+  const suffix = truncate(
+    `${detail}${reason}`,
+    Math.max(0, availableWidth - visibleWidth(labelText)),
   );
-  let suffixText = truncate(`${detail}${reason}`, Math.max(0, availableWidth - minimumLabelWidth));
-  const lifecycle =
-    blockId === undefined
-      ? undefined
-      : detail.endsWith(" · Deactivate")
-        ? "Deactivate"
-        : detail.endsWith(" · Reactivate")
-          ? "Reactivate"
-          : row.unavailableReason === "Inactive"
-            ? "Inactive"
-            : undefined;
-  if (lifecycle !== undefined) {
-    let stateSuffix = ` · ${lifecycle}`;
-    let requiredLabelWidth = identityWidth;
-    if (requiredLabelWidth + visibleWidth(stateSuffix) > availableWidth) {
-      label = `b${blockId}`;
-      requiredLabelWidth = visibleWidth(label);
-      if (requiredLabelWidth + visibleWidth(stateSuffix) > availableWidth) {
-        stateSuffix = ` ${lifecycle}`;
-      }
-    }
-    if (requiredLabelWidth + visibleWidth(stateSuffix) > availableWidth) return undefined;
-
-    const labelBudget = Math.min(
-      visibleWidth(label),
-      Math.max(requiredLabelWidth, Math.floor(availableWidth / 3)),
-      availableWidth - visibleWidth(stateSuffix),
-    );
-    const detailWithoutState = detail.endsWith(` · ${lifecycle}`)
-      ? detail.slice(0, -` · ${lifecycle}`.length)
-      : detail;
-    const optionalSuffix = `${detailWithoutState}${row.unavailableReason === "Inactive" ? "" : reason}`;
-    const optionalWidth = availableWidth - labelBudget - visibleWidth(stateSuffix);
-    suffixText = `${visibleWidth(optionalSuffix) <= optionalWidth ? optionalSuffix : ""}${stateSuffix}`;
-  }
-  const labelText = truncate(label, Math.max(0, availableWidth - visibleWidth(suffixText)));
-  const labelColor = selected ? "accent" : row.action === undefined ? "dim" : "text";
-  return `${marker}${theme.fg(labelColor, labelText)}${theme.fg("dim", suffixText)}`;
+  const labelColor = row.action === undefined ? "dim" : selected ? "accent" : "text";
+  return `${marker}${theme.fg(labelColor, labelText)}${theme.fg("dim", suffix)}`;
 }
 
 function chooseHint(width: number): string {
-  return KEY_HINTS.find((hint) => visibleWidth(hint) <= width) ?? "q";
+  return HINTS.find((hint) => visibleWidth(hint) <= width) ?? "q";
 }
 
 function frame(content: string[], width: number, theme: DcpTheme): string[] {
@@ -163,7 +235,7 @@ function fitRows(
   return { offset: next, visible: rows.slice(next, next + listHeight) };
 }
 
-/** Pure frame/list renderer for the DCP panel. Never touches live state or actions. */
+/** Pure frame/tab renderer for the DCP dashboard. Never touches live state or actions. */
 export function renderDcpPanel(
   model: DcpPanelModel,
   view: DcpPanelView,
@@ -178,19 +250,19 @@ export function renderDcpPanel(
   }
 
   const contentWidth = Math.max(0, safeWidth - 2 - PADDING_X * 2);
-  const rows = [...model.actions, ...model.blocks];
-  const target = Math.min(cap, CHROME_ROWS + INFO_LINE_BUDGET + Math.max(1, rows.length));
-  const headerCount = Math.min(INFO_LINE_BUDGET, Math.max(0, target - CHROME_ROWS - 1));
-  const listHeight = Math.max(0, target - CHROME_ROWS - headerCount);
+  const activeTab = view.navigation.activeTab;
+  const rows = model.tabs[activeTab].rows;
+  const activeViewport = view.navigation.tabs[activeTab];
+  const longestBody = Math.max(1, ...DCP_PANEL_TABS.map((tab) => model.tabs[tab].rows.length));
+  const target = Math.min(cap, CHROME_ROWS + longestBody);
+  const bodyHeight = Math.max(0, target - CHROME_ROWS);
 
-  const selectedIndex = resolveSelection(rows, view.selectedRowId);
+  const selectedIndex = resolveSelection(rows, activeViewport.selectedRowId);
   const selectedRow = selectedIndex >= 0 ? rows[selectedIndex] : undefined;
-  const viewport = fitRows(rows, selectedIndex, listHeight, view.offset);
+  const viewport = fitRows(rows, selectedIndex, bodyHeight, activeViewport.offset);
 
-  const information = informationLines(model)
-    .slice(0, headerCount)
-    .map((line) => theme.fg("text", truncate(flattenDcpLabel(line), contentWidth)));
   const title = truncate(theme.bold(theme.fg("accent", "DCP Panel")), contentWidth);
+  const tabBar = renderTabBar(model, activeTab, contentWidth, theme);
   const divider = truncate(theme.fg("borderMuted", "─".repeat(contentWidth)), contentWidth);
   const feedbackText =
     view.lastActionMessage === undefined || view.lastActionMessage === ""
@@ -202,23 +274,24 @@ export function renderDcpPanel(
       : truncate(theme.fg("accent", feedbackText), contentWidth);
   const hint = truncate(theme.fg("dim", chooseHint(contentWidth)), contentWidth);
 
-  const listLines: string[] = [];
-  for (let index = 0; index < listHeight; index++) {
-    const row = viewport.visible[index];
-    if (row === undefined) {
-      listLines.push(" ".repeat(contentWidth));
-      continue;
+  const bodyLines: string[] = [];
+  if (rows.length === 0) {
+    const emptyText = activeTab === "blocks" ? "No compression blocks." : "";
+    bodyLines.push(truncate(theme.fg("dim", emptyText), contentWidth));
+  } else {
+    for (const row of viewport.visible) {
+      const line = renderRow(row, row === selectedRow, contentWidth, theme);
+      if (line === undefined) return renderDcpPanelFallback(width, terminalRows);
+      bodyLines.push(pad(line, contentWidth));
     }
-    const line = renderRow(row, row === selectedRow, contentWidth, theme);
-    if (line === undefined) return renderDcpPanelFallback(width, terminalRows);
-    listLines.push(pad(line, contentWidth));
   }
+  while (bodyLines.length < bodyHeight) bodyLines.push(" ".repeat(contentWidth));
 
-  const content = [title, ...information, divider, ...listLines, feedback, hint];
+  const content = [title, tabBar, divider, ...bodyLines, feedback, hint];
   return {
     lines: frame(content, safeWidth, theme),
     offset: viewport.offset,
-    actionsVisible: rows.length > 0,
+    actionsVisible: true,
   };
 }
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildDcpPanelModel, type DcpPanelModelInput } from "../src/tui/panel-model.ts";
+import {
+  buildDcpPanelModel,
+  DCP_PANEL_TABS,
+  type DcpPanelModel,
+  type DcpPanelModelInput,
+  type DcpPanelTab,
+} from "../src/tui/panel-model.ts";
+import { DCP_COMMAND_HELP } from "../src/commands/help.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { makeDefaultConfig } from "./helpers.ts";
 import type { CompressionBlock, SessionState } from "../src/state/types.ts";
@@ -56,74 +63,304 @@ function baseInput(overrides: Partial<DcpPanelModelInput> = {}): DcpPanelModelIn
   };
 }
 
-function field(model: ReturnType<typeof buildDcpPanelModel>, label: string): string | undefined {
-  return model.status.find((entry) => entry.label === label)?.value;
+function detail(model: DcpPanelModel, tab: DcpPanelTab, id: string): string | undefined {
+  return model.tabs[tab].rows.find((row) => row.id === id)?.detail;
 }
 
-function statistic(
-  model: ReturnType<typeof buildDcpPanelModel>,
-  label: string,
-): string | undefined {
-  return model.statistics.find((entry) => entry.label === label)?.value;
+function label(model: DcpPanelModel, tab: DcpPanelTab, id: string): string | undefined {
+  return model.tabs[tab].rows.find((row) => row.id === id)?.label;
+}
+
+function blockRow(model: DcpPanelModel, id: number) {
+  return model.tabs.blocks.rows.find((row) => row.id === `block:${id}`);
 }
 
 describe("buildDcpPanelModel", () => {
-  it("formats current model, context, limits, and statistics", () => {
-    const input = baseInput({
-      config: makeDefaultConfig({ maxContextLimit: 100_000, minContextLimit: 50_000 }),
-    });
+  it("projects five tabs in approved order", () => {
+    const model = buildDcpPanelModel(baseInput());
 
-    const model = buildDcpPanelModel(input);
-
-    expect(field(model, "Model")).toBe("test/test-model");
-    expect(field(model, "Context")).toBe("~20k / 200k (10%)");
-    expect(field(model, "Max limit")).toBe("100k");
-    expect(field(model, "Min limit")).toBe("50k");
-    expect(field(model, "Compression mode")).toBe("range");
-    expect(field(model, "Permission")).toBe("allow");
-    expect(field(model, "Manual mode")).toBe("off");
-    expect(field(model, "Pipeline")).toBe("enabled");
-    expect(field(model, "Compress tool")).toBe("active");
-    expect(statistic(model, "Lifetime tokens saved")).toBe("~1k");
-    expect(statistic(model, "Lifetime sessions")).toBe("3");
+    expect(Object.keys(model.tabs)).toEqual([
+      "overview",
+      "controls",
+      "blocks",
+      "statistics",
+      "help",
+    ]);
+    expect(DCP_PANEL_TABS).toEqual(["overview", "controls", "blocks", "statistics", "help"]);
+    expect(model.tabs.overview.title).toBe("Overview");
+    expect(model.tabs.controls.title).toBe("Controls");
+    expect(model.tabs.blocks.title).toBe("Blocks");
+    expect(model.tabs.statistics.title).toBe("Statistics");
+    expect(model.tabs.help.title).toBe("Help");
+    expect(model.tabs.controls.rows.map((row) => row.id)).toEqual([
+      "toggle-manual",
+      "cycle-permission",
+      "sweep",
+    ]);
+    expect(model.tabs.overview.rows.every((row) => row.action === undefined)).toBe(true);
+    expect(model.tabs.statistics.rows.every((row) => row.action === undefined)).toBe(true);
+    expect(model.tabs.help.rows.every((row) => row.action === undefined)).toBe(true);
   });
 
-  it("compacts estimated metrics while leaving integer counts exact", () => {
+  it("preserves all informational field sources", () => {
     const state = createSessionState();
-    state.stats.totalPruneTokens = 1_000;
-    state.stats.toolsPruned = 7_123;
-    state.stats.messagesCompressed = 5_123;
-    addBlock(state, { blockId: 1, compressedTokens: 12_400 });
+    state.prune.tools.set("a", 10);
+    state.prune.tools.set("b", 20);
+    state.prune.messages.activeBlockIds.add(1);
+    addBlock(state, { blockId: 1 });
+    state.toolParameters.set("call", {
+      tool: "read",
+      parameters: {},
+      filePaths: [],
+      status: "completed",
+      error: undefined,
+      userTurn: 1,
+      tokenCount: 1,
+      assistantIndex: undefined,
+      resultIndex: undefined,
+    });
+    state.currentUserTurn = 7;
 
     const model = buildDcpPanelModel(
       baseInput({
         state,
-        contextUsage: { tokens: 0, contextWindow: 200_000, percent: 0 },
-        lifetimeStats: {
-          totalTokensSaved: 1_234_567,
-          totalToolsPruned: 9_123,
-          totalMessagesCompressed: 6_123,
-          sessionCount: 3_123,
-        },
+        config: makeDefaultConfig({ maxContextLimit: 100_000, minContextLimit: 50_000 }),
       }),
     );
 
-    expect(field(model, "Context")).toBe("~0 / 200k (0%)");
-    expect(statistic(model, "Session tokens saved")).toBe("~1k");
-    expect(statistic(model, "Session tools pruned")).toBe("7123");
-    expect(statistic(model, "Session messages compressed")).toBe("5123");
-    expect(statistic(model, "Lifetime tokens saved")).toBe("~1.2M");
-    expect(statistic(model, "Lifetime tools pruned")).toBe("9123");
-    expect(statistic(model, "Lifetime messages compressed")).toBe("6123");
-    expect(statistic(model, "Lifetime sessions")).toBe("3123");
-    expect(model.blocks[0]?.detail).toContain("range · ~12.4k tokens · Deactivate");
+    expect(detail(model, "overview", "overview:model")).toBe("test/test-model");
+    expect(detail(model, "overview", "overview:context")).toBe("~20k / 200k (10%)");
+    expect(detail(model, "overview", "overview:max-limit")).toBe("100k");
+    expect(detail(model, "overview", "overview:min-limit")).toBe("50k");
+    expect(detail(model, "overview", "overview:compression-mode")).toBe("range");
+    expect(detail(model, "overview", "overview:manual-mode")).toBe("off");
+    expect(detail(model, "overview", "overview:permission")).toBe("allow");
+    expect(detail(model, "overview", "overview:pipeline")).toBe("enabled");
+    expect(detail(model, "overview", "overview:compress-tool")).toBe("active");
+    expect(detail(model, "overview", "overview:pruned-tools")).toBe("2");
+    expect(detail(model, "overview", "overview:active-blocks")).toBe("1");
+    expect(detail(model, "overview", "overview:total-blocks")).toBe("1");
+    expect(detail(model, "overview", "overview:tool-cache")).toBe("1");
+    expect(detail(model, "overview", "overview:user-turn")).toBe("7");
+
+    expect(detail(model, "statistics", "statistics:session")).toBeUndefined();
+    expect(detail(model, "statistics", "statistics:tools-pruned")).toBe("0");
+    expect(detail(model, "statistics", "statistics:pruning-tokens-saved")).toBe("~0");
+    expect(detail(model, "statistics", "statistics:messages-compressed")).toBe("0");
+    expect(detail(model, "statistics", "statistics:prune-token-counter")).toBe("~0");
+    expect(detail(model, "statistics", "statistics:lifetime")).toBeUndefined();
+    expect(detail(model, "statistics", "statistics:lifetime-sessions")).toBe("3");
+    expect(detail(model, "statistics", "statistics:lifetime-pruning-tokens-saved")).toBe("~1k");
+    expect(detail(model, "statistics", "statistics:lifetime-tools-pruned")).toBe("4");
+    expect(detail(model, "statistics", "statistics:lifetime-messages-compressed")).toBe("2");
   });
 
-  it("keeps an unknown percentage while compacting token values", () => {
+  it("keeps distinct counter values and exact integer counts", () => {
+    const state = createSessionState();
+    state.stats.totalPruneTokens = 1_000;
+    state.stats.pruneTokenCounter = 2_500;
+    state.stats.toolsPruned = 7_123;
+    state.stats.messagesCompressed = 5_123;
+
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    expect(detail(model, "statistics", "statistics:tools-pruned")).toBe("7123");
+    expect(detail(model, "statistics", "statistics:messages-compressed")).toBe("5123");
+    expect(detail(model, "statistics", "statistics:pruning-tokens-saved")).toBe("~1k");
+    expect(detail(model, "statistics", "statistics:prune-token-counter")).toBe("~2.5k");
+  });
+
+  it("distinguishes lifecycle from policy", () => {
+    const state = createSessionState();
+    addBlock(state, { blockId: 3, active: true, topic: "three" });
+    addBlock(state, { blockId: 1, active: true, topic: "one" });
+    addBlock(state, { blockId: 2, active: false, deactivatedByUser: true, topic: "two" });
+    addBlock(state, {
+      blockId: 5,
+      active: false,
+      deactivatedByUser: false,
+      deactivatedByBlockId: 99,
+      topic: "five",
+    });
+
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    expect(model.tabs.blocks.rows.map((row) => row.id)).toEqual([
+      "block:1",
+      "block:2",
+      "block:3",
+      "block:5",
+    ]);
+    expect(blockRow(model, 1)?.block?.lifecycle).toBe("Active");
+    expect(blockRow(model, 1)?.block?.toggleLabel).toBe("Deactivate");
+    expect(blockRow(model, 1)?.action).toEqual({ type: "toggle-block", blockId: 1 });
+    expect(blockRow(model, 2)?.block?.lifecycle).toBe("User-deactivated");
+    expect(blockRow(model, 2)?.block?.toggleLabel).toBe("Reactivate");
+    expect(blockRow(model, 2)?.action).toEqual({ type: "toggle-block", blockId: 2 });
+    expect(blockRow(model, 3)?.block?.lifecycle).toBe("Active");
+    expect(blockRow(model, 5)?.block?.lifecycle).toBe("Inactive");
+    expect(blockRow(model, 5)?.action).toBeUndefined();
+    expect(blockRow(model, 5)?.block?.toggleLabel).toBeUndefined();
+  });
+
+  it("labels a block Consumed only when its parent is present", () => {
+    const state = createSessionState();
+    addBlock(state, { blockId: 1, active: false, deactivatedByBlockId: 2 });
+    addBlock(state, { blockId: 2, active: false, deactivatedByBlockId: 99 });
+
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    expect(blockRow(model, 1)?.block?.lifecycle).toBe("Consumed");
+    expect(blockRow(model, 2)?.block?.lifecycle).toBe("Inactive");
+  });
+
+  it("does not infer Consumed from historical parent block ids alone", () => {
+    const state = createSessionState();
+    addBlock(state, { blockId: 1, active: false, parentBlockIds: [2] });
+
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    expect(blockRow(model, 1)?.block?.lifecycle).toBe("Inactive");
+  });
+
+  it("prefers user deactivation over active and consumed state", () => {
+    const state = createSessionState();
+    addBlock(state, {
+      blockId: 1,
+      active: true,
+      deactivatedByUser: true,
+      deactivatedByBlockId: 1,
+    });
+
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    expect(blockRow(model, 1)?.block?.lifecycle).toBe("User-deactivated");
+  });
+
+  it("uses unknown mode and compressed-input token estimates", () => {
+    const state = createSessionState();
+    addBlock(state, { blockId: 1, mode: undefined, compressedTokens: 12_400, summaryTokens: 9 });
+
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    expect(blockRow(model, 1)?.detail).toBe("unknown · ~12.4k tokens");
+  });
+
+  it("matches command help descriptors on the Help tab", () => {
+    const model = buildDcpPanelModel(baseInput());
+    const commandRows = model.tabs.help.rows.filter((row) => row.id.startsWith("help:command:"));
+
+    expect(
+      commandRows.map((row) => ({
+        id: row.id.slice("help:command:".length),
+        syntax: row.label,
+        description: row.detail,
+      })),
+    ).toEqual(DCP_COMMAND_HELP);
+    expect(commandRows).toHaveLength(11);
+  });
+
+  it("adds read-only Help navigation rows", () => {
+    const model = buildDcpPanelModel(baseInput());
+    const ids = model.tabs.help.rows.map((row) => row.id);
+
+    expect(ids).toContain("help:navigation:tabs");
+    expect(ids).toContain("help:navigation:rows");
+    expect(ids).toContain("help:navigation:activate");
+    expect(ids).toContain("help:navigation:close");
+  });
+
+  it("omits actions and retains policy reasons when the pipeline is disabled", () => {
+    const state = createSessionState();
+    addBlock(state, { blockId: 1, active: true });
+
     const model = buildDcpPanelModel(
+      baseInput({ state, config: { ...makeDefaultConfig(), enabled: false } }),
+    );
+
+    const manual = model.tabs.controls.rows.find((row) => row.id === "toggle-manual");
+    expect(manual?.action).toBeUndefined();
+    expect(manual?.unavailableReason).toBe("DCP is disabled by configuration.");
+    expect(blockRow(model, 1)?.action).toBeUndefined();
+    expect(blockRow(model, 1)?.block?.toggleLabel).toBeUndefined();
+    expect(blockRow(model, 1)?.unavailableReason).toBe("DCP is disabled by configuration.");
+  });
+
+  it("leaves controls available when only permission is denied", () => {
+    const state = createSessionState();
+    state.compressPermission = "deny";
+    const model = buildDcpPanelModel(baseInput({ state }));
+    const manual = model.tabs.controls.rows.find((row) => row.id === "toggle-manual");
+    expect(manual?.action).toEqual({ type: "toggle-manual" });
+    expect(manual?.unavailableReason).toBeUndefined();
+    expect(detail(model, "overview", "overview:permission")).toBe("deny");
+  });
+
+  it("reports sub-agent and model policy reasons without inventing actions", () => {
+    const subAgentState = createSessionState();
+    subAgentState.isSubAgent = true;
+    const subAgentModel = buildDcpPanelModel(baseInput({ state: subAgentState }));
+    expect(detail(subAgentModel, "overview", "overview:pipeline")).toBe(
+      "DCP is disabled in sub-agent sessions.",
+    );
+    expect(subAgentModel.tabs.controls.rows.every((row) => row.action === undefined)).toBe(true);
+
+    const modelState = createSessionState();
+    const modelDisabled = buildDcpPanelModel(
+      baseInput({
+        state: modelState,
+        model: { provider: "test", id: "disabled", contextWindow: 200_000 },
+        config: { ...makeDefaultConfig(), disabledModels: ["test/disabled"] },
+      }),
+    );
+    expect(detail(modelDisabled, "overview", "overview:pipeline")).toBe(
+      "DCP is disabled for the current model.",
+    );
+  });
+
+  it("retains a known context window when token usage is unavailable", () => {
+    const model = buildDcpPanelModel(
+      baseInput({ contextUsage: { tokens: null, contextWindow: 200_000, percent: null } }),
+    );
+    expect(detail(model, "overview", "overview:context")).toBe(
+      "Unavailable (context window: 200k)",
+    );
+  });
+
+  it("keeps unknown percentages and zero token values", () => {
+    const unknown = buildDcpPanelModel(
       baseInput({ contextUsage: { tokens: 20_000, contextWindow: 200_000, percent: null } }),
     );
-    expect(field(model, "Context")).toBe("~20k / 200k (unknown)");
+    expect(detail(unknown, "overview", "overview:context")).toBe("~20k / 200k (unknown)");
+
+    const zero = buildDcpPanelModel(
+      baseInput({ contextUsage: { tokens: 0, contextWindow: 200_000, percent: 0 } }),
+    );
+    expect(detail(zero, "overview", "overview:context")).toBe("~0 / 200k (0%)");
+  });
+
+  it("shows explicit unavailable values when data is missing", () => {
+    const state = createSessionState();
+    addBlock(state, { blockId: 1 });
+    const model = buildDcpPanelModel(
+      baseInput({
+        state,
+        model: undefined,
+        contextUsage: undefined,
+        lifetimeStats: undefined,
+        compressToolActive: false,
+      }),
+    );
+
+    expect(detail(model, "overview", "overview:model")).toBe("Unavailable");
+    expect(detail(model, "overview", "overview:context")).toBe("Unavailable");
+    expect(detail(model, "overview", "overview:max-limit")).toBe("Unavailable");
+    expect(detail(model, "overview", "overview:min-limit")).toBe("Unavailable");
+    expect(detail(model, "overview", "overview:compress-tool")).toBe("inactive");
+    expect(detail(model, "statistics", "statistics:lifetime-sessions")).toBe("Unavailable");
+    expect(detail(model, "statistics", "statistics:lifetime-pruning-tokens-saved")).toBe(
+      "Unavailable",
+    );
   });
 
   it("uses the current model view for thresholds without mutating cached state", () => {
@@ -132,94 +369,20 @@ describe("buildDcpPanelModel", () => {
     state.modelId = "stale-model";
     state.modelContextWindow = 100;
 
-    const input = baseInput({
-      state,
-      model: { provider: "anthropic", id: "claude", contextWindow: 200_000 },
-      config: makeDefaultConfig({ maxContextLimit: "50%" }),
-      contextUsage: { tokens: 90_000, contextWindow: 200_000, percent: 45 },
-    });
+    const model = buildDcpPanelModel(
+      baseInput({
+        state,
+        model: { provider: "anthropic", id: "claude", contextWindow: 200_000 },
+        config: makeDefaultConfig({ maxContextLimit: "50%" }),
+        contextUsage: { tokens: 90_000, contextWindow: 200_000, percent: 45 },
+      }),
+    );
 
-    const model = buildDcpPanelModel(input);
-
-    expect(field(model, "Model")).toBe("anthropic/claude");
-    expect(field(model, "Max limit")).toBe("100k");
+    expect(detail(model, "overview", "overview:model")).toBe("anthropic/claude");
+    expect(detail(model, "overview", "overview:max-limit")).toBe("100k");
     expect(state.modelProvider).toBe("stale");
     expect(state.modelId).toBe("stale-model");
     expect(state.modelContextWindow).toBe(100);
-  });
-
-  it("shows explicit unavailable values when data is missing", () => {
-    const state = createSessionState();
-    addBlock(state, { blockId: 1 });
-    const input = baseInput({
-      state,
-      model: undefined,
-      contextUsage: undefined,
-      lifetimeStats: undefined,
-      compressToolActive: false,
-    });
-
-    const model = buildDcpPanelModel(input);
-
-    expect(field(model, "Model")).toBe("Unavailable");
-    expect(field(model, "Context")).toBe("Unavailable");
-    expect(field(model, "Max limit")).toBe("Unavailable");
-    expect(field(model, "Min limit")).toBe("Unavailable");
-    expect(field(model, "Compress tool")).toBe("inactive");
-    expect(statistic(model, "Lifetime tokens saved")).toBe("Unavailable");
-    expect(statistic(model, "Lifetime sessions")).toBe("Unavailable");
-  });
-
-  it("sorts block rows numerically and distinguishes block states", () => {
-    const state = createSessionState();
-    addBlock(state, { blockId: 3, active: true, topic: "three" });
-    addBlock(state, { blockId: 1, active: true, topic: "one" });
-    addBlock(state, {
-      blockId: 2,
-      active: false,
-      deactivatedByUser: true,
-      topic: "two",
-    });
-    addBlock(state, { blockId: 5, active: false, deactivatedByUser: false, topic: "five" });
-
-    const model = buildDcpPanelModel(baseInput({ state }));
-
-    expect(model.blocks.map((row) => row.id)).toEqual(["block:1", "block:2", "block:3", "block:5"]);
-
-    const active = model.blocks.find((row) => row.id === "block:1");
-    expect(active?.action).toEqual({ type: "toggle-block", blockId: 1 });
-    expect(active?.unavailableReason).toBeUndefined();
-
-    const deactivated = model.blocks.find((row) => row.id === "block:2");
-    expect(deactivated?.action).toEqual({ type: "toggle-block", blockId: 2 });
-    expect(deactivated?.detail).toContain("Reactivate");
-
-    const inactive = model.blocks.find((row) => row.id === "block:5");
-    expect(inactive?.action).toBeUndefined();
-    expect(inactive?.unavailableReason).toBeDefined();
-  });
-
-  it("marks policy-disabled actions unavailable with the policy message", () => {
-    const state = createSessionState();
-    addBlock(state, { blockId: 1, active: true });
-
-    const model = buildDcpPanelModel(
-      baseInput({ state, config: { ...makeDefaultConfig(), enabled: false } }),
-    );
-
-    const manual = model.actions.find((row) => row.id === "toggle-manual");
-    expect(manual?.action).toEqual({ type: "toggle-manual" });
-    expect(manual?.unavailableReason).toBe("DCP is disabled by configuration.");
-    const close = model.actions.find((row) => row.id === "close");
-    expect(close?.unavailableReason).toBeUndefined();
-    expect(model.blocks[0]?.unavailableReason).toBe("DCP is disabled by configuration.");
-  });
-
-  it("does not fabricate context values when usage tokens are null", () => {
-    const model = buildDcpPanelModel(
-      baseInput({ contextUsage: { tokens: null, contextWindow: 200_000, percent: null } }),
-    );
-    expect(field(model, "Context")).toBe("Unavailable");
   });
 
   it("prefers the session permission override over the configured default", () => {
@@ -228,6 +391,33 @@ describe("buildDcpPanelModel", () => {
     const model = buildDcpPanelModel(
       baseInput({ state, config: makeDefaultConfig({ permission: "deny" }) }),
     );
-    expect(field(model, "Permission")).toBe("ask");
+    expect(detail(model, "overview", "overview:permission")).toBe("ask");
+  });
+
+  it("does not mutate projection inputs", () => {
+    const state = createSessionState();
+    state.prune.tools.set("a", 1);
+    addBlock(state, { blockId: 2, active: true });
+    addBlock(state, { blockId: 1, active: false, deactivatedByUser: true });
+    const config = makeDefaultConfig();
+    const stateSnapshot = structuredClone(state);
+    const configSnapshot = structuredClone(config);
+
+    const model = buildDcpPanelModel(baseInput({ state, config }));
+
+    expect(state).toEqual(stateSnapshot);
+    expect(config).toEqual(configSnapshot);
+    expect(model.tabs.blocks.rows.map((row) => row.id)).toEqual(["block:1", "block:2"]);
+  });
+
+  it("labels numeric block ids in ascending order", () => {
+    const state = createSessionState();
+    addBlock(state, { blockId: 10 });
+    addBlock(state, { blockId: 2 });
+
+    const model = buildDcpPanelModel(baseInput({ state }));
+
+    expect(model.tabs.blocks.rows.map((row) => row.id)).toEqual(["block:2", "block:10"]);
+    expect(label(model, "blocks", "block:10")).toBe("topic");
   });
 });
