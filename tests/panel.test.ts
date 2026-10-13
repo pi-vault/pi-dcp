@@ -7,6 +7,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import createExtension from "../src/index.ts";
 import { DcpPanelComponent, openDcpPanel } from "../src/tui/panel.ts";
+import * as panelRender from "../src/tui/panel-render.ts";
 import * as sweepModule from "../src/commands/sweep.ts";
 import {
   buildDcpPanelModel,
@@ -109,6 +110,7 @@ function makeComponent(
   overrides: Partial<{
     theme: Theme;
     getHeight: () => number;
+    getWidth: () => number;
     initialRowId: string;
     lastActionMessage: string;
   }> = {},
@@ -118,6 +120,7 @@ function makeComponent(
   const component = new DcpPanelComponent(model, {
     theme: overrides.theme ?? fakeTheme(),
     getHeight: overrides.getHeight ?? (() => 24),
+    getWidth: overrides.getWidth ?? (() => 80),
     requestRender,
     onAction: (action) => actions.push(action),
     initialRowId: overrides.initialRowId,
@@ -126,28 +129,32 @@ function makeComponent(
   return { component, actions, requestRender };
 }
 
-describe("DcpPanelComponent", () => {
+function selectedLine(rendered: string[]): string | undefined {
+  return rendered.find((line) => line.includes("▸"));
+}
+
+describe("DcpPanelComponent rendering", () => {
   it.each([60, 80, 120])("bounds every rendered line to %i columns", (width) => {
-    const model = modelWithBlocks(40, "日本語 very long topic with wide characters");
-    const { component } = makeComponent(model, { getHeight: () => 24 });
+    const { component } = makeComponent(
+      modelWithBlocks(40, "日本語 very long topic with wide characters"),
+    );
 
     const lines = component.render(width);
 
-    expect(lines.length).toBeLessThanOrEqual(24);
+    expect(lines.length).toBeLessThanOrEqual(20);
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
   });
 
   it.each([60, 80, 120])(
     "shows policy, tool availability, and all lifetime totals at %i columns",
     (width) => {
-      const model = modelWithBlocks(1);
-      const { component } = makeComponent(model);
+      const { component } = makeComponent(modelWithBlocks(1));
 
       const rendered = component.render(width).join("\n");
 
       expect(rendered).toContain("Pipeline enabled");
       expect(rendered).toContain("Tool active");
-      expect(rendered).toContain("Lifetime saved 1000");
+      expect(rendered).toContain("Lifetime saved ~1k");
       expect(rendered).toContain("sessions 3");
       expect(rendered).toContain("Lifetime tools 4");
       expect(rendered).toContain("messages 2");
@@ -160,11 +167,11 @@ describe("DcpPanelComponent", () => {
       row.action = undefined;
       row.unavailableReason = "Inactive";
     }
-    const { component, actions } = makeComponent(model);
+    const { component, actions } = makeComponent(model, { getHeight: () => 40 });
 
     for (let step = 0; step < 50; step++) component.handleInput("j");
 
-    expect(component.render(60).find((line) => line.startsWith("> "))).toContain("Block b40:");
+    expect(component.render(80).join("\n")).toContain("Block b40:");
     component.handleInput("\r");
     expect(actions).toEqual([]);
     component.handleInput("q");
@@ -174,12 +181,14 @@ describe("DcpPanelComponent", () => {
   it.each(["\n", "\r", "\r\n", "\t"])(
     "keeps block labels on one terminal line for %j",
     (separator) => {
-      const { component } = makeComponent(modelWithBlocks(1, `first${separator}second`));
+      const { component } = makeComponent(modelWithBlocks(1, `first${separator}second`), {
+        getHeight: () => 40,
+      });
 
-      const row = component.render(120).find((line) => line.includes("Block b1:"));
+      const rendered = component.render(120);
 
-      expect(row).toContain("first second");
-      expect(row).not.toMatch(/[\r\n\t]/);
+      expect(rendered.join("\n")).toContain("first second");
+      for (const line of rendered) expect(line).not.toMatch(/[\r\n\t]/);
     },
   );
 
@@ -202,15 +211,18 @@ describe("DcpPanelComponent", () => {
           lifetimeStats: undefined,
           compressToolActive: false,
         }),
+        { getHeight: () => 40 },
       );
 
-      const rows = component.render(width).filter((line) => line.includes("Block b"));
+      const rendered = component.render(width).join("\n");
 
-      expect(rows).toHaveLength(3);
-      expect(rows[0]).toContain("Deactivate");
-      expect(rows[1]).toContain("Reactivate");
-      expect(rows[2]).toContain("Inactive");
-      for (const row of rows) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+      expect(rendered).toContain("Block b1:");
+      expect(rendered).toContain("Deactivate");
+      expect(rendered).toContain("Reactivate");
+      expect(rendered).toContain("Inactive");
+      for (const line of component.render(width)) {
+        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      }
     },
   );
 
@@ -229,6 +241,7 @@ describe("DcpPanelComponent", () => {
         lifetimeStats: undefined,
         compressToolActive: false,
       }),
+      { getHeight: () => 40 },
     );
 
     const lines = component.render(60);
@@ -240,7 +253,7 @@ describe("DcpPanelComponent", () => {
     }
   });
 
-  it.each([1, 2, 3])("keeps close instructions visible within a %i-row terminal", (height) => {
+  it.each([1, 2, 3, 8, 10])("keeps a usable close hint within a %i-row terminal", (height) => {
     const { component } = makeComponent(modelWithBlocks(2), {
       getHeight: () => height,
       lastActionMessage: "Manual mode: on",
@@ -248,8 +261,8 @@ describe("DcpPanelComponent", () => {
 
     const lines = component.render(60);
 
-    expect(lines.length).toBeLessThanOrEqual(height);
-    expect(lines.join("\n")).toContain("Esc/q close");
+    expect(lines.length).toBeLessThanOrEqual(Math.max(1, Math.floor(height * 0.85)));
+    expect(lines.some((line) => line.includes("close") || line.trim() === "q")).toBe(true);
   });
 
   it("keeps the selection visible while scrolling and after resize", () => {
@@ -257,20 +270,48 @@ describe("DcpPanelComponent", () => {
     const { component } = makeComponent(modelWithBlocks(30), { getHeight: () => height });
 
     for (let step = 0; step < 25; step++) component.handleInput("j");
-    expect(component.render(80).some((line) => line.startsWith("> "))).toBe(true);
+    expect(selectedLine(component.render(80))).toBeDefined();
 
-    height = 8;
+    height = 11;
     const resized = component.render(80);
-    expect(resized.length).toBeLessThanOrEqual(8);
-    expect(resized.some((line) => line.startsWith("> "))).toBe(true);
+    expect(resized.length).toBeLessThanOrEqual(9);
+    expect(selectedLine(resized)).toBeDefined();
   });
 
-  it("navigates with j/k and arrow keys and completes the selected action", () => {
+  it("selects the initial row by stable identity", () => {
+    const { component } = makeComponent(modelWithBlocks(2), { initialRowId: "sweep" });
+
+    expect(selectedLine(component.render(80))).toContain("Sweep");
+  });
+
+  it("falls back to the first row when the initial id is missing", () => {
+    const { component } = makeComponent(modelWithBlocks(2), { initialRowId: "missing" });
+
+    expect(selectedLine(component.render(80))).toContain("Manual mode");
+  });
+
+  it("renders the last action message on a bounded feedback row", () => {
+    const { component } = makeComponent(modelWithBlocks(1), {
+      lastActionMessage: "Manual mode: on. Automatic compression is paused.",
+    });
+
+    const wide = component.render(160).join("\n");
+    expect(wide).toContain("Last action: Manual mode: on");
+
+    const narrow = component.render(26);
+    for (const line of narrow) expect(visibleWidth(line)).toBeLessThanOrEqual(26);
+  });
+});
+
+describe("DcpPanelComponent input and activation", () => {
+  it("navigates with j/k and completes the selected action after rendering", () => {
     const { component, actions } = makeComponent(modelWithBlocks(2));
 
+    component.render(60);
     component.handleInput("j");
+    component.render(60);
     component.handleInput("k");
-    component.handleInput("k");
+    component.render(60);
     component.handleInput("\r");
 
     expect(actions).toEqual([{ type: "toggle-manual" }]);
@@ -278,7 +319,9 @@ describe("DcpPanelComponent", () => {
 
   it("moves down with an arrow key", () => {
     const { component, actions } = makeComponent(modelWithBlocks(2));
+    component.render(60);
     component.handleInput("\u001b[B");
+    component.render(60);
     component.handleInput("\r");
     expect(actions).toEqual([{ type: "cycle-permission" }]);
   });
@@ -301,52 +344,189 @@ describe("DcpPanelComponent", () => {
     expect(actions).toEqual([{ type: "close" }]);
   });
 
-  it("selects the initial row by stable identity", () => {
-    const { component } = makeComponent(modelWithBlocks(2), { initialRowId: "sweep" });
-    const selected = component.render(80).find((line) => line.startsWith("> "));
-    expect(selected).toContain("Sweep");
-  });
+  it("does not activate before the first successful render", () => {
+    const { component, actions } = makeComponent(modelWithBlocks(1));
 
-  it("renders the last action message", () => {
-    const { component } = makeComponent(modelWithBlocks(1), {
-      lastActionMessage: "Manual mode: on. Automatic compression is paused.",
-    });
-    expect(component.render(120).join("\n")).toContain("Manual mode: on");
-  });
-
-  it("falls back to a bounded unthemed view with working close keys on render failure", () => {
-    const badTheme = {
-      fg: () => {
-        throw new Error("theme failure");
-      },
-    } as unknown as Theme;
-    const { component, actions } = makeComponent(modelWithBlocks(3), { theme: badTheme });
-
-    const lines = component.render(80);
-
-    expect(lines.length).toBeLessThanOrEqual(24);
-    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
-    expect(lines.join("\n")).toContain("close");
+    component.handleInput("\r");
+    expect(actions).toEqual([]);
 
     component.handleInput("q");
     expect(actions).toEqual([{ type: "close" }]);
   });
 
-  it("does not run unseen actions while rendering is unavailable", () => {
-    const badTheme = {
-      fg: () => {
-        throw new Error("theme failure");
-      },
-    } as unknown as Theme;
-    const { component, actions } = makeComponent(modelWithBlocks(3), { theme: badTheme });
+  it("activates once after rendering the selected row", () => {
+    const { component, actions } = makeComponent(modelWithBlocks(1));
+
+    component.render(80);
+    component.handleInput("\r");
+    component.handleInput("\r");
+
+    expect(actions).toEqual([{ type: "toggle-manual" }]);
+  });
+
+  it("does not activate a moved selection until it is rendered", () => {
+    const { component, actions } = makeComponent(modelWithBlocks(1));
+
+    component.render(80);
+    component.handleInput("j");
+    component.handleInput("\r");
+    expect(actions).toEqual([]);
+
+    component.render(80);
+    component.handleInput("\r");
+    expect(actions).toEqual([{ type: "cycle-permission" }]);
+  });
+
+  it("keeps the latest selection across repeated moves before rendering", () => {
+    const { component } = makeComponent(modelWithBlocks(3));
+
+    component.handleInput("j");
+    component.handleInput("j");
+
+    expect(selectedLine(component.render(80))).toContain("Sweep");
+  });
+
+  it("requires a render after invalidation", () => {
+    const { component, actions } = makeComponent(modelWithBlocks(1));
+
+    component.render(80);
+    component.invalidate();
+    component.handleInput("\r");
+    expect(actions).toEqual([]);
+
+    component.render(80);
+    component.handleInput("\r");
+    expect(actions).toEqual([{ type: "toggle-manual" }]);
+  });
+
+  it("requires matching terminal dimensions", () => {
+    let width = 80;
+    const { component, actions } = makeComponent(modelWithBlocks(1), {
+      getWidth: () => width,
+    });
+
+    component.render(80);
+    width = 100;
+    component.handleInput("\r");
+    expect(actions).toEqual([]);
+
+    component.render(80);
+    component.handleInput("\r");
+    expect(actions).toEqual([{ type: "toggle-manual" }]);
+  });
+
+  it("disables navigation and activation after a tiny render until it recovers", () => {
+    let height = 8;
+    const { component, actions } = makeComponent(modelWithBlocks(40), {
+      getHeight: () => height,
+    });
 
     component.render(60);
     component.handleInput("j");
     component.handleInput("\r");
-
     expect(actions).toEqual([]);
-    component.handleInput("q");
-    expect(actions).toEqual([{ type: "close" }]);
+
+    height = 24;
+    component.render(60);
+    component.handleInput("j");
+    component.render(60);
+    component.handleInput("\r");
+    expect(actions).toEqual([{ type: "cycle-permission" }]);
+  });
+
+  it("keeps plain controls usable when a theme method throws", () => {
+    const badTheme = {
+      fg: () => {
+        throw new Error("theme failure");
+      },
+      bg: () => {
+        throw new Error("theme failure");
+      },
+      bold: () => {
+        throw new Error("theme failure");
+      },
+      inverse: () => {
+        throw new Error("theme failure");
+      },
+    } as unknown as Theme;
+    const { component, actions } = makeComponent(modelWithBlocks(1), { theme: badTheme });
+
+    const rendered = component.render(80).join("\n");
+    expect(rendered).toContain("DCP Panel");
+    expect(rendered).toContain("Manual mode: off");
+
+    component.handleInput("\r");
+    expect(actions).toEqual([{ type: "toggle-manual" }]);
+  });
+
+  it("tolerates a non-string theme return without disabling controls", () => {
+    const weirdTheme = {
+      fg: () => 42,
+      bg: () => 42,
+      bold: () => 42,
+      inverse: () => 42,
+    } as unknown as Theme;
+    const { component, actions } = makeComponent(modelWithBlocks(1), { theme: weirdTheme });
+
+    expect(component.render(80).join("\n")).toContain("DCP Panel");
+    component.handleInput("\r");
+    expect(actions).toEqual([{ type: "toggle-manual" }]);
+  });
+
+  it("honors NO_COLOR while keeping controls usable", () => {
+    const previous = process.env.NO_COLOR;
+    process.env.NO_COLOR = "";
+    try {
+      const { component, actions } = makeComponent(modelWithBlocks(1));
+      expect(component.render(80).join("\n")).toContain("DCP Panel");
+      component.handleInput("q");
+      expect(actions).toEqual([{ type: "close" }]);
+    } finally {
+      if (previous === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = previous;
+    }
+  });
+
+  it("falls back to a bounded plain view when the renderer throws", () => {
+    const spy = vi.spyOn(panelRender, "renderDcpPanel").mockImplementation(() => {
+      throw new Error("render failed");
+    });
+    try {
+      const { component, actions } = makeComponent(modelWithBlocks(3));
+
+      const lines = component.render(80);
+      expect(lines.length).toBeLessThanOrEqual(20);
+      for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
+      expect(lines.join("\n")).toContain("close");
+
+      component.handleInput("j");
+      component.handleInput("\r");
+      expect(actions).toEqual([]);
+
+      component.handleInput("q");
+      expect(actions).toEqual([{ type: "close" }]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("recovers controls on a later component after a renderer failure", () => {
+    const spy = vi.spyOn(panelRender, "renderDcpPanel").mockImplementationOnce(() => {
+      throw new Error("render failed");
+    });
+    try {
+      const failing = makeComponent(modelWithBlocks(1));
+      failing.component.render(80);
+      failing.component.handleInput("\r");
+      expect(failing.actions).toEqual([]);
+
+      const recovered = makeComponent(modelWithBlocks(1));
+      recovered.component.render(80);
+      recovered.component.handleInput("\r");
+      expect(recovered.actions).toEqual([{ type: "toggle-manual" }]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
@@ -360,15 +540,21 @@ function createPanelHarness(options: Parameters<typeof createExtensionHarness>[0
   });
 }
 
+interface TerminalSize {
+  rows: number;
+  columns: number;
+}
+
 function drivePanel(
   harness: ExtensionHarness,
   queue: Array<DcpPanelAction | undefined>,
+  terminal: TerminalSize = { rows: 24, columns: 80 },
 ): DcpPanelComponent[] {
   const components: DcpPanelComponent[] = [];
   harness.ui.custom.mockImplementation(
     (factory: unknown) =>
       new Promise((resolve) => {
-        const tui = { terminal: { rows: 24 }, requestRender: () => {} };
+        const tui = { terminal: { ...terminal }, requestRender: () => {} };
         const component = (
           factory as (
             tui: unknown,
@@ -383,6 +569,11 @@ function drivePanel(
   );
   return components;
 }
+
+const OVERLAY_OPTIONS = {
+  overlay: true,
+  overlayOptions: { anchor: "center", width: "92%", maxHeight: "85%" },
+};
 
 describe("dcp panel controller", () => {
   it.each([
@@ -410,6 +601,20 @@ describe("dcp panel controller", () => {
     }
   });
 
+  it("opens each iteration with centered 92%/85% overlay options", async () => {
+    writeDcpConfig({});
+    const harness = createPanelHarness();
+    createExtension(harness.api);
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+
+    const components = drivePanel(harness, [{ type: "toggle-manual" }, undefined]);
+    await harness.runCommand("dcp", "");
+
+    expect(harness.ui.custom).toHaveBeenCalledTimes(2);
+    for (const call of harness.ui.custom.mock.calls) expect(call[1]).toEqual(OVERLAY_OPTIONS);
+    expect(components[0].render(60).at(-1)).toBe(`┗${"━".repeat(58)}┛`);
+  });
+
   it("applies a permitted action, persists once, and rebuilds with retained selection and message", async () => {
     writeDcpConfig({});
     const harness = createPanelHarness();
@@ -422,14 +627,15 @@ describe("dcp panel controller", () => {
 
     expect(harness.ui.custom).toHaveBeenCalledTimes(2);
     expect(components).toHaveLength(2);
-    expect(components[1].render(120).join("\n")).toContain(
-      "Manual mode: on. Automatic compression is paused.",
-    );
+    const rebuilt = components[1].render(160).join("\n");
+    expect(rebuilt).toContain("Manual mode: on. Automatic compression is paused.");
+    expect(selectedLine(components[1].render(160))).toContain("Manual mode");
     expect(
       harness.entries.some(
         (entry) => (entry.data as { manualMode?: unknown })?.manualMode === "active",
       ),
     ).toBe(true);
+    for (const line of components[1].render(60)) expect(visibleWidth(line)).toBeLessThanOrEqual(60);
   });
 
   it("does not invoke the state callback on close", async () => {
@@ -471,7 +677,7 @@ describe("dcp panel controller", () => {
     harness.ui.custom.mockImplementation(
       (factory: unknown) =>
         new Promise((resolve) => {
-          const tui = { terminal: { rows: 24 }, requestRender: () => {} };
+          const tui = { terminal: { rows: 24, columns: 80 }, requestRender: () => {} };
           const component = (
             factory as (
               tui: unknown,
@@ -538,6 +744,22 @@ describe("dcp panel controller", () => {
     }
   });
 
+  it("loads lifetime statistics once across action rebuilds", async () => {
+    writeDcpConfig({});
+    const harness = createPanelHarness();
+    createExtension(harness.api);
+    await harness.emit("session_start", { type: "session_start", reason: "new" });
+    const loadSpy = vi.spyOn(persistence, "loadAllSessionStats");
+    try {
+      drivePanel(harness, [{ type: "toggle-manual" }, { type: "sweep" }, undefined]);
+      await harness.runCommand("dcp", "");
+
+      expect(loadSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      loadSpy.mockRestore();
+    }
+  });
+
   it("closes without looping when the custom component returns undefined", async () => {
     writeDcpConfig({});
     const harness = createPanelHarness();
@@ -577,7 +799,7 @@ describe("openDcpPanel guarded action characterization", () => {
     harness.ui.custom.mockImplementation(
       (factory: unknown) =>
         new Promise((resolve) => {
-          const tui = { terminal: { rows: 24 }, requestRender: () => {} };
+          const tui = { terminal: { rows: 24, columns: 80 }, requestRender: () => {} };
           const component = (
             factory as (
               tui: unknown,
@@ -639,7 +861,7 @@ describe("openDcpPanel guarded action characterization", () => {
         harness.ui.custom.mock.invocationCallOrder[1],
       );
       expect(components).toHaveLength(2);
-      expect(components[1].render(120).join("\n")).toContain(message);
+      expect(components[1].render(160).join("\n")).toContain(message);
     },
   );
 

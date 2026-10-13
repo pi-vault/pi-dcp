@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Informational reports and automatic notifications now share compact token formatting (`k`/`M`, one fractional digit, and a `~` estimate marker) with aligned label/value rows. Detailed status notifications stay on one line; topics and summary bodies appear only in detailed toasts, and `showCompression` now affects the summary body in detailed toasts only.
+- The `dcp` panel now opens as a centered, bounded overlay (92% width, 85% height) with a heavy Pi-theme frame, two-column padding, an accent `▸` selection marker, compact estimated metrics, a scrolling list that keeps the selection visible, and a persistent close-key footer. Short terminals prioritize controls over information. A row runs only after it has rendered at the current terminal size, so resizing or moving the selection invalidates activation until the row renders again, and tiny terminals or renderer failures fall back to a bounded close-only view.
 
 ## 2026-10-05 - [0.10.0]
 
