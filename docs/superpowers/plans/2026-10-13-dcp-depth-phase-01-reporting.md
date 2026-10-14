@@ -10,7 +10,9 @@
 
 **Spec:** [Approved three-phase design](../specs/2026-10-13-dcp-architecture-deepening-design.md), especially Phase 1 and compatibility constraints.
 
-**Planning baseline:** `41da383`; fresh `pnpm check` passed on 13 October 2026: formatting, lint, type checking, and 66 test files / 1,153 tests. Implementation has not started.
+**Planning baseline:** `41da383`; fresh `pnpm check` passed on 13 October 2026: formatting, lint, type checking, and 66 test files / 1,153 tests. Implementation had not started at that baseline.
+
+**Implementation:** Completed in `b0794e4`. Post-implementation review passed the focused suite (9 test files / 182 tests), `pnpm check` (formatting, lint, type checking, and 67 test files / 1,159 tests), and `git diff --check`. No code defects or material test gaps were found.
 
 ## Global Constraints
 
