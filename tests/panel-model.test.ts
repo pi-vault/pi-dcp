@@ -7,9 +7,10 @@ import {
   type DcpPanelTab,
 } from "../src/tui/panel-model.ts";
 import { DCP_COMMAND_HELP } from "../src/commands/help.ts";
+import { contextCommand } from "../src/commands/context.ts";
 import { createSessionState } from "../src/state/state.ts";
 import { makeDefaultConfig } from "./helpers.ts";
-import type { CompressionBlock, SessionState } from "../src/state/types.ts";
+import type { CompressionBlock, ContextUsage, SessionState } from "../src/state/types.ts";
 
 function addBlock(state: SessionState, overrides: Partial<CompressionBlock>): CompressionBlock {
   const block: CompressionBlock = {
@@ -337,6 +338,47 @@ describe("buildDcpPanelModel", () => {
       baseInput({ contextUsage: { tokens: 0, contextWindow: 200_000, percent: 0 } }),
     );
     expect(detail(zero, "overview", "overview:context")).toBe("~0 / 200k (0%)");
+  });
+
+  it("keeps adapter-specific context availability and precision", () => {
+    const state = createSessionState();
+    const cases: Array<{ usage: ContextUsage | undefined; text: string; dashboard: string }> = [
+      {
+        usage: { tokens: 12345, contextWindow: 200000, percent: 6.1725 },
+        text: "~12.3k / 200k (6.2%)",
+        dashboard: "~12.3k / 200k (6.1725%)",
+      },
+      {
+        usage: { tokens: 12345, contextWindow: 200000, percent: null },
+        text: "Unavailable (context window: 200k)",
+        dashboard: "~12.3k / 200k (unknown)",
+      },
+      {
+        usage: { tokens: null, contextWindow: 0, percent: null },
+        text: "Unavailable (context window: 0)",
+        dashboard: "Unavailable",
+      },
+      {
+        usage: { tokens: 0, contextWindow: 200000, percent: 0 },
+        text: "~0 / 200k (0.0%)",
+        dashboard: "~0 / 200k (0%)",
+      },
+    ];
+
+    for (const { usage, text, dashboard } of cases) {
+      expect(contextCommand(state, usage)).toContain(text);
+      const model = buildDcpPanelModel(baseInput({ state, contextUsage: usage }));
+      expect(detail(model, "overview", "overview:context")).toBe(dashboard);
+    }
+  });
+
+  it("keeps text manual-mode values distinct from dashboard labels", () => {
+    const state = createSessionState();
+    state.manualMode = "active";
+
+    expect(contextCommand(state, undefined)).toContain("  Manual mode:                 active");
+    const model = buildDcpPanelModel(baseInput({ state, contextUsage: undefined }));
+    expect(detail(model, "overview", "overview:manual-mode")).toBe("on");
   });
 
   it("shows explicit unavailable values when data is missing", () => {

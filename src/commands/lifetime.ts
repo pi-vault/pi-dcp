@@ -1,3 +1,4 @@
+import { readDcpLifetimeFacts } from "../reporting.ts";
 import { loadAllSessionStats } from "../state/persistence.ts";
 import { formatDcpTokens } from "../tui/formatters.ts";
 
@@ -8,7 +9,7 @@ function renderRows(title: string, rows: Array<[string, string]>): string {
 }
 
 export async function lifetimeCommand(sessionsParentDir: string): Promise<string> {
-  const stats = await loadAllSessionStats(sessionsParentDir);
+  const stats = readDcpLifetimeFacts(await loadAllSessionStats(sessionsParentDir));
 
   return renderRows("DCP Lifetime Statistics:", [
     [

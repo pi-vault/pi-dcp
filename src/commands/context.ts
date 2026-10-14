@@ -1,4 +1,5 @@
 import type { ContextUsage, SessionState } from "../state/types.ts";
+import { readDcpContextFacts } from "../reporting.ts";
 import { formatDcpTokens } from "../tui/formatters.ts";
 
 function renderRows(title: string, rows: Array<[string, string]>): string {
@@ -12,23 +13,25 @@ export function contextCommand(
   contextUsage: ContextUsage | undefined,
   modelDisabled = false,
 ): string {
+  const facts = readDcpContextFacts(state, contextUsage);
+  const usage = facts.usage;
   let tokens: string;
-  if (contextUsage && contextUsage.tokens != null && contextUsage.percent != null) {
-    tokens = `${formatDcpTokens(contextUsage.tokens, true)} / ${formatDcpTokens(contextUsage.contextWindow)} (${contextUsage.percent.toFixed(1)}%)`;
-  } else if (contextUsage) {
-    tokens = `Unavailable (context window: ${formatDcpTokens(contextUsage.contextWindow)})`;
+  if (usage && usage.tokens != null && usage.percent != null) {
+    tokens = `${formatDcpTokens(usage.tokens, true)} / ${formatDcpTokens(usage.contextWindow)} (${usage.percent.toFixed(1)}%)`;
+  } else if (usage) {
+    tokens = `Unavailable (context window: ${formatDcpTokens(usage.contextWindow)})`;
   } else {
     tokens = "Unavailable";
   }
 
   const rows: Array<[string, string]> = [
     ["Tokens", tokens],
-    ["Currently pruned tool calls", String(state.prune.tools.size)],
-    ["Active compression blocks", String(state.prune.messages.activeBlockIds.size)],
-    ["Total blocks", String(state.prune.messages.blocksById.size)],
-    ["Tool cache entries", String(state.toolParameters.size)],
-    ["Current user turn", String(state.currentUserTurn)],
-    ["Manual mode", state.manualMode || "off"],
+    ["Currently pruned tool calls", String(facts.prunedToolCalls)],
+    ["Active compression blocks", String(facts.activeBlocks)],
+    ["Total blocks", String(facts.totalBlocks)],
+    ["Tool cache entries", String(facts.toolCacheEntries)],
+    ["Current user turn", String(facts.currentUserTurn)],
+    ["Manual mode", facts.manualMode || "off"],
   ];
 
   if (modelDisabled) {

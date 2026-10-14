@@ -68,7 +68,7 @@ The context counts come from `prune.tools.size`, `activeBlockIds.size`, `blocksB
 
 **Interfaces:** Consumes existing `contextCommand(state, usage, modelDisabled?)`, `statsCommand(state)`, `lifetimeCommand(parentDir)`, and `buildDcpPanelModel(input)`. Produces characterization tests used unchanged by Task 2.
 
-- [ ] **Step 1: Add missing output characterization.** Reuse `baseInput`/`detail` in panel-model tests, importing `contextCommand` there for the cross-adapter comparison, and normal command fixtures. Assert these cases against the current implementation before changing code:
+- [x] **Step 1: Add missing output characterization.** Reuse `baseInput`/`detail` in panel-model tests, importing `contextCommand` there for the cross-adapter comparison, and normal command fixtures. Assert these cases against the current implementation before changing code:
 
   | Usage / state | Text context | Dashboard context |
   | --- | --- | --- |
@@ -91,7 +91,7 @@ The context counts come from `prune.tools.size`, `activeBlockIds.size`, `blocksB
   });
   ```
 
-- [ ] **Step 2: Verify the characterization baseline.** Run `pnpm exec vitest run tests/commands-context.test.ts tests/commands-stats.test.ts tests/commands-lifetime.test.ts tests/panel-model.test.ts tests/panel.test.ts`; expect exit `0`. These are preservation tests and should pass before extraction. Investigate any discrepancy instead of changing the required copy.
+- [x] **Step 2: Verify the characterization baseline.** Run `pnpm exec vitest run tests/commands-context.test.ts tests/commands-stats.test.ts tests/commands-lifetime.test.ts tests/panel-model.test.ts tests/panel.test.ts`; expect exit `0`. These are preservation tests and should pass before extraction. Investigate any discrepancy instead of changing the required copy.
 
 ## Task 2: Implement the Shared Facts and Integrate Both Adapters
 
@@ -99,7 +99,7 @@ The context counts come from `prune.tools.size`, `activeBlockIds.size`, `blocksB
 
 **Interfaces:** Produces the three fixed exports above. Existing command and panel entry interfaces remain unchanged. Consumes Task 1's characterization without changing expected values.
 
-- [ ] **Step 1: Write failing interface tests.** In `tests/reporting.test.ts`, import the new exports. Test `reads current context counts without mutation`, `copies usage and statistics instead of retaining references`, `reads replaced nested state on the next call`, and `copies zero lifetime totals`. Use distinct counter values so field swaps fail. A representative assertion is:
+- [x] **Step 1: Write failing interface tests.** In `tests/reporting.test.ts`, import the new exports. Test `reads current context counts without mutation`, `copies usage and statistics instead of retaining references`, `reads replaced nested state on the next call`, and `copies zero lifetime totals`. Use distinct counter values so field swaps fail. A representative assertion is:
 
   ```ts
   it("copies usage and statistics instead of retaining references", () => {
@@ -118,13 +118,13 @@ The context counts come from `prune.tools.size`, `activeBlockIds.size`, `blocksB
 
   The replacement case assigns a fresh `state.prune.messages` from `createSessionState().prune.messages`, a fresh pruning map, and fresh stats with different values; the next read must use them. Compare input state/usage before and after reads to prove no mutation.
 
-- [ ] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/reporting.test.ts`; expect failure because `src/reporting.ts`/its exports do not exist. Do not write implementation before this result.
+- [x] **Step 2: Demonstrate failure.** Run `pnpm exec vitest run tests/reporting.test.ts`; expect failure because `src/reporting.ts`/its exports do not exist. Do not write implementation before this result.
 
-- [ ] **Step 3: Implement the exports and production integration.** Use current nested values on every call. Route all shared context/session/lifetime field selection through the new module in the four production consumers. Keep each existing formatting branch intact, including explicit null handling and text rounding. Lifetime reads stay outside reporting, once per panel invocation. Keep policy, limits, Controls, Blocks, Help, table alignment, and rendering untouched. Remove imports/local selectors made obsolete by this change; do not extract the table formatter as unrelated cleanup.
+- [x] **Step 3: Implement the exports and production integration.** Use current nested values on every call. Route all shared context/session/lifetime field selection through the new module in the four production consumers. Keep each existing formatting branch intact, including explicit null handling and text rounding. Lifetime reads stay outside reporting, once per panel invocation. Keep policy, limits, Controls, Blocks, Help, table alignment, and rendering untouched. Remove imports/local selectors made obsolete by this change; do not extract the table formatter as unrelated cleanup.
 
-- [ ] **Step 4: Verify the completed phase.** Run `pnpm exec vitest run tests/reporting.test.ts tests/commands-context.test.ts tests/commands-stats.test.ts tests/commands-lifetime.test.ts tests/panel-model.test.ts tests/panel-render.test.ts tests/panel.test.ts tests/commands-register.test.ts tests/sdk-contract.test.ts`; expect exit `0`. Inspect all four consumers for duplicate fact selection or an unused new export. Run `pnpm check` and `git diff --check`; expect exit `0`. Do not replace expected text/rows merely to make the suite green.
+- [x] **Step 4: Verify the completed phase.** Run `pnpm exec vitest run tests/reporting.test.ts tests/commands-context.test.ts tests/commands-stats.test.ts tests/commands-lifetime.test.ts tests/panel-model.test.ts tests/panel-render.test.ts tests/panel.test.ts tests/commands-register.test.ts tests/sdk-contract.test.ts`; expect exit `0`. Inspect all four consumers for duplicate fact selection or an unused new export. Run `pnpm check` and `git diff --check`; expect exit `0`. Do not replace expected text/rows merely to make the suite green.
 
-- [ ] **Step 5: Commit the complete phase.** Stage only the listed source/tests and actual progress updates to this plan, then commit with `refactor: share DCP reporting facts`. Tasks 1–2 are sequential work within this phase; ship the complete integrated change. No README, changelog, version, schema, or behavior update is needed for an output-preserving extraction.
+- [x] **Step 5: Commit the complete phase.** Stage only the listed source/tests and actual progress updates to this plan, then commit with `refactor: share DCP reporting facts`. Tasks 1–2 are sequential work within this phase; ship the complete integrated change. No README, changelog, version, schema, or behavior update is needed for an output-preserving extraction.
 
 ## Completion and Handoff
 
