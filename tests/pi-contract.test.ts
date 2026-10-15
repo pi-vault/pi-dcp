@@ -47,6 +47,7 @@ function writeConfig(config: unknown): void {
 
 function systemPromptEvent(sections: Record<string, string> = {}) {
   return {
+    messageType: "user" as const,
     systemPrompt: "base prompt",
     systemPromptOptions: {
       selectedTools: ["read"],

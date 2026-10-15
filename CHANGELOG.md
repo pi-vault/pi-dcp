@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## 2026-10-15 - [0.11.0]
 
 ### Added
 
@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The `dcp` panel is now a tabbed dashboard that sizes from the longest tab body to avoid jumping on tab switches. Empty Blocks shows `No compression blocks.`, block rows reserve stable ID and lifecycle before topic/metric detail, and the tiny-terminal fallback stays bounded and close-only.
 - Informational reports and automatic notifications now share compact token formatting (`k`/`M`, one fractional digit, and a `~` estimate marker) with aligned label/value rows. Detailed status notifications stay on one line; topics and summary bodies appear only in detailed toasts, and `showCompression` now affects the summary body in detailed toasts only.
 - The `dcp` panel now opens as a centered, bounded overlay (92% width, 85% height) with a heavy Pi-theme frame, two-column padding, an accent `▸` selection marker, compact estimated metrics, a scrolling list that keeps the selection visible, and a persistent close-key footer. Short terminals prioritize controls over information. A row runs only after it has rendered at the current terminal size, so resizing or moving the selection invalidates activation until the row renders again, and tiny terminals or renderer failures fall back to a bounded close-only view.
+- Host dependency floor raised to `@earendil-works/pi-agent-core` and `@earendil-works/pi-coding-agent` `^1.2.0` (from `^1.1.0`) and `@earendil-works/pi-tui` `^1.2.0` (from `^1.1.0`). The `before_agent_start` event is now a union on `messageType` (`"user"` carries `prompt`/`images`, `"custom"` carries `message`); handlers that should act only on user prompts must check `event.messageType === "user"`. `typebox` dev floor raised to `^1.3.37`; `vitest` to `^5.0.4`. `vitest` 5.0.5 skipped (published inside the 48-hour stability window).
 
 ## 2026-10-05 - [0.10.0]
 

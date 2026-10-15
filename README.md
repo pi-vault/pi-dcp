@@ -42,40 +42,22 @@ Use `dcp:context` to see token usage and active DCP state, `dcp:help` to list co
 - **Shows operational feedback** — pruning and compression can surface in toast or status notifications.
 - **Lets you tune behavior** — config, manual mode, runtime permission control, and schema-backed validation are all built in.
 
-## What's new in 0.10.0
+## What's new in 0.11.0
 
-- **Per-call `ask` permission** — compression permission is now `allow`, `ask`, or `deny`. `ask` keeps the tool exposed and confirms every call inside the registered `execute` function, including direct executions. The dialog names the topic and the number of ranges or targets, and approvals are never reused.
-- **Interactive `dcp` dashboard** — one Pi-native TUI view with five tabs (Overview, Controls, Blocks, Statistics, Help). `Tab`/`Shift-Tab` switch tabs, arrow keys or `j`/`k` move, Enter or Space runs the selected action, and Escape or `q` closes. Informational commands open their matching tab in TUI mode; panel actions use the same guarded commands as the direct commands and recheck policy before acting.
-- **Fail-closed confirmations** — TUI and RPC can confirm; print/JSON sessions and any mode without dialog UI refuse the call. Rejection, cancellation, abort, or confirmation failure returns an error tool result and creates no compression timing, blocks, statistics, or DCP state entries.
-- **Backward-readable snapshots** — version 2 adds the full permission union, while readers keep accepting version 1 allow/deny snapshots unchanged.
-
-## What's new in 0.9.0
-
-- **Lifecycle-aware tool reconciliation** — DCP registers the `compress` tool during extension creation with `defaultActive: false`, then refreshes its mode-specific schema from trusted project configuration at session start. Pi's restored loadout is authoritative: a tool you deselected stays deselected across model switches, permission toggles, definition refreshes, resume, and reload. DCP remembers a temporary suppression within the current branch and restores the tool only when every policy reason clears.
-- **Explicit fresh-session activation** — on a brand-new session where the host allows the tool and the branch declares no tool loadout, DCP selects `compress` once. It never overrides `tools`, `excludeTools`, or `noTools: "all"`, and it never reactivates the tool on resume, fork, tree navigation, or reload.
-- **Structured system prompt section** — DCP writes its instructions to the `dcp` section of Pi's structured system prompt instead of replacing the whole prompt. Other extensions' sections and any forced prompt are left untouched.
-- **One prompt snapshot per run** — custom prompt overrides reload once at the start of each agent run and are shared by the system section and every subsequent context pass until the next run. Edits made mid-run take effect on the next run.
-- **Guidance follows the selection** — compression instructions and nudges are hidden whenever `compress` is inactive or compression permission is denied. Automatic deduplication, stale-error pruning, reference assignment, and existing compression summaries keep working.
-- **Defensive authorization** — `tool_call` and the registered `execute` function reject every policy suppression reason with a clear message, even if the tool is invoked directly. Denied permission still allows automatic pruning.
-- **`dcp:compress` does not activate the tool** — the command reports that compression is unavailable when `compress` is inactive instead of silently selecting it.
-
-## What's new in 0.8.0
-
-- **Compact message markers replace verbose XML tags** — each injectable user/assistant message now ends with a standalone `@mN@` line, or `@mN:P@` when a compression priority is assigned. On a 2,000-message clean workload this cut metadata overhead from roughly 20,000 estimated tokens to about 4,000.
-- **Every accepted tool input still resolves to the same message** — `compress` accepts `m1`, `m0001`, `@m1@`, and `@m1:3@` in `range` mode, and `m2`, `m0002`, `@m2@`, `@m2:1@` in `message` mode, alongside `b1`-style block refs. Input is normalized to the stored canonical reference before lookup, so the accepted formats are interchangeable rather than merely parseable.
-- **Stored and persisted references stay canonical** — `messageIds` and version-1 snapshots continue to use the padded `m0001` form. Nothing is migrated: a snapshot pair is validated as canonical and discarded if it is not, and `nextRefIndex` remains authoritative.
-- **Safer marker sanitization** — a marker is removed only when it occupies a whole line (complete or truncated, LF or CRLF, with optional indentation). Inline markers, `person@m1@example.com`, `@mention`, and marker text inside a sentence are left alone. Legacy XML marker cleanup remains active.
-- **Benchmark token gates are release-blocking** — deterministic token budgets for all three workloads are asserted in `tests/benchmark.test.ts`. Elapsed-time reporting stays informational.
+- **Tabbed `dcp` dashboard** — five tabs (Overview, Controls, Blocks, Statistics, Help) with independent per-tab selection and scroll state. `Tab`/`Shift-Tab` switch tabs, Enter or Space runs a selected action, and Escape or `q` closes from any tab. The dashboard sizes from the longest tab body so it does not jump on tab switches, opens as a centered, bounded overlay with a heavy Pi-theme frame and an accent `▸` marker, and a tiny-terminal fallback stays bounded and close-only.
+- **Routed informational commands** — `dcp` and `dcp:context` open the Overview tab, `dcp:stats` and `dcp:lifetime` open Statistics, and `dcp:help` opens Help. RPC, print, JSON, and no-UI sessions keep their plain-text responses. Each compression block row carries a structured lifecycle label (`Active`, `User-deactivated`, `Consumed`, or `Inactive`) that is independent of pipeline policy, and the Help tab shares one ordered command-help descriptor list with the plain-text help output.
+- **Compact `compress` call and result rendering** — calls show the mode, flattened topic, and selection count; successful results collapse to estimated input/summary metrics and expand to the unchanged result text plus created block IDs. Partial results show progress; error, historical, and malformed results keep their original text, and display details never include submitted or combined summary text. Informational reports and automatic notifications share compact token formatting (`k`/`M`, one fractional digit, and a `~` estimate marker) with aligned label/value rows.
+- **Host dependency bumps** — `@earendil-works/pi-agent-core`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` raised to `^1.2.0`; the `before_agent_start` event is now a union on `messageType` (`"user"` carries `prompt`/`images`, `"custom"` carries `message`). `typebox` raised to `^1.3.37`; `vitest` to `^5.0.4` (5.0.5 skipped — inside the 48-hour stability window).
 
 ## Message markers and IDs
 
 DCP shows the model a compact marker for each message it can compress:
 
-| Form           | Meaning                             |
-| -------------- | ----------------------------------- |
-| `@m12@`        | Message 12, no priority assigned    |
-| `@m12:3@`      | Message 12, compression priority 3  |
-| `b3`           | Compression block 3                 |
+| Form      | Meaning                            |
+| --------- | ---------------------------------- |
+| `@m12@`   | Message 12, no priority assigned   |
+| `@m12:3@` | Message 12, compression priority 3 |
+| `b3`      | Compression block 3                |
 
 The marker is injected on its own line at the end of the message. Copy it exactly as shown when calling `compress`.
 
@@ -107,7 +89,7 @@ In TUI mode with dialog UI, the informational commands open the dashboard on a m
 
 | Command                    | Purpose                                         |
 | -------------------------- | ----------------------------------------------- |
-| `dcp`                       | Open the interactive DCP dashboard              |
+| `dcp`                      | Open the interactive DCP dashboard              |
 | `dcp:help`                 | List all available commands                     |
 | `dcp:context`              | Show context usage and DCP state                |
 | `dcp:stats`                | Show compression and token savings statistics   |

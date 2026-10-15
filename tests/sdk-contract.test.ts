@@ -552,9 +552,10 @@ describe("DCP public SDK contract", () => {
     });
 
     expect(session.getActiveToolNames()).toContain("compress");
-    const result = await session.extensionRunner.emitBeforeAgentStart("hello", undefined, {
-      cwd: agentDir,
-    });
+    const result = await session.extensionRunner.emitBeforeAgentStart(
+      { messageType: "user", prompt: "hello" },
+      { cwd: agentDir },
+    );
     expect(result.systemPromptOptions.sections.dcp).toContain("compress");
   });
 
@@ -574,9 +575,10 @@ describe("DCP public SDK contract", () => {
     await session.reload();
     expect(session.getActiveToolNames()).not.toContain("compress");
     expect(session.getAllTools().some((tool) => tool.name === "compress")).toBe(true);
-    const result = await session.extensionRunner.emitBeforeAgentStart("hello", undefined, {
-      cwd: agentDir,
-    });
+    const result = await session.extensionRunner.emitBeforeAgentStart(
+      { messageType: "user", prompt: "hello" },
+      { cwd: agentDir },
+    );
     expect(result.systemPromptOptions.sections.dcp).toBeUndefined();
   });
 
@@ -654,18 +656,20 @@ describe("DCP public SDK contract", () => {
 
   it("sets the dcp system prompt section through the real extension runner", async () => {
     const { session, agentDir } = await createHostSession();
-    const result = await session.extensionRunner.emitBeforeAgentStart("hello", undefined, {
-      cwd: agentDir,
-    });
+    const result = await session.extensionRunner.emitBeforeAgentStart(
+      { messageType: "user", prompt: "hello" },
+      { cwd: agentDir },
+    );
 
     expect(result.systemPromptOptions.sections.dcp).toContain("compress");
   });
 
   it("omits the dcp section when the host excludes the tool", async () => {
     const { session, agentDir } = await createHostSession({ tools: ["read"] });
-    const result = await session.extensionRunner.emitBeforeAgentStart("hello", undefined, {
-      cwd: agentDir,
-    });
+    const result = await session.extensionRunner.emitBeforeAgentStart(
+      { messageType: "user", prompt: "hello" },
+      { cwd: agentDir },
+    );
 
     expect(result.systemPromptOptions.sections.dcp).toBeUndefined();
   });
