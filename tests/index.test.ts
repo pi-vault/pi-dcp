@@ -1145,9 +1145,238 @@ describe("dcp extension", () => {
       vi.useRealTimers();
     }
   });
+
+  it("retries changed state after append failure without advancing the fingerprint", async () => {
+    const { api, handlers, entries, commands } = createMockApi();
+    const appendSpy = vi.spyOn(api, "appendEntry");
+    const warnSpy = vi.spyOn(Logger.prototype, "warn");
+    try {
+      createExtension(api);
+      const ctx = sessionContext();
+      await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        ctx,
+      );
+      expect(entries).toHaveLength(1);
+      entries.length = 0;
+      appendSpy.mockClear();
+      appendSpy.mockImplementationOnce(() => {
+        throw new Error("append failed");
+      });
+
+      const manual = commands.get("dcp:manual") as {
+        handler: (args: string, commandCtx: typeof ctx) => Promise<void>;
+      };
+      await manual.handler("on", ctx);
+      expect(entries).toHaveLength(0);
+      expect(warnSpy).toHaveBeenCalledWith("dcp", "failed to persist native session state", {
+        error: expect.stringContaining("append failed"),
+      });
+
+      await (
+        registeredHandler(handlers, "session_shutdown") as (...args: unknown[]) => Promise<void>
+      )({}, ctx);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.data).toMatchObject({ manualMode: "active" });
+
+      await (
+        registeredHandler(handlers, "session_shutdown") as (...args: unknown[]) => Promise<void>
+      )({}, ctx);
+      expect(entries).toHaveLength(1);
+    } finally {
+      appendSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does not carry a failed event-local force decision into later shutdown", async () => {
+    const { api, handlers, entries } = createMockApi();
+    const appendSpy = vi.spyOn(api, "appendEntry");
+    const warnSpy = vi.spyOn(Logger.prototype, "warn");
+    try {
+      createExtension(api);
+      const ctx = sessionContext();
+      await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        ctx,
+      );
+      const baseline = entries[0]?.data;
+      entries.length = 0;
+      appendSpy.mockClear();
+      appendSpy.mockImplementationOnce(() => {
+        throw new Error("append failed");
+      });
+      ctx.sessionManager.getBranch = () => [
+        { type: "custom", customType: "pi-dcp-state", data: baseline },
+        { type: "custom", customType: "pi-dcp-state", data: { invalid: true } },
+      ];
+
+      await (registeredHandler(handlers, "session_tree") as (...args: unknown[]) => Promise<void>)(
+        {},
+        ctx,
+      );
+      expect(appendSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "dcp",
+        "failed to persist native session state",
+        expect.anything(),
+      );
+      expect(entries).toHaveLength(0);
+
+      await (
+        registeredHandler(handlers, "session_shutdown") as (...args: unknown[]) => Promise<void>
+      )({}, ctx);
+      expect(appendSpy).toHaveBeenCalledTimes(1);
+      expect(entries).toHaveLength(0);
+    } finally {
+      appendSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("persists untimed compression on shutdown", async () => {
+    const { api, handlers, entries, tools } = createMockApi();
+    createExtension(api);
+    const ctx = sessionContext();
+    await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "one" }], timestamp: 1 },
+      { role: "assistant", content: [{ type: "text", text: "two" }], timestamp: 2 },
+    ];
+    await registeredHandler(handlers, "context")({ messages }, ctx);
+    entries.length = 0;
+
+    const compress = tools.get("compress") as {
+      execute: (...args: unknown[]) => Promise<unknown>;
+    };
+    await compress.execute(
+      "compress-call",
+      { topic: "topic", content: [{ startId: "m0001", endId: "m0002", summary: "summary" }] },
+      undefined,
+      undefined,
+      ctx,
+    );
+    expect(entries).toHaveLength(0);
+
+    await (
+      registeredHandler(handlers, "session_shutdown") as (...args: unknown[]) => Promise<void>
+    )({}, ctx);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.data).toMatchObject({ blocks: [{ durationMs: 0 }] });
+
+    await (
+      registeredHandler(handlers, "session_shutdown") as (...args: unknown[]) => Promise<void>
+    )({}, ctx);
+    expect(entries).toHaveLength(1);
+  });
+
+  it("drops repair force when intervening host work throws", async () => {
+    const { api, handlers, entries } = createMockApi();
+    const appendSpy = vi.spyOn(api, "appendEntry");
+    const getActiveToolsSpy = vi.spyOn(api, "getActiveTools");
+    try {
+      createExtension(api);
+      const branch: unknown[] = [];
+      const ctx = {
+        ...sessionContext(),
+        sessionManager: {
+          getSessionDir: () => "/tmp/test-session-dir",
+          getSessionId: () => "session",
+          getBranch: () => branch,
+        },
+      };
+      await (registeredHandler(handlers, "session_start") as (...args: unknown[]) => Promise<void>)(
+        { reason: "new" },
+        ctx,
+      );
+      const baseline = entries[0]?.data;
+      entries.length = 0;
+      appendSpy.mockClear();
+
+      const repairBranch = () => {
+        branch.length = 0;
+        branch.push(
+          { type: "custom", customType: "pi-dcp-state", data: baseline },
+          { type: "custom", customType: "pi-dcp-state", data: { invalid: true } },
+        );
+      };
+
+      // Branch navigation: the host callback throws after restoration, so the
+      // event-local repair force is dropped and no append happens.
+      repairBranch();
+      getActiveToolsSpy.mockImplementationOnce(() => {
+        throw new Error("selection failed");
+      });
+      const tree = registeredHandler(handlers, "session_tree") as (
+        ...args: unknown[]
+      ) => Promise<void>;
+      await expect(tree({}, ctx)).rejects.toThrow("selection failed");
+      expect(appendSpy).not.toHaveBeenCalled();
+      expect(entries).toHaveLength(0);
+
+      await (
+        registeredHandler(handlers, "session_shutdown") as (...args: unknown[]) => Promise<void>
+      )({}, ctx);
+      expect(appendSpy).not.toHaveBeenCalled();
+      expect(entries).toHaveLength(0);
+
+      // Session start clears fingerprint memory: its exception still skips the
+      // event checkpoint, but shutdown now writes the changed facts once.
+      repairBranch();
+      getActiveToolsSpy.mockImplementationOnce(() => {
+        throw new Error("selection failed");
+      });
+      const start = registeredHandler(handlers, "session_start") as (
+        ...args: unknown[]
+      ) => Promise<void>;
+      await expect(start({ reason: "reload" }, ctx)).rejects.toThrow("selection failed");
+      expect(appendSpy).not.toHaveBeenCalled();
+
+      await (
+        registeredHandler(handlers, "session_shutdown") as (...args: unknown[]) => Promise<void>
+      )({}, ctx);
+      expect(appendSpy).toHaveBeenCalledTimes(1);
+      await (
+        registeredHandler(handlers, "session_shutdown") as (...args: unknown[]) => Promise<void>
+      )({}, ctx);
+      expect(appendSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      appendSpy.mockRestore();
+      getActiveToolsSpy.mockRestore();
+    }
+  });
 });
 
 describe("configuration warning lifecycle", () => {
+  it("uses the reloaded logger for checkpoint append failures", async () => {
+    const { api, handlers, entries } = createMockApi();
+    createExtension(api);
+    writeConfig({ debug: true });
+    const baseContext = sessionContext();
+    const sessionDir = path.join(agentDir, "checkpoint-session");
+    const ctx = {
+      ...baseContext,
+      sessionManager: { ...baseContext.sessionManager, getSessionDir: () => sessionDir },
+    };
+    const appendSpy = vi.spyOn(api, "appendEntry").mockImplementationOnce(() => {
+      throw new Error("checkpoint append failed");
+    });
+    try {
+      await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+
+      expect(entries).toHaveLength(0);
+      const logDir = path.join(sessionDir, "dcp", "logs");
+      const logFiles = fs.readdirSync(logDir);
+      expect(logFiles).toHaveLength(1);
+      const log = fs.readFileSync(path.join(logDir, logFiles[0]), "utf8");
+      expect(log).toContain(
+        'WARN  dcp: failed to persist native session state | error="Error: checkpoint append failed"',
+      );
+    } finally {
+      appendSpy.mockRestore();
+    }
+  });
+
   function writeInvalidConfig(): string {
     const configDir = path.join(agentDir, "extensions");
     fs.mkdirSync(configDir, { recursive: true });
