@@ -35,15 +35,10 @@ import { mapText } from "./utils/message-content.ts";
 import { COMPRESS_MESSAGE_PROMPT } from "./prompts/compress-message.ts";
 import { Logger } from "./logger.ts";
 import { DCP_SYSTEM_PROMPT } from "./prompts/system.ts";
-import { createSessionState, resetSessionState } from "./state/state.ts";
+import { createSessionState } from "./state/state.ts";
 import type { SessionState } from "./state/types.ts";
 import { registerDcpCommands } from "./commands/register.ts";
-import {
-  parseDcpSnapshot,
-  restoreDcpSnapshot,
-  serializeDcpSnapshot,
-  durableStateFingerprint,
-} from "./state/persistence.ts";
+import { createDcpCheckpoints } from "./state/checkpoints.ts";
 import { runPipeline } from "./pipeline.ts";
 import { parseChildSessionResults } from "./subagents/subagent-results.ts";
 import { createCompressionToolSelection } from "./tool-selection.ts";
@@ -149,7 +144,6 @@ export default function createExtension(pi: ExtensionAPI): void {
   let latestMessages: AgentMessage[] = [];
   let promptStore: PromptStore | undefined;
   let runtimePrompts: RuntimePrompts | undefined;
-  let lastPersistedFingerprint: string | undefined;
 
   /** Policy capabilities for the current model identity. */
   function evaluateCapabilities(ctx?: ExtensionContext) {
@@ -161,44 +155,9 @@ export default function createExtension(pi: ExtensionAPI): void {
     );
   }
 
-  function persistIfChanged(force = false): void {
-    const snapshot = serializeDcpSnapshot(state);
-    if (!snapshot) return;
-    const fingerprint = durableStateFingerprint(state);
-    if (!fingerprint) return;
-    if (!force && fingerprint === lastPersistedFingerprint) return;
-    try {
-      pi.appendEntry("pi-dcp-state", snapshot);
-      lastPersistedFingerprint = fingerprint;
-    } catch (error) {
-      logger.warn("dcp", "failed to persist native session state", { error: String(error) });
-    }
-  }
-
-  function restoreActiveBranch(ctx: ExtensionContext): boolean {
-    const branch = ctx.sessionManager.getBranch();
-    const currentSessionId = ctx.sessionManager.getSessionId();
-    let skippedInvalidSnapshot = false;
-    for (let index = branch.length - 1; index >= 0; index--) {
-      const entry = branch[index];
-      if (entry.type !== "custom" || entry.customType !== "pi-dcp-state") continue;
-      const snapshot = parseDcpSnapshot(entry.data, (message) => logger.warn("dcp", message));
-      if (!snapshot) {
-        skippedInvalidSnapshot = true;
-        continue;
-      }
-      const restored = restoreDcpSnapshot(snapshot, state, currentSessionId, (message) =>
-        logger.warn("dcp", message),
-      );
-      const inheritedOwner = snapshot.ownerSessionId !== currentSessionId;
-      if (restored && !inheritedOwner && !skippedInvalidSnapshot) {
-        lastPersistedFingerprint = durableStateFingerprint(state);
-      }
-      return !restored || inheritedOwner || skippedInvalidSnapshot;
-    }
-    state.sessionId = currentSessionId;
-    return true;
-  }
+  const checkpoints = createDcpCheckpoints(pi, state, config, (message, details) =>
+    logger.warn("dcp", message, details),
+  );
 
   function reloadConfig(ctx: ExtensionContext, logDir?: string): void {
     const projectConfigPath = ctx.isProjectTrusted?.()
@@ -250,7 +209,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   const onStateChange = (ctx: ExtensionCommandContext): void => {
     selection.reconcile(ctx);
-    persistIfChanged();
+    checkpoints.persist();
   };
 
   async function executeCompressTool(
@@ -421,48 +380,40 @@ export default function createExtension(pi: ExtensionAPI): void {
     const logDir = path.join(ctx.sessionManager.getSessionDir(), "dcp", "logs");
     reloadConfig(ctx, logDir);
 
-    resetSessionState(state);
-    lastPersistedFingerprint = undefined;
     latestMessages = [];
-    state.manualMode = config.manualMode.default;
-    state.compressPermission = config.compress.permission;
+    checkpoints.restoreAndCheckpoint("session-start", ctx, () => {
+      selection.refreshModel(ctx.model);
+      state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
 
-    const forcePersist = restoreActiveBranch(ctx);
-    selection.refreshModel(ctx.model);
-    state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
+      setupPromptStore(ctx);
 
-    setupPromptStore(ctx);
+      // Refresh the definition from trusted project configuration, preserving the
+      // inactive default so a user-deselected tool stays deselected.
+      registerCompressTool(config.compress.mode);
 
-    // Refresh the definition from trusted project configuration, preserving the
-    // inactive default so a user-deselected tool stays deselected.
-    registerCompressTool(config.compress.mode);
+      // Select the fresh-session default before policy suppression so an initially
+      // denied session remembers it and can restore it when permission allows.
+      selection.sessionStarted(event.reason, ctx);
 
-    // Select the fresh-session default before policy suppression so an initially
-    // denied session remembers it and can restore it when permission allows.
-    selection.sessionStarted(event.reason, ctx);
+      const usage = ctx.getContextUsage();
+      if (usage) {
+        state.modelContextWindow = usage.contextWindow;
+      }
 
-    const usage = ctx.getContextUsage();
-    if (usage) {
-      state.modelContextWindow = usage.contextWindow;
-    }
-
-    logger.info("dcp", "session started", {
-      sessionId: state.sessionId,
-      reason: event.reason,
-      mode: config.compress.mode,
+      logger.info("dcp", "session started", {
+        sessionId: state.sessionId,
+        reason: event.reason,
+        mode: config.compress.mode,
+      });
     });
-    persistIfChanged(forcePersist);
   });
 
   pi.on("session_tree", async (_event, ctx) => {
-    resetSessionState(state);
     latestMessages = [];
-    state.manualMode = config.manualMode.default;
-    state.compressPermission = config.compress.permission;
-    const forcePersist = restoreActiveBranch(ctx);
-    state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
-    selection.branchRestored(ctx);
-    persistIfChanged(forcePersist);
+    checkpoints.restoreAndCheckpoint("branch-navigation", ctx, () => {
+      state.isSubAgent = process.env.PI_SUBAGENT_CHILD === "1";
+      selection.branchRestored(ctx);
+    });
   });
 
   pi.on("session_compact", async (_event, _ctx) => {
@@ -476,11 +427,11 @@ export default function createExtension(pi: ExtensionAPI): void {
     state.subAgentResultCache.clear();
     state.lastCompaction = Date.now();
     logger.info("dcp", "compaction detected, pruning state reset");
-    persistIfChanged();
+    checkpoints.persist();
   });
 
   pi.on("session_shutdown", async (_event, _ctx) => {
-    persistIfChanged();
+    checkpoints.persist();
     logger.info("dcp", "session shutdown");
   });
 
@@ -507,7 +458,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     // an allowed policy must have its timing cleared even if policy changed.
     if (event.toolName === "compress") {
       applyCompressionTiming(state, event);
-      persistIfChanged();
+      checkpoints.persist();
       return;
     }
 
@@ -559,7 +510,7 @@ export default function createExtension(pi: ExtensionAPI): void {
       });
     }
 
-    persistIfChanged();
+    checkpoints.persist();
 
     if (ctx.hasUI && config.nudgeNotification !== "off") {
       if (config.nudgeNotificationType === "toast") {

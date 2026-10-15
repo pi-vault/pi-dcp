@@ -489,4 +489,96 @@ describe("DCP public SDK contract", () => {
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("DCP Commands:"), "info");
     expect(stream).not.toHaveBeenCalled();
   });
+
+  it("repairs only the navigated branch through the real SDK", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const owner = sessionManager.getSessionId();
+    const snapshotA = {
+      version: 2 as const,
+      ownerSessionId: owner,
+      manualMode: "active" as const,
+      compressPermission: "allow" as const,
+      stats: {
+        pruneTokenCounter: 0,
+        totalPruneTokens: 111,
+        toolsPruned: 2,
+        messagesCompressed: 3,
+      },
+      lastCompaction: 0,
+      pruneTools: [],
+      blocks: [],
+      nextBlockId: 1,
+      nextRunId: 1,
+      messageIds: { byRawId: [], nextRefIndex: 1 },
+      nudges: { contextLimitAnchors: [], turnAnchors: [], iterationAnchors: [] },
+    };
+    const snapshotB = {
+      ...snapshotA,
+      manualMode: false as const,
+      stats: { ...snapshotA.stats, totalPruneTokens: 222, toolsPruned: 5, messagesCompressed: 4 },
+    };
+
+    // Same-owner A, a malformed child, then a sibling B that stays the active leaf.
+    const aId = sessionManager.appendCustomEntry("pi-dcp-state", snapshotA);
+    const malformedId = sessionManager.appendCustomEntry("pi-dcp-state", { invalid: true });
+    sessionManager.branch(aId);
+    const bId = sessionManager.appendCustomEntry("pi-dcp-state", snapshotB);
+
+    const stateFactory = vi.spyOn(sessionState, "createSessionState");
+    const { session } = await createHostSession({
+      sessionManager,
+      sessionStartEvent: { type: "session_start", reason: "resume" },
+    });
+    const state = stateFactory.mock.results[0]?.value;
+    expect(state).toBeDefined();
+    if (!state) throw new Error("expected extension state");
+
+    type DcpEntry = { id: string; parentId: string | null; data?: unknown };
+    const dcpEntries = (): DcpEntry[] =>
+      session.sessionManager
+        .getEntries()
+        .filter((entry) => entry.type === "custom" && entry.customType === "pi-dcp-state")
+        .map((entry) => entry as unknown as DcpEntry);
+
+    const countAfterBinding = dcpEntries().length;
+    expect(countAfterBinding).toBe(3);
+    expect(state.manualMode).toBe(false);
+    expect(state.stats.totalPruneTokens).toBe(222);
+
+    // Navigate to the malformed child: A is restored and one repair is appended.
+    await session.navigateTree(malformedId);
+    const afterRepair = dcpEntries();
+    expect(afterRepair).toHaveLength(countAfterBinding + 1);
+    expect(state.manualMode).toBe("active");
+    expect(state.stats.totalPruneTokens).toBe(111);
+    const repair = afterRepair[afterRepair.length - 1];
+    expect(repair?.parentId).toBe(malformedId);
+    expect(repair?.data).toMatchObject({
+      version: 2,
+      ownerSessionId: owner,
+      manualMode: "active",
+    });
+    const repairId = repair?.id;
+    expect(repairId).toBeDefined();
+    expect(session.sessionManager.getLeafId()).toBe(repairId);
+
+    const branchIds = session.sessionManager.getBranch().map((entry) => entry.id);
+    expect(branchIds).toContain(aId);
+    expect(branchIds).toContain(malformedId);
+    expect(branchIds).not.toContain(bId);
+
+    // B survives in the session tree but is not on the navigated branch.
+    expect(dcpEntries().some((entry) => entry.id === bId)).toBe(true);
+
+    await session.navigateTree(bId);
+    expect(state.manualMode).toBe(false);
+    expect(state.stats.totalPruneTokens).toBe(222);
+    expect(dcpEntries()).toHaveLength(countAfterBinding + 1);
+
+    if (!repairId) throw new Error("expected repair entry id");
+    await session.navigateTree(repairId);
+    expect(state.manualMode).toBe("active");
+    expect(state.stats.totalPruneTokens).toBe(111);
+    expect(dcpEntries()).toHaveLength(countAfterBinding + 1);
+  });
 });
