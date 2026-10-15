@@ -123,6 +123,31 @@ describe("DCP branch checkpoints", () => {
     expect(appendSpy).not.toHaveBeenCalled();
   });
 
+  it("selects the newest valid DCP entry and ignores other branch entries", () => {
+    const newest = snapshotV2({ manualMode: "active", compressPermission: "ask" });
+    const { harness, state, appendSpy, checkpoints } = ownerHarness({
+      branch: [
+        custom(snapshotV2({ stats: { ...newest.stats, totalPruneTokens: 7 } })),
+        custom(newest),
+        { type: "custom", customType: "another-extension", data: snapshotV2() },
+        { type: "message", message: makeUserMessage("unrelated", 1) },
+      ],
+    });
+    const afterRestore = vi.fn(() => {
+      expect(state.stats.totalPruneTokens).toBe(42);
+      expect(state.manualMode).toBe("active");
+      expect(state.compressPermission).toBe("ask");
+      expect(appendSpy).not.toHaveBeenCalled();
+    });
+
+    checkpoints.restoreAndCheckpoint("branch-navigation", harness.context, afterRestore);
+
+    expect(afterRestore).toHaveBeenCalledTimes(1);
+    expect(appendSpy).not.toHaveBeenCalled();
+    checkpoints.persist();
+    expect(appendSpy).not.toHaveBeenCalled();
+  });
+
   it("zeroes inherited-session stats but retains blocks and refs, then forks a child checkpoint", () => {
     const snapshot = snapshotV2({
       ownerSessionId: "parent",
@@ -208,6 +233,41 @@ describe("DCP branch checkpoints", () => {
     checkpoints.restoreAndCheckpoint("branch-navigation", harness.context, () => {});
     expect(appendSpy).toHaveBeenCalledTimes(2);
     expect(harness.entries[1]?.data).toEqual(baseline);
+  });
+
+  it("falls back to current defaults and repairs an all-invalid branch", () => {
+    const { harness, state, config, appendSpy, checkpoints } = ownerHarness({
+      branch: [custom(snapshotV2({ blocks: [sampleBlock], nextBlockId: 2, nextRunId: 2 }))],
+    });
+    checkpoints.restoreAndCheckpoint("session-start", harness.context, () => {});
+    config.manualMode = { ...config.manualMode, default: "active" };
+    config.compress = { ...config.compress, permission: "deny" };
+    harness.setBranch([custom({ invalid: true }), custom({ ...snapshotV2(), version: 3 })]);
+    const afterRestore = vi.fn(() => {
+      expect(state.sessionId).toBe("session");
+      expect(state.manualMode).toBe("active");
+      expect(state.compressPermission).toBe("deny");
+      expect(state.stats.totalPruneTokens).toBe(0);
+      expect(state.prune.messages.blocksById.size).toBe(0);
+      expect(appendSpy).not.toHaveBeenCalled();
+    });
+
+    checkpoints.restoreAndCheckpoint("branch-navigation", harness.context, afterRestore);
+
+    expect(afterRestore).toHaveBeenCalledTimes(1);
+    expect(appendSpy).toHaveBeenCalledTimes(1);
+    expect(harness.entries[0]?.data).toMatchObject({
+      version: 2,
+      ownerSessionId: "session",
+      manualMode: "active",
+      compressPermission: "deny",
+      stats: { totalPruneTokens: 0 },
+      blocks: [],
+      nextBlockId: 1,
+      nextRunId: 1,
+    });
+    checkpoints.persist();
+    expect(appendSpy).toHaveBeenCalledTimes(1);
   });
 
   it("warns, keeps the fingerprint unchanged, and retries changed state after an append failure", () => {
@@ -313,23 +373,31 @@ describe("DCP branch checkpoints", () => {
     expect(host.appendEntry).not.toHaveBeenCalled();
   });
 
-  it("preserves root identity and reads reloaded config defaults", () => {
-    const state = createSessionState();
-    const config = makeDefaultConfig();
-    const { harness, appendSpy, checkpoints } = ownerHarness({ state, config });
-    config.manualMode.default = "active";
-    config.compress.permission = "deny";
-    let observed: SessionState | undefined;
+  it.each(["mutated", "replaced"])(
+    "preserves root identity and reads %s config defaults",
+    (kind) => {
+      const state = createSessionState();
+      const config = makeDefaultConfig();
+      const { harness, appendSpy, checkpoints } = ownerHarness({ state, config });
+      if (kind === "mutated") {
+        config.manualMode.default = "active";
+        config.compress.permission = "deny";
+      } else {
+        config.manualMode = { ...config.manualMode, default: "active" };
+        config.compress = { ...config.compress, permission: "deny" };
+      }
+      let observed: SessionState | undefined;
 
-    checkpoints.restoreAndCheckpoint("session-start", harness.context, () => {
-      observed = state;
-    });
+      checkpoints.restoreAndCheckpoint("session-start", harness.context, () => {
+        observed = state;
+      });
 
-    expect(observed).toBe(state);
-    expect(state.manualMode).toBe("active");
-    expect(state.compressPermission).toBe("deny");
-    expect(appendSpy).toHaveBeenCalledTimes(1);
-  });
+      expect(observed).toBe(state);
+      expect(state.manualMode).toBe("active");
+      expect(state.compressPermission).toBe("deny");
+      expect(appendSpy).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("waits for host work before writing a repair with the final facts", () => {
     const older = snapshotV2({

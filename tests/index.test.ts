@@ -1348,6 +1348,35 @@ describe("dcp extension", () => {
 });
 
 describe("configuration warning lifecycle", () => {
+  it("uses the reloaded logger for checkpoint append failures", async () => {
+    const { api, handlers, entries } = createMockApi();
+    createExtension(api);
+    writeConfig({ debug: true });
+    const baseContext = sessionContext();
+    const sessionDir = path.join(agentDir, "checkpoint-session");
+    const ctx = {
+      ...baseContext,
+      sessionManager: { ...baseContext.sessionManager, getSessionDir: () => sessionDir },
+    };
+    const appendSpy = vi.spyOn(api, "appendEntry").mockImplementationOnce(() => {
+      throw new Error("checkpoint append failed");
+    });
+    try {
+      await registeredHandler(handlers, "session_start")({ reason: "new" }, ctx);
+
+      expect(entries).toHaveLength(0);
+      const logDir = path.join(sessionDir, "dcp", "logs");
+      const logFiles = fs.readdirSync(logDir);
+      expect(logFiles).toHaveLength(1);
+      const log = fs.readFileSync(path.join(logDir, logFiles[0]), "utf8");
+      expect(log).toContain(
+        'WARN  dcp: failed to persist native session state | error="Error: checkpoint append failed"',
+      );
+    } finally {
+      appendSpy.mockRestore();
+    }
+  });
+
   function writeInvalidConfig(): string {
     const configDir = path.join(agentDir, "extensions");
     fs.mkdirSync(configDir, { recursive: true });
