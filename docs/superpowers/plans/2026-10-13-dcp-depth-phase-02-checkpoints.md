@@ -10,11 +10,11 @@
 
 **Spec:** [Approved three-phase design](../specs/2026-10-13-dcp-architecture-deepening-design.md), especially Phase 2, placement revisits, and compatibility constraints.
 
-**Readiness review:** Revised against `96824f4` on 13 October 2026, after Phase 1 merged in PR #87. The working tree was clean before this review. Fresh `pnpm check` passed formatting, lint, type checking, and 67 test files / 1,159 tests. Phase 2 implementation has not started.
+**Readiness baseline (13 October 2026):** Revised against `96824f4`, after Phase 1 merged in PR #87. The working tree was clean before that review. Before Phase 2 implementation, `pnpm check` passed formatting, lint, type checking, and 67 test files / 1,159 tests.
 
 The original two-call interface stored a pending repair flag between restoration and persistence. If host work threw before `persist()`, that flag could force an unrelated shutdown/context write. Current handlers lose their local force flag when they exit; Pi reports handler errors and can continue with later events. This revision uses a synchronous callback to preserve that behavior without adding caller-managed cancellation or repair state. Temporary probes against the unchanged extension confirmed abandoned-event force, failed equal-fingerprint repair, changed-state retry behavior, and real installed-SDK branch repair/leaf advancement.
 
-**Outcome:** The revised plan is ready to implement. An independent builder check found no material unanswered questions. This review verifies the baseline and planned fixtures; implementation still requires the characterization and owner-interface checks below.
+**Implementation status (14 October 2026):** Tasks 1–2 are implemented in `de9572e`. Independent code review found no production defects. Follow-up review added coverage for newest-valid selection, ignored branch entries, all-invalid fallback, replaced configuration objects, and reloaded checkpoint logging. Fresh `pnpm check` passed formatting, lint, type checking, and 68 test files / 1,186 tests; `git diff --check` passed.
 
 ## Pi Source Reference and Host Contract
 
@@ -158,4 +158,4 @@ After restoration, invoke `afterRestore` exactly once, synchronously. The caller
 
 ## Completion and Handoff
 
-The phase is complete when production events use the owner, no caller manages fingerprints or repair-force flags, all current ordering/storage behavior is pinned, and checks pass. This intentionally revisits the prior plan's checkpoint placement without changing codec/block/selection ownership. Next is [Phase 3](2026-10-13-dcp-depth-phase-03-compression-execution.md); its `DcpCheckpoints.persist()` dependency is unchanged. Implementation boxes remain unchecked; this readiness revision authorizes no product-code execution by itself.
+The phase is implemented: production events use the owner, no caller manages fingerprints or repair-force flags, current ordering/storage behavior is pinned, and checks pass. This intentionally revisits the prior plan's checkpoint placement without changing codec/block/selection ownership. Next is [Phase 3](2026-10-13-dcp-depth-phase-03-compression-execution.md); its `DcpCheckpoints.persist()` dependency is unchanged.
