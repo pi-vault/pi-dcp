@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createSessionState } from "../src/state/state.ts";
 import { handleCompress } from "../src/compress/blocks.ts";
-import { applyCompressionTiming } from "../src/index.ts";
+import { createCompressionExecution } from "../src/compress/execution.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { CompressionBlock, SessionState } from "../src/state/types.ts";
 import { makeDefaultConfig } from "./helpers.ts";
@@ -47,6 +47,27 @@ function installBlock(
   return block;
 }
 
+/**
+ * Run a completion through the production run owner with a deterministic clock.
+ * The persist callback is intentionally a no-op: checkpoint sequencing has its
+ * own host coverage; these tests assert timing and duration writes only.
+ */
+function completeAt(
+  state: SessionState,
+  event: { toolCallId: string; toolName: string; isError?: boolean },
+  now: number,
+): void {
+  const execution = createCompressionExecution({
+    state,
+    config: makeDefaultConfig(),
+    getMessages: () => [],
+    onCompressed: () => {},
+    persist: () => {},
+    now: () => now,
+  });
+  execution.complete(event);
+}
+
 describe("CompressionTimingState", () => {
   it("initializes with only in-flight start timestamps", () => {
     const state = createSessionState();
@@ -74,11 +95,7 @@ describe("CompressionTimingState", () => {
     });
     state.compressionTiming.startTimes.set("batch-call", 1_000);
 
-    applyCompressionTiming(
-      state,
-      { toolCallId: "batch-call", toolName: "compress", isError: false },
-      2_500,
-    );
+    completeAt(state, { toolCallId: "batch-call", toolName: "compress", isError: false }, 2_500);
 
     expect(
       result.blockIds.map((id) => state.prune.messages.blocksById.get(id)?.durationMs),
@@ -92,11 +109,7 @@ describe("CompressionTimingState", () => {
       if (!block) throw new Error("Expected compression block");
       block.durationMs = 0;
     }
-    applyCompressionTiming(
-      state,
-      { toolCallId: "batch-call", toolName: "compress", isError: true },
-      4_000,
-    );
+    completeAt(state, { toolCallId: "batch-call", toolName: "compress", isError: true }, 4_000);
 
     expect(
       result.blockIds.map((id) => state.prune.messages.blocksById.get(id)?.durationMs),
@@ -105,7 +118,7 @@ describe("CompressionTimingState", () => {
   });
 });
 
-describe("applyCompressionTiming adapter", () => {
+describe("compression completion timing", () => {
   it("writes the elapsed duration to every matching block including inactive blocks", () => {
     const state = createSessionState();
     const active = installBlock(state, 1, "call-a", 75);
@@ -118,11 +131,7 @@ describe("applyCompressionTiming adapter", () => {
     const control = installBlock(state, 3, "call-b", 75);
     state.compressionTiming.startTimes.set("call-a", 0);
 
-    applyCompressionTiming(
-      state,
-      { toolCallId: "call-a", toolName: "compress", isError: false },
-      100,
-    );
+    completeAt(state, { toolCallId: "call-a", toolName: "compress", isError: false }, 100);
 
     expect(active.durationMs).toBe(100);
     expect(inactive.durationMs).toBe(100);
@@ -135,7 +144,7 @@ describe("applyCompressionTiming adapter", () => {
     const block = installBlock(state, 1, "call-a", 75);
     state.compressionTiming.startTimes.set("call-a", 0);
 
-    applyCompressionTiming(state, { toolCallId: "call-a", toolName: "compress" }, 100);
+    completeAt(state, { toolCallId: "call-a", toolName: "compress" }, 100);
 
     expect(block.durationMs).toBe(100);
     expect(state.compressionTiming.startTimes.has("call-a")).toBe(false);
@@ -145,11 +154,7 @@ describe("applyCompressionTiming adapter", () => {
     const state = createSessionState();
     const block = installBlock(state, 1, "call-a", 75);
 
-    applyCompressionTiming(
-      state,
-      { toolCallId: "call-a", toolName: "compress", isError: false },
-      100,
-    );
+    completeAt(state, { toolCallId: "call-a", toolName: "compress", isError: false }, 100);
 
     expect(block.durationMs).toBe(75);
     expect(state.compressionTiming.startTimes.size).toBe(0);
@@ -160,7 +165,7 @@ describe("applyCompressionTiming adapter", () => {
     const block = installBlock(state, 1, "call-a", 75);
     state.compressionTiming.startTimes.set("call-a", 0);
 
-    applyCompressionTiming(state, { toolCallId: "call-a", toolName: "read", isError: false }, 100);
+    completeAt(state, { toolCallId: "call-a", toolName: "read", isError: false }, 100);
 
     expect(block.durationMs).toBe(75);
     expect(state.compressionTiming.startTimes.get("call-a")).toBe(0);
@@ -172,11 +177,7 @@ describe("applyCompressionTiming adapter", () => {
     state.compressionTiming.startTimes.set("call-a", 0);
     state.compressionTiming.startTimes.set("unrelated", 5);
 
-    applyCompressionTiming(
-      state,
-      { toolCallId: "call-a", toolName: "compress", isError: true },
-      100,
-    );
+    completeAt(state, { toolCallId: "call-a", toolName: "compress", isError: true }, 100);
 
     expect(block.durationMs).toBe(75);
     expect(state.compressionTiming.startTimes.has("call-a")).toBe(false);
@@ -188,11 +189,7 @@ describe("applyCompressionTiming adapter", () => {
     const control = installBlock(state, 1, "call-b", 75);
     state.compressionTiming.startTimes.set("call-a", 0);
 
-    applyCompressionTiming(
-      state,
-      { toolCallId: "call-a", toolName: "compress", isError: false },
-      100,
-    );
+    completeAt(state, { toolCallId: "call-a", toolName: "compress", isError: false }, 100);
 
     expect(control.durationMs).toBe(75);
     expect(state.compressionTiming.startTimes.has("call-a")).toBe(false);
@@ -203,18 +200,10 @@ describe("applyCompressionTiming adapter", () => {
     const block = installBlock(state, 1, "call-a", 75);
     state.compressionTiming.startTimes.set("call-a", 0);
 
-    applyCompressionTiming(
-      state,
-      { toolCallId: "call-a", toolName: "compress", isError: false },
-      100,
-    );
+    completeAt(state, { toolCallId: "call-a", toolName: "compress", isError: false }, 100);
     block.durationMs = 999;
 
-    applyCompressionTiming(
-      state,
-      { toolCallId: "call-a", toolName: "compress", isError: false },
-      200,
-    );
+    completeAt(state, { toolCallId: "call-a", toolName: "compress", isError: false }, 200);
 
     expect(block.durationMs).toBe(999);
   });

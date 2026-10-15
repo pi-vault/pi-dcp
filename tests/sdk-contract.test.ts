@@ -98,6 +98,14 @@ async function createHostSession(
   return { session, agentDir };
 }
 
+/** Read DCP durable entries with a loose shape for assertions. */
+function dcpSnapshotEntries(session: AgentSession): Array<{ data?: unknown }> {
+  return session.sessionManager
+    .getEntries()
+    .filter((entry) => entry.type === "custom" && entry.customType === "pi-dcp-state")
+    .map((entry) => entry as unknown as { data?: unknown });
+}
+
 afterEach(() => {
   for (const session of sessions.splice(0)) session.dispose();
   vi.restoreAllMocks();
@@ -107,6 +115,50 @@ afterEach(() => {
 });
 
 describe("DCP public SDK contract", () => {
+  /** Fake provider stream that issues one compress tool call, then a text reply. */
+  function fakeCompressStream(id: string, topic: string, now: () => number): StreamFn {
+    let responses = 0;
+    return () => {
+      const firstResponse = responses++ === 0;
+      const message = {
+        role: "assistant",
+        content: firstResponse
+          ? [
+              {
+                type: "toolCall",
+                id,
+                name: "compress",
+                arguments: {
+                  topic,
+                  content: [{ startId: "m1", endId: "m1", summary: "summary" }],
+                },
+              },
+            ]
+          : [{ type: "text", text: "Finished" }],
+        api: "openai-completions",
+        provider: "test",
+        model: "test-model",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: firstResponse ? "toolUse" : "stop",
+        timestamp: now(),
+      } satisfies Extract<AgentMessage, { role: "assistant" }>;
+      // Only the provider stream is substituted; Pi owns all tool lifecycle events.
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { type: "done", reason: message.stopReason, message };
+        },
+        result: async () => message,
+      } as unknown as Awaited<ReturnType<StreamFn>>;
+    };
+  }
+
   it.each([true, false])(
     "runs the complete host lifecycle with deferred approval %s",
     async (approved) => {
@@ -134,6 +186,8 @@ describe("DCP public SDK contract", () => {
       const sequence: string[] = [];
       let now = 1_000;
       vi.spyOn(Date, "now").mockImplementation(() => now);
+      let monotonic = 0;
+      vi.spyOn(performance, "now").mockImplementation(() => monotonic);
       session.extensionRunner.setUIContext(
         {
           ...session.extensionRunner.getUIContext(),
@@ -163,6 +217,7 @@ describe("DCP public SDK contract", () => {
       let entriesAtEnd = -1;
       let isErrorAtEnd: boolean | undefined;
       let detailsAtEnd: unknown;
+      let durationMsAtEnd: number | undefined;
       session.agent.subscribe((event) => {
         if (event.type === "tool_execution_start") sequence.push(event.type);
         if (event.type === "tool_execution_end") {
@@ -170,6 +225,7 @@ describe("DCP public SDK contract", () => {
           entriesAtEnd = dcpEntries().length;
           isErrorAtEnd = event.isError;
           detailsAtEnd = event.result?.details;
+          durationMsAtEnd = event.durationMs;
         }
       });
       let responses = 0;
@@ -231,6 +287,7 @@ describe("DCP public SDK contract", () => {
       const statsBefore = { ...state.stats };
       const entriesBefore = dcpEntries().length;
       now += 5_000;
+      monotonic += 5_000;
       resolveApproval(approved);
       await running;
 
@@ -242,6 +299,7 @@ describe("DCP public SDK contract", () => {
       ]);
       expect(responses).toBe(2);
       expect(isErrorAtEnd).toBe(!approved);
+      expect(durationMsAtEnd).toBe(5_000);
       expect(state.compressionTiming.startTimes.size).toBe(0);
       if (approved) {
         expect([...state.prune.messages.blocksById.values()]).toMatchObject([
@@ -267,6 +325,194 @@ describe("DCP public SDK contract", () => {
       }
     },
   );
+
+  it("checkpoints a preflight-blocked compression without starting timing", async () => {
+    const stateFactory = vi.spyOn(sessionState, "createSessionState");
+    const { session } = await createHostSession();
+    // Observe the real extension state without replacing its implementation.
+    const state = stateFactory.mock.results[0]?.value;
+    expect(state).toBeDefined();
+    if (!state) throw new Error("expected extension state");
+
+    const confirm = vi.fn();
+    const notify = vi.fn();
+    session.extensionRunner.setUIContext(
+      { ...session.extensionRunner.getUIContext(), confirm, notify },
+      "rpc",
+    );
+    const beforeToolCall = session.agent.beforeToolCall;
+    const sequence: string[] = [];
+    session.agent.beforeToolCall = async (context, signal) => {
+      sequence.push("tool_call");
+      // Make state dirty after the context checkpoint while keeping the call callable.
+      state.compressPermission = "deny";
+      return beforeToolCall?.(context, signal);
+    };
+    const afterToolCall = vi.fn();
+    session.agent.afterToolCall = async () => {
+      afterToolCall();
+      return undefined;
+    };
+
+    const dcpEntries = () => dcpSnapshotEntries(session);
+    let entriesAtEnd = -1;
+    let isErrorAtEnd: boolean | undefined;
+    let resultAtEnd: { content?: Array<{ text?: string }>; details?: unknown } | undefined;
+    let durationMsAtEnd: number | undefined;
+    session.agent.subscribe((event) => {
+      if (event.type === "tool_execution_start") sequence.push(event.type);
+      if (event.type === "tool_execution_end") {
+        sequence.push(event.type);
+        entriesAtEnd = dcpEntries().length;
+        isErrorAtEnd = event.isError;
+        resultAtEnd = event.result;
+        durationMsAtEnd = event.durationMs;
+      }
+    });
+
+    const entriesBefore = dcpEntries().length;
+    const statsBefore = { ...state.stats };
+    session.agent.getApiKey = () => undefined;
+    session.agent.streamFunction = fakeCompressStream("host-compress", "Preflight", () => 1000);
+    session.sessionManager.appendMessage({
+      role: "user",
+      content: "Older conversation to compress",
+      timestamp: 1,
+    });
+    await session.agent.prompt("Please compress the older conversation");
+
+    expect(sequence).toEqual(["tool_execution_start", "tool_call", "tool_execution_end"]);
+    expect(isErrorAtEnd).toBe(true);
+    expect(resultAtEnd?.content?.[0]?.text).toBe("Compression denied by configuration");
+    expect(durationMsAtEnd).toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(afterToolCall).not.toHaveBeenCalled();
+    expect(state.compressionTiming.startTimes.size).toBe(0);
+    expect(state.prune.messages.blocksById.size).toBe(0);
+    expect(state.stats).toEqual(statsBefore);
+    // The untimed completion still requests persistence after the policy change.
+    expect(entriesAtEnd).toBeGreaterThan(entriesBefore);
+    expect(dcpEntries().at(-1)?.data).toMatchObject({ compressPermission: "deny" });
+  });
+
+  it("checkpoints mutated blocks without duration after a notification error", async () => {
+    const stateFactory = vi.spyOn(sessionState, "createSessionState");
+    const { session } = await createHostSession({
+      setup: (dir) => {
+        fs.mkdirSync(path.join(dir, "extensions"), { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, "extensions", "dcp.json"),
+          '{"nudgeNotificationType":"toast"}',
+        );
+      },
+    });
+    const state = stateFactory.mock.results[0]?.value;
+    expect(state).toBeDefined();
+    if (!state) throw new Error("expected extension state");
+
+    session.extensionRunner.setUIContext(
+      {
+        ...session.extensionRunner.getUIContext(),
+        notify: () => {
+          throw new Error("notification failed");
+        },
+      },
+      "rpc",
+    );
+
+    const afterToolCall = session.agent.afterToolCall;
+    let startPresentDuringHook = false;
+    session.agent.afterToolCall = async (context, signal) => {
+      startPresentDuringHook = state.compressionTiming.startTimes.has("host-compress");
+      return afterToolCall?.(context, signal);
+    };
+
+    const dcpEntries = () => dcpSnapshotEntries(session);
+    let entriesAtEnd = -1;
+    let isErrorAtEnd: boolean | undefined;
+    let resultAtEnd: { content?: Array<{ text?: string }>; details?: unknown } | undefined;
+    session.agent.subscribe((event) => {
+      if (event.type === "tool_execution_end") {
+        entriesAtEnd = dcpEntries().length;
+        isErrorAtEnd = event.isError;
+        resultAtEnd = event.result;
+      }
+    });
+
+    const entriesBefore = dcpEntries().length;
+    session.agent.getApiKey = () => undefined;
+    session.agent.streamFunction = fakeCompressStream("host-compress", "Notify", () => 1000);
+    session.sessionManager.appendMessage({
+      role: "user",
+      content: "Older conversation to compress",
+      timestamp: 1,
+    });
+    await session.agent.prompt("Please compress the older conversation");
+
+    expect(isErrorAtEnd).toBe(true);
+    expect(resultAtEnd?.content?.[0]?.text).toBe("notification failed");
+    expect(resultAtEnd?.details).toEqual({});
+    expect(startPresentDuringHook).toBe(true);
+    expect(state.compressionTiming.startTimes.size).toBe(0);
+    expect([...state.prune.messages.blocksById.values()]).toMatchObject([
+      { compressToolCallId: "host-compress", durationMs: 0 },
+    ]);
+    expect(state.stats.messagesCompressed).toBe(1);
+    expect(entriesAtEnd).toBeGreaterThan(entriesBefore);
+    expect(dcpEntries().at(-1)?.data).toMatchObject({ blocks: [{ durationMs: 0 }] });
+  });
+
+  it("uses the final tool-result error status after successful compression", async () => {
+    const stateFactory = vi.spyOn(sessionState, "createSessionState");
+    const { session } = await createHostSession();
+    const state = stateFactory.mock.results[0]?.value;
+    expect(state).toBeDefined();
+    if (!state) throw new Error("expected extension state");
+
+    const afterToolCall = session.agent.afterToolCall;
+    let startPresentDuringHook = false;
+    session.agent.afterToolCall = async (context, signal) => {
+      startPresentDuringHook = state.compressionTiming.startTimes.has("host-compress");
+      const result = await afterToolCall?.(context, signal);
+      return { ...(result ?? {}), isError: true };
+    };
+
+    const dcpEntries = () => dcpSnapshotEntries(session);
+    let entriesAtEnd = -1;
+    let isErrorAtEnd: boolean | undefined;
+    let resultAtEnd: { content?: Array<{ text?: string }>; details?: unknown } | undefined;
+    session.agent.subscribe((event) => {
+      if (event.type === "tool_execution_end") {
+        entriesAtEnd = dcpEntries().length;
+        isErrorAtEnd = event.isError;
+        resultAtEnd = event.result;
+      }
+    });
+
+    const entriesBefore = dcpEntries().length;
+    session.agent.getApiKey = () => undefined;
+    session.agent.streamFunction = fakeCompressStream("host-compress", "FinalError", () => 1000);
+    session.sessionManager.appendMessage({
+      role: "user",
+      content: "Older conversation to compress",
+      timestamp: 1,
+    });
+    await session.agent.prompt("Please compress the older conversation");
+
+    expect(resultAtEnd?.content?.[0]?.text).toContain("Compressed");
+    expect(resultAtEnd?.details).toMatchObject({
+      dcpCompression: { mode: "range", topic: "FinalError" },
+    });
+    expect(isErrorAtEnd).toBe(true);
+    expect(startPresentDuringHook).toBe(true);
+    expect(state.compressionTiming.startTimes.size).toBe(0);
+    expect([...state.prune.messages.blocksById.values()]).toMatchObject([
+      { compressToolCallId: "host-compress", durationMs: 0 },
+    ]);
+    expect(entriesAtEnd).toBeGreaterThan(entriesBefore);
+    expect(dcpEntries().at(-1)?.data).toMatchObject({ blocks: [{ durationMs: 0 }] });
+  });
 
   it("exposes compression renderers through the real SDK tool definition", async () => {
     const { session } = await createHostSession();

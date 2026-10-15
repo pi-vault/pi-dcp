@@ -816,6 +816,19 @@ describe("DCP ask authorization", () => {
     expect(setActiveTools).not.toHaveBeenCalled();
     expect(harness.entries).toHaveLength(0);
   });
+
+  it("preserves allow-path behavior with an already-aborted signal", async () => {
+    const harness = await askHarness({ config: { compress: { permission: "allow" } } });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      harness.executeTool("compress", validCompression, { signal: controller.signal }),
+    ).resolves.toMatchObject({
+      content: [{ text: expect.stringContaining("Compressed") }],
+    });
+    expect(harness.ui.confirm).not.toHaveBeenCalled();
+  });
 });
 
 describe("DCP guarded action callback reconciliation", () => {

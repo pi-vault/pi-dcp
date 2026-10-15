@@ -8,7 +8,7 @@ import type {
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadConfig, type DcpConfig } from "./config.ts";
-import { getDcpCapabilities, type DcpSuppressionReason } from "./capabilities.ts";
+import { getDcpCapabilities } from "./capabilities.ts";
 import { PromptStore, writeDefaultPrompts } from "./prompts/store.ts";
 import type { RuntimePrompts } from "./prompts/store.ts";
 import {
@@ -19,12 +19,13 @@ import {
 } from "./tui/notification.ts";
 import {
   clearCompressionBlocks,
-  handleCompress,
-  recordCompressionDuration,
   type CompressArgs,
   type CompressResult,
 } from "./compress/blocks.ts";
-import { requestCompressionApproval } from "./compress/permission.ts";
+import {
+  createCompressionExecution,
+  type CompressionExecutionOutcome,
+} from "./compress/execution.ts";
 import {
   createCompressionDisplayDetails,
   renderCompressCall,
@@ -90,49 +91,6 @@ function sendCompressNotification(
   }
 }
 
-/** Message shown when a `tool_call` handler blocks a suppressed compress call. */
-function toolCallSuppressionReason(reason: DcpSuppressionReason): string {
-  switch (reason) {
-    case "config":
-      return "Compression is disabled by configuration.";
-    case "model":
-      return "Compression is disabled for the current model";
-    case "subagent":
-      return "Compression is disabled in sub-agent sessions.";
-    case "permission":
-      return "Compression denied by configuration";
-  }
-}
-
-/** Message returned when a direct `execute` is rejected by policy. */
-function executeSuppressionMessage(reason: DcpSuppressionReason): string {
-  switch (reason) {
-    case "config":
-      return "Compression is disabled by configuration.";
-    case "model":
-      return "Compression is disabled for the current model.";
-    case "subagent":
-      return "Compression is disabled in sub-agent sessions.";
-    case "permission":
-      return "Compression is denied by configuration.";
-  }
-}
-
-export function applyCompressionTiming(
-  state: SessionState,
-  event: { toolCallId: string; toolName: string; isError?: boolean },
-  now = Date.now(),
-): void {
-  if (event.toolName !== "compress") return;
-  const startTime = state.compressionTiming.startTimes.get(event.toolCallId);
-  if (startTime === undefined) return;
-
-  state.compressionTiming.startTimes.delete(event.toolCallId);
-  if (event.isError) return;
-
-  recordCompressionDuration(state, event.toolCallId, now - startTime);
-}
-
 export default function createExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
   const configFilePath = path.join(agentDir, "extensions", "dcp.json");
@@ -158,6 +116,14 @@ export default function createExtension(pi: ExtensionAPI): void {
   const checkpoints = createDcpCheckpoints(pi, state, config, (message, details) =>
     logger.warn("dcp", message, details),
   );
+
+  const execution = createCompressionExecution({
+    state,
+    config,
+    getMessages: () => latestMessages,
+    onCompressed: (result, ctx) => sendCompressNotification(result, state, config, ctx),
+    persist: () => checkpoints.persist(),
+  });
 
   function reloadConfig(ctx: ExtensionContext, logDir?: string): void {
     const projectConfigPath = ctx.isProjectTrusted?.()
@@ -212,63 +178,18 @@ export default function createExtension(pi: ExtensionAPI): void {
     checkpoints.persist();
   };
 
-  async function executeCompressTool(
-    mode: CompressArgs["mode"],
-    toolCallId: string,
-    params: Record<string, unknown>,
-    ctx: ExtensionContext,
-    signal: AbortSignal | undefined,
-  ) {
-    const reasons = evaluateCapabilities(ctx).reasons;
-    if (reasons.length > 0) {
+  /** Format a run outcome into the registered tool's host result shape. */
+  function formatCompressOutcome(mode: CompressArgs["mode"], outcome: CompressionExecutionOutcome) {
+    if (outcome.status === "rejected") {
       return {
-        content: [{ type: "text" as const, text: executeSuppressionMessage(reasons[0]) }],
+        content: [{ type: "text" as const, text: outcome.message }],
         details: {},
         isError: true,
       };
     }
-
-    const permission = state.compressPermission ?? config.compress.permission;
-    if (permission === "ask") {
-      const effectiveSignal = signal ?? ctx.signal;
-      const denial = await requestCompressionApproval(mode, params, ctx, effectiveSignal);
-      if (denial !== undefined) {
-        return {
-          content: [{ type: "text" as const, text: denial }],
-          details: {},
-          isError: true,
-        };
-      }
-      // Recheck after the wait: an abort or a policy change must prevent work.
-      if (effectiveSignal?.aborted) {
-        return {
-          content: [{ type: "text" as const, text: "Compression was not approved" }],
-          details: {},
-          isError: true,
-        };
-      }
-      const suppressedReasons = evaluateCapabilities(ctx).reasons;
-      if (suppressedReasons.length > 0) {
-        return {
-          content: [
-            { type: "text" as const, text: executeSuppressionMessage(suppressedReasons[0]) },
-          ],
-          details: {},
-          isError: true,
-        };
-      }
-    }
-
-    // Timing starts at actual compression work, after approval and a fresh policy check.
-    state.compressionTiming.startTimes.set(toolCallId, Date.now());
-    const result = handleCompress(state, config, latestMessages, toolCallId, {
-      ...params,
-      mode,
-    } as CompressArgs);
-    sendCompressNotification(result, state, config, ctx);
     return {
-      content: [{ type: "text" as const, text: result.text }],
-      details: createCompressionDisplayDetails(mode, result),
+      content: [{ type: "text" as const, text: outcome.result.text }],
+      details: createCompressionDisplayDetails(mode, outcome.result),
     };
   }
 
@@ -300,13 +221,14 @@ export default function createExtension(pi: ExtensionAPI): void {
         renderCall: (args, theme) => renderCompressCall("message", args, theme),
         renderResult: renderCompressResult,
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-          return executeCompressTool(
+          const outcome = await execution.execute(
             "message",
             _toolCallId,
             params as Record<string, unknown>,
             ctx,
             _signal,
           );
+          return formatCompressOutcome("message", outcome);
         },
       });
     } else {
@@ -337,13 +259,14 @@ export default function createExtension(pi: ExtensionAPI): void {
         renderCall: (args, theme) => renderCompressCall("range", args, theme),
         renderResult: renderCompressResult,
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-          return executeCompressTool(
+          const outcome = await execution.execute(
             "range",
             _toolCallId,
             params as Record<string, unknown>,
             ctx,
             _signal,
           );
+          return formatCompressOutcome("range", outcome);
         },
       });
     }
@@ -448,17 +371,15 @@ export default function createExtension(pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName !== "compress") return undefined;
     selection.refreshModel(ctx.model);
-    const reasons = evaluateCapabilities(ctx).reasons;
-    if (reasons.length === 0) return undefined;
-    return { block: true, reason: toolCallSuppressionReason(reasons[0]) };
+    return execution.checkToolCall(ctx);
   });
 
   pi.on("tool_execution_end", async (event, ctx) => {
-    // Compression timing completion is unconditional: a call that started under
-    // an allowed policy must have its timing cleared even if policy changed.
+    // Compression completion is unconditional: a call that started under an
+    // allowed policy must have its timing cleared even if policy changed. The
+    // run owner also requests the deduplicated checkpoint.
     if (event.toolName === "compress") {
-      applyCompressionTiming(state, event);
-      checkpoints.persist();
+      execution.complete(event);
       return;
     }
 
